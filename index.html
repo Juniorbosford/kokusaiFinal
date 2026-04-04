@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kokusai Department | HUD Control Panel</title>
+  <meta name="description" content="Painel profissional Kokusai para controle de registros, inventário, movimentações e indicadores." />
+  <link rel="icon" type="image/webp" href="assets/images/kokusai-logo.webp" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-glow"></div>
+        <img src="assets/images/kokusai-logo.webp" alt="Logo Kokusai" class="brand-logo" />
+        <div>
+          <p class="brand-kicker">Departamento</p>
+          <h1>Kokusai</h1>
+          <span>Controle de vendas/compras e o caralho a 4 nessa porra</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-link active" data-target="dashboard">Dashboard</button>
+        <button class="nav-link" data-target="transactions">Registros</button>
+        <button class="nav-link" data-target="inventory">Inventário</button>
+        <button class="nav-link" data-target="analytics">Análises</button>
+        <button class="nav-link" data-target="settings">Configurações</button>
+      </nav>
+
+      <div class="sidebar-panel">
+        <p class="sidebar-label">Status do sistema</p>
+        <div class="status-line">
+          <span class="status-dot"></span>
+          <span>Operacional</span>
+        </div>
+        <p class="sidebar-help">Projeto pronto para futura integração com planilha ou banco de dados.</p>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">HUD premium</p>
+          <h2>Painel profissional Kokusai</h2>
+        </div>
+        <div class="topbar-actions">
+          <button class="ghost-btn" id="seedDemoBtn">Carregar demo</button>
+          <button class="ghost-btn" id="resetAllBtn">Resetar tudo</button>
+          <button class="primary-btn" id="exportBtn">Exportar JSON</button>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboard">
+        <div class="hero-card">
+          <div>
+            <p class="hero-tag">Painel central</p>
+            <h3>Controle completo do departamento Kokusai</h3>
+            <p class="hero-copy">
+              Visual moderno em preto e vermelho, histórico local, indicadores em tempo real,
+              filtros, exportação e estrutura pronta para integração com planilha.
+            </p>
+          </div>
+          <div class="hero-badges">
+            <span>Dark HUD</span>
+            <span>Responsivo</span>
+            <span>Pronto para Replit</span>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card">
+            <p>Total de registros</p>
+            <strong id="statTransactions">0</strong>
+            <span>movimentações cadastradas</span>
+          </article>
+          <article class="stat-card">
+            <p>Valor movimentado</p>
+            <strong id="statValue">R$ 0,00</strong>
+            <span>soma de entradas e saídas</span>
+          </article>
+          <article class="stat-card">
+            <p>Itens no inventário</p>
+            <strong id="statInventory">0</strong>
+            <span>catálogo disponível</span>
+          </article>
+          <article class="stat-card">
+            <p>Última atualização</p>
+            <strong id="statUpdated">--</strong>
+            <span>tempo local</span>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Resumo</p>
+                <h3>Últimos registros</h3>
+              </div>
+              <button class="mini-btn" data-target="transactions">Ver tudo</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Item</th>
+                    <th>Tipo</th>
+                    <th>Qtd</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody id="latestTransactions"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Visão rápida</p>
+                <h3>Itens mais ativos</h3>
+              </div>
+            </div>
+            <div id="topItemsList" class="ranking-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="transactions">
+        <div class="section-grid">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Novo registro</p>
+                <h3>Cadastrar movimentação</h3>
+              </div>
+            </div>
+
+            <form id="transactionForm" class="form-grid">
+              <div class="field">
+                <label for="item">Item</label>
+                <input id="item" name="item" type="text" placeholder="Ex.: Pacote premium" required />
+              </div>
+              <div class="field">
+                <label for="category">Categoria</label>
+                <input id="category" name="category" type="text" placeholder="Ex.: Recursos" required />
+              </div>
+              <div class="field">
+                <label for="type">Tipo</label>
+                <select id="type" name="type" required>
+                  <option value="entrada">Entrada</option>
+                  <option value="saida">Saída</option>
+                  <option value="compra">Compra</option>
+                  <option value="venda">Venda</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="quantity">Quantidade</label>
+                <input id="quantity" name="quantity" type="number" min="1" placeholder="0" required />
+              </div>
+              <div class="field">
+                <label for="unitPrice">Valor unitário</label>
+                <input id="unitPrice" name="unitPrice" type="number" min="0" step="0.01" placeholder="0.00" required />
+              </div>
+              <div class="field">
+                <label for="partner">Parceiro</label>
+                <input id="partner" name="partner" type="text" placeholder="Nome do parceiro" required />
+              </div>
+              <div class="field field-full">
+                <label for="notes">Observação</label>
+                <textarea id="notes" name="notes" rows="4" placeholder="Detalhes adicionais"></textarea>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Salvar registro</button>
+                <button type="button" class="ghost-btn" id="clearFormBtn">Limpar</button>
+              </div>
+            </form>
+            <div class="feedback" id="formFeedback">Aguardando envio.</div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Consulta rápida</p>
+                <h3>Filtrar registros</h3>
+              </div>
+            </div>
+
+            <div class="filter-grid">
+              <div class="field">
+                <label for="searchInput">Buscar item/parceiro</label>
+                <input id="searchInput" type="text" placeholder="Digite para filtrar" />
+              </div>
+              <div class="field">
+                <label for="filterType">Tipo</label>
+                <select id="filterType">
+                  <option value="all">Todos</option>
+                  <option value="entrada">Entrada</option>
+                  <option value="saida">Saída</option>
+                  <option value="compra">Compra</option>
+                  <option value="venda">Venda</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="table-wrap mt-12">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Item</th>
+                    <th>Categoria</th>
+                    <th>Tipo</th>
+                    <th>Qtd</th>
+                    <th>Total</th>
+                    <th>Parceiro</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody id="transactionsTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="inventory">
+        <div class="section-grid inventory-layout">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Catálogo</p>
+                <h3>Adicionar item ao inventário</h3>
+              </div>
+            </div>
+
+            <form id="inventoryForm" class="form-grid">
+              <div class="field">
+                <label for="invName">Nome</label>
+                <input id="invName" name="invName" type="text" placeholder="Nome do item" required />
+              </div>
+              <div class="field">
+                <label for="invCategory">Categoria</label>
+                <input id="invCategory" name="invCategory" type="text" placeholder="Categoria" required />
+              </div>
+              <div class="field">
+                <label for="invStock">Estoque inicial</label>
+                <input id="invStock" name="invStock" type="number" min="0" placeholder="0" required />
+              </div>
+              <div class="field">
+                <label for="invPrice">Valor base</label>
+                <input id="invPrice" name="invPrice" type="number" min="0" step="0.01" placeholder="0.00" required />
+              </div>
+              <div class="field field-full">
+                <label for="invDesc">Descrição</label>
+                <textarea id="invDesc" name="invDesc" rows="4" placeholder="Descrição do item"></textarea>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Salvar item</button>
+              </div>
+            </form>
+            <div class="feedback" id="inventoryFeedback">Pronto para cadastrar itens.</div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Inventário ativo</p>
+                <h3>Lista de itens</h3>
+              </div>
+            </div>
+            <div class="inventory-grid" id="inventoryGrid"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="analytics">
+        <div class="section-grid analytics-layout">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Distribuição</p>
+                <h3>Movimentações por tipo</h3>
+              </div>
+            </div>
+            <div id="typeBars" class="bar-chart"></div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Performance</p>
+                <h3>Top 5 por valor</h3>
+              </div>
+            </div>
+            <div id="valueBars" class="bar-chart"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="settings">
+        <div class="section-grid">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Backup</p>
+                <h3>Importação e exportação</h3>
+              </div>
+            </div>
+
+            <div class="settings-box">
+              <p>Exporte tudo em JSON para guardar um backup local do projeto.</p>
+              <div class="settings-actions">
+                <button class="primary-btn" id="settingsExportBtn">Exportar backup</button>
+                <label class="upload-btn">
+                  Importar backup
+                  <input type="file" id="importInput" accept="application/json" hidden />
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-box">
+              <p>Baixe os registros em CSV para abrir no Excel ou Google Planilhas.</p>
+              <div class="settings-actions">
+                <button class="ghost-btn" id="csvBtn">Exportar CSV</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Preparação</p>
+                <h3>Próxima integração</h3>
+              </div>
+            </div>
+            <ul class="next-steps">
+              <li>Integrar os formulários com endpoint Python/Flask.</li>
+              <li>Persistir dados em Google Sheets ou banco real.</li>
+              <li>Adicionar autenticação e perfis de acesso.</li>
+              <li>Subir em Replit com rota de health check.</li>
+            </ul>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

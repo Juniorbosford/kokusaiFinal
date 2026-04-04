@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kokusai Department | Compras e Vendas</title>
+  <meta name="description" content="Painel profissional Kokusai com controle de compras e vendas integrado ao Google Planilhas." />
+  <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-glow"></div>
+        <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="brand-logo" />
+        <div>
+          <p class="brand-kicker">Departamento</p>
+          <h1>Kokusai</h1>
+          <span>Purchase & Sales Control</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-link active" data-target="dashboard">Dashboard</button>
+        <button class="nav-link" data-target="compras">Compras</button>
+        <button class="nav-link" data-target="vendas">Vendas</button>
+      </nav>
+
+      <div class="sidebar-panel">
+        <p class="sidebar-label">Status do sistema</p>
+        <div class="status-line">
+          <span class="status-dot"></span>
+          <span id="systemStatus">Conectando...</span>
+        </div>
+        <p class="sidebar-help">Compras e vendas sincronizadas com Google Planilhas.</p>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">HUD premium</p>
+          <h2>Painel de compras e vendas</h2>
+        </div>
+        <div class="topbar-actions">
+          <button class="ghost-btn" id="refreshBtn">Atualizar</button>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboard">
+        <div class="hero-card">
+          <div>
+            <p class="hero-tag">Sistema ativo</p>
+            <h3>Compras e vendas ligadas na mesma planilha</h3>
+            <p class="hero-copy">
+              A aba Compras usa a worksheet Compras. A aba Vendas cria e usa automaticamente a worksheet Vendas.
+            </p>
+          </div>
+          <div class="hero-badges">
+            <span>Python</span>
+            <span>Google Sheets</span>
+            <span>HUD preta e vermelha</span>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <article class="stat-card">
+            <p>Total compras</p>
+            <strong id="statCompras">0</strong>
+            <span>registros</span>
+          </article>
+          <article class="stat-card">
+            <p>Total vendas</p>
+            <strong id="statVendas">0</strong>
+            <span>registros</span>
+          </article>
+          <article class="stat-card">
+            <p>Valor compras</p>
+            <strong id="statValorCompras">R$ 0,00</strong>
+            <span>movimentado</span>
+          </article>
+          <article class="stat-card">
+            <p>Valor vendas</p>
+            <strong id="statValorVendas">R$ 0,00</strong>
+            <span>movimentado</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="compras">
+        <div class="section-grid">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Nova compra</p>
+                <h3>Registrar compra</h3>
+              </div>
+            </div>
+
+            <form id="compraForm" class="form-grid">
+              <div class="field">
+                <label for="produto">Produto</label>
+                <input id="produto" required />
+              </div>
+
+              <div class="field">
+                <label for="quem_pediu">Quem pediu</label>
+                <input id="quem_pediu" required />
+              </div>
+
+              <div class="field">
+                <label for="quem_vendeu">Quem vendeu</label>
+                <input id="quem_vendeu" required />
+              </div>
+
+              <div class="field">
+                <label for="valor_unitario">Valor unitário</label>
+                <input id="valor_unitario" type="number" min="0" step="0.01" required />
+              </div>
+
+              <div class="field">
+                <label for="quantidade">Quantidade</label>
+                <input id="quantidade" type="number" min="1" required />
+              </div>
+
+              <div class="field field-full">
+                <label for="observacao">Observação</label>
+                <textarea id="observacao"></textarea>
+              </div>
+
+              <div class="calc-box">
+                <span>Total calculado automaticamente</span>
+                <strong id="previewTotal">R$ 0,00</strong>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Salvar compra</button>
+              </div>
+            </form>
+
+            <div class="feedback" id="formFeedback">Aguardando envio.</div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Histórico</p>
+                <h3>Compras</h3>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Produto</th>
+                    <th>Quem pediu</th>
+                    <th>Quem vendeu</th>
+                    <th>Qtd</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody id="comprasTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="vendas">
+        <div class="section-grid">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Nova venda</p>
+                <h3>Registrar venda</h3>
+              </div>
+            </div>
+
+            <form id="vendaForm" class="form-grid">
+              <div class="field">
+                <label for="v_produto">Produto</label>
+                <input id="v_produto" required />
+              </div>
+
+              <div class="field">
+                <label for="quem_compra">Quem compra</label>
+                <input id="quem_compra" required />
+              </div>
+
+              <div class="field">
+                <label for="quem_vende">Quem vende</label>
+                <input id="quem_vende" required />
+              </div>
+
+              <div class="field">
+                <label for="v_valor_unitario">Valor unitário</label>
+                <input id="v_valor_unitario" type="number" min="0" step="0.01" required />
+              </div>
+
+              <div class="field">
+                <label for="v_quantidade">Quantidade</label>
+                <input id="v_quantidade" type="number" min="1" required />
+              </div>
+
+              <div class="field field-full">
+                <label for="v_observacao">Observação</label>
+                <textarea id="v_observacao"></textarea>
+              </div>
+
+              <div class="calc-box">
+                <span>Total calculado automaticamente</span>
+                <strong id="previewVendaTotal">R$ 0,00</strong>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Salvar venda</button>
+              </div>
+            </form>
+
+            <div class="feedback" id="vendaFeedback">Aguardando envio.</div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Histórico</p>
+                <h3>Vendas</h3>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Produto</th>
+                    <th>Quem compra</th>
+                    <th>Quem vende</th>
+                    <th>Qtd</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody id="vendasTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
