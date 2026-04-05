@@ -1,5 +1,6 @@
 import os
 import json
+import traceback
 from datetime import datetime
 from flask import Flask, jsonify, render_template, request
 import gspread
@@ -13,6 +14,22 @@ COMPRAS_WORKSHEET_NAME = os.getenv("COMPRAS_WORKSHEET_NAME", "Compras")
 VENDAS_WORKSHEET_NAME = os.getenv("VENDAS_WORKSHEET_NAME", "Vendas")
 
 
+def log_info(message):
+    print(f"[KOKUSAI][INFO] {message}", flush=True)
+
+
+def log_error(context, error):
+    print(f"[KOKUSAI][ERROR] {context}: {repr(error)}", flush=True)
+    traceback.print_exc()
+
+
+def error_response(message, status=500, details=None):
+    payload = {"ok": False, "error": message}
+    if details:
+        payload["details"] = details
+    return jsonify(payload), status
+
+
 def get_gsheet_client():
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -20,14 +37,21 @@ def get_gsheet_client():
     ]
 
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+    log_info(f"GOOGLE_CREDENTIALS_JSON presente? {bool(credentials_json)}")
+    log_info(f"SPREADSHEET_ID configurado? {bool(SPREADSHEET_ID)}")
+    log_info(f"COMPRAS_WORKSHEET_NAME={COMPRAS_WORKSHEET_NAME}")
+    log_info(f"VENDAS_WORKSHEET_NAME={VENDAS_WORKSHEET_NAME}")
 
     try:
         if credentials_json:
             creds_dict = json.loads(credentials_json)
+            client_email = creds_dict.get("client_email", "")
+            log_info(f"Service account em uso: {client_email or 'NÃO ENCONTRADO NO JSON'}")
             creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             cred_path = os.path.join(base_dir, "service_account.json")
+            log_info(f"Fallback para arquivo local: {cred_path}")
 
             if not os.path.exists(cred_path):
                 raise FileNotFoundError(
@@ -37,11 +61,15 @@ def get_gsheet_client():
 
             creds = Credentials.from_service_account_file(cred_path, scopes=scopes)
 
-        return gspread.authorize(creds)
+        client = gspread.authorize(creds)
+        log_info("Autenticação com Google Sheets concluída com sucesso.")
+        return client
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        log_error("GOOGLE_CREDENTIALS_JSON inválido", e)
         raise RuntimeError("GOOGLE_CREDENTIALS_JSON está com JSON inválido.")
     except Exception as e:
+        log_error("Falha ao autenticar no Google Sheets", e)
         raise RuntimeError(f"Erro ao autenticar no Google Sheets: {str(e)}")
 
 
@@ -49,16 +77,43 @@ def get_or_create_spreadsheet():
     client = get_gsheet_client()
 
     if SPREADSHEET_ID:
-        return client.open_by_key(SPREADSHEET_ID)
+        try:
+            log_info(f"Abrindo planilha pelo ID: {SPREADSHEET_ID}")
+            spreadsheet = client.open_by_key(SPREADSHEET_ID)
+            log_info(f"Planilha aberta com sucesso: {spreadsheet.title}")
+            return spreadsheet
+        except Exception as e:
+            log_error("Falha ao abrir planilha pelo SPREADSHEET_ID", e)
+            raise RuntimeError(
+                "Não foi possível abrir a planilha pelo SPREADSHEET_ID. "
+                "Verifique se o ID está correto e se a service account tem acesso de editor."
+            )
 
     try:
-        return client.open(SHEET_NAME)
-    except gspread.SpreadsheetNotFound:
-        spreadsheet = client.create(SHEET_NAME)
+        log_info(f"Abrindo planilha pelo nome: {SHEET_NAME}")
+        spreadsheet = client.open(SHEET_NAME)
+        log_info(f"Planilha aberta pelo nome com sucesso: {spreadsheet.title}")
         return spreadsheet
-
+    except gspread.SpreadsheetNotFound:
+        log_info(f"Planilha '{SHEET_NAME}' não encontrada. Criando automaticamente.")
+        spreadsheet = client.create(SHEET_NAME)
+        log_info(f"Planilha criada com sucesso: {spreadsheet.title}")
+        return spreadsheet
     except Exception as e:
+        log_error("Erro ao abrir/criar planilha", e)
         raise RuntimeError(f"Erro ao abrir/criar planilha: {str(e)}")
+
+
+def ensure_headers(worksheet, headers):
+    current_headers = worksheet.row_values(1)
+    if not current_headers:
+        worksheet.append_row(headers)
+        log_info(f"Cabeçalho criado na aba {worksheet.title}")
+    elif current_headers != headers:
+        log_info(
+            f"Cabeçalho existente na aba {worksheet.title}: {current_headers}. "
+            f"Esperado: {headers}"
+        )
 
 
 def get_or_create_worksheet(name, headers):
@@ -66,11 +121,17 @@ def get_or_create_worksheet(name, headers):
 
     try:
         worksheet = spreadsheet.worksheet(name)
+        log_info(f"Aba encontrada: {name}")
+        ensure_headers(worksheet, headers)
+        return worksheet
     except gspread.WorksheetNotFound:
+        log_info(f"Aba '{name}' não encontrada. Criando automaticamente.")
         worksheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=20)
         worksheet.append_row(headers)
-
-    return worksheet
+        return worksheet
+    except Exception as e:
+        log_error(f"Erro ao abrir/criar aba {name}", e)
+        raise RuntimeError(f"Erro ao abrir/criar aba '{name}': {str(e)}")
 
 
 def get_compras_worksheet():
@@ -147,7 +208,31 @@ def health():
     return jsonify({
         "ok": True,
         "service": "kokusai-system-final",
-        "timestamp": datetime.utcnow().isoformat() + "Z"
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "spreadsheet_id_configured": bool(SPREADSHEET_ID),
+        "compras_worksheet": COMPRAS_WORKSHEET_NAME,
+        "vendas_worksheet": VENDAS_WORKSHEET_NAME,
+    })
+
+
+@app.get("/api/debug-config")
+def debug_config():
+    credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+    client_email = None
+    if credentials_json:
+        try:
+            client_email = json.loads(credentials_json).get("client_email")
+        except Exception:
+            client_email = "JSON inválido"
+
+    return jsonify({
+        "ok": True,
+        "spreadsheet_id": SPREADSHEET_ID,
+        "sheet_name": SHEET_NAME,
+        "compras_worksheet": COMPRAS_WORKSHEET_NAME,
+        "vendas_worksheet": VENDAS_WORKSHEET_NAME,
+        "credentials_present": bool(credentials_json),
+        "service_account_email": client_email,
     })
 
 
@@ -163,7 +248,8 @@ def list_compras():
         return jsonify([normalize_compra(row) for row in data_rows])
 
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        log_error("Falha em /api/compras [GET]", e)
+        return error_response(str(e))
 
 
 @app.post("/api/compras")
@@ -176,7 +262,7 @@ def create_compra():
         )
 
         if not ok:
-            return jsonify({"ok": False, "error": message}), 400
+            return error_response(message, 400)
 
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
@@ -184,7 +270,8 @@ def create_compra():
         agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         registro_id = f"KKSC-{int(datetime.utcnow().timestamp())}"
 
-        get_compras_worksheet().append_row([
+        worksheet = get_compras_worksheet()
+        worksheet.append_row([
             registro_id,
             agora,
             data["produto"].strip(),
@@ -193,13 +280,20 @@ def create_compra():
             valor_unitario,
             quantidade,
             valor_total,
-            str(data.get("observacao", "")).strip()
+            data.get("observacao", "").strip(),
         ])
+        log_info(f"Compra registrada com sucesso. ID={registro_id}")
 
-        return jsonify({"ok": True, "message": "Compra registrada com sucesso."}), 201
+        return jsonify({
+            "ok": True,
+            "message": "Compra salva com sucesso.",
+            "id": registro_id,
+            "valor_total": valor_total,
+        }), 201
 
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        log_error("Falha em /api/compras [POST]", e)
+        return error_response(str(e))
 
 
 @app.get("/api/vendas")
@@ -214,7 +308,8 @@ def list_vendas():
         return jsonify([normalize_venda(row) for row in data_rows])
 
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        log_error("Falha em /api/vendas [GET]", e)
+        return error_response(str(e))
 
 
 @app.post("/api/vendas")
@@ -227,7 +322,7 @@ def create_venda():
         )
 
         if not ok:
-            return jsonify({"ok": False, "error": message}), 400
+            return error_response(message, 400)
 
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
@@ -235,7 +330,8 @@ def create_venda():
         agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         registro_id = f"KKSV-{int(datetime.utcnow().timestamp())}"
 
-        get_vendas_worksheet().append_row([
+        worksheet = get_vendas_worksheet()
+        worksheet.append_row([
             registro_id,
             agora,
             data["produto"].strip(),
@@ -244,13 +340,20 @@ def create_venda():
             valor_unitario,
             quantidade,
             valor_total,
-            str(data.get("observacao", "")).strip()
+            data.get("observacao", "").strip(),
         ])
+        log_info(f"Venda registrada com sucesso. ID={registro_id}")
 
-        return jsonify({"ok": True, "message": "Venda registrada com sucesso."}), 201
+        return jsonify({
+            "ok": True,
+            "message": "Venda salva com sucesso.",
+            "id": registro_id,
+            "valor_total": valor_total,
+        }), 201
 
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        log_error("Falha em /api/vendas [POST]", e)
+        return error_response(str(e))
 
 
 @app.get("/api/resumo")
@@ -279,7 +382,8 @@ def resumo_compras():
         })
 
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        log_error("Falha em /api/resumo", e)
+        return error_response(str(e))
 
 
 @app.get("/api/resumo-vendas")
@@ -308,8 +412,10 @@ def resumo_vendas():
         })
 
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        log_error("Falha em /api/resumo-vendas", e)
+        return error_response(str(e))
 
 
 if __name__ == "__main__":
+    log_info("Iniciando aplicação Kokusai...")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))

@@ -34,6 +34,18 @@ function setFeedback(el, msg, isError=false){
   el.classList.toggle("success",!isError);
 }
 
+async function parseResponse(res){
+  const text = await res.text();
+  if(!text){
+    return {};
+  }
+  try{
+    return JSON.parse(text);
+  }catch{
+    return { error: text };
+  }
+}
+
 document.getElementById("valor_unitario").addEventListener("input", updatePreviewCompra);
 document.getElementById("quantidade").addEventListener("input", updatePreviewCompra);
 document.getElementById("v_valor_unitario").addEventListener("input", updatePreviewVenda);
@@ -63,14 +75,17 @@ form.addEventListener("submit", async (e)=>{
   try{
     setFeedback(formFeedback, "Salvando compra...");
     const res = await fetch("/api/compras",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-    const data = await res.json();
-    if(!res.ok){setFeedback(formFeedback, data.error||"Erro ao salvar compra.", true); return;}
-    setFeedback(formFeedback, "Compra salva com sucesso.");
+    const data = await parseResponse(res);
+    if(!res.ok){
+      setFeedback(formFeedback, data.error || `Erro ${res.status} ao salvar compra.`, true);
+      return;
+    }
+    setFeedback(formFeedback, data.message || "Compra salva com sucesso.");
     form.reset();
     updatePreviewCompra();
     await loadAll();
-  }catch{
-    setFeedback(formFeedback, "Falha ao conectar com o servidor.", true);
+  }catch(error){
+    setFeedback(formFeedback, `Falha ao conectar com o servidor: ${error.message}`, true);
   }
 });
 
@@ -87,21 +102,24 @@ vendaForm.addEventListener("submit", async (e)=>{
   try{
     setFeedback(vendaFeedback, "Salvando venda...");
     const res = await fetch("/api/vendas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-    const data = await res.json();
-    if(!res.ok){setFeedback(vendaFeedback, data.error||"Erro ao salvar venda.", true); return;}
-    setFeedback(vendaFeedback, "Venda salva com sucesso.");
+    const data = await parseResponse(res);
+    if(!res.ok){
+      setFeedback(vendaFeedback, data.error || `Erro ${res.status} ao salvar venda.`, true);
+      return;
+    }
+    setFeedback(vendaFeedback, data.message || "Venda salva com sucesso.");
     vendaForm.reset();
     updatePreviewVenda();
     await loadAll();
-  }catch{
-    setFeedback(vendaFeedback, "Falha ao conectar com o servidor.", true);
+  }catch(error){
+    setFeedback(vendaFeedback, `Falha ao conectar com o servidor: ${error.message}`, true);
   }
 });
 
 async function loadHealth(){
   try{
     const res = await fetch("/health");
-    const data = await res.json();
+    const data = await parseResponse(res);
     document.getElementById("systemStatus").textContent = data.ok ? "Operacional" : "Erro";
   }catch{
     document.getElementById("systemStatus").textContent = "Offline";
@@ -111,8 +129,8 @@ async function loadHealth(){
 async function loadResumo(){
   try{
     const [rc, rv] = await Promise.all([fetch("/api/resumo"), fetch("/api/resumo-vendas")]);
-    const dc = await rc.json();
-    const dv = await rv.json();
+    const dc = await parseResponse(rc);
+    const dv = await parseResponse(rv);
     document.getElementById("statCompras").textContent = dc.total_registros ?? 0;
     document.getElementById("statVendas").textContent = dv.total_registros ?? 0;
     document.getElementById("statValorCompras").textContent = currency(dc.valor_movimentado ?? 0);
@@ -123,7 +141,11 @@ async function loadResumo(){
 async function loadCompras(){
   try{
     const res = await fetch("/api/compras");
-    const data = await res.json();
+    const data = await parseResponse(res);
+    if(!res.ok){
+      comprasTable.innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`;
+      return;
+    }
     if(!Array.isArray(data) || !data.length){
       comprasTable.innerHTML = `<tr><td colspan="6">Nenhuma compra registrada.</td></tr>`;
       return;
@@ -137,15 +159,19 @@ async function loadCompras(){
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
       </tr>`).join("");
-  }catch{
-    comprasTable.innerHTML = `<tr><td colspan="6">Erro ao carregar compras.</td></tr>`;
+  }catch(error){
+    comprasTable.innerHTML = `<tr><td colspan="6">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`;
   }
 }
 
 async function loadVendas(){
   try{
     const res = await fetch("/api/vendas");
-    const data = await res.json();
+    const data = await parseResponse(res);
+    if(!res.ok){
+      vendasTable.innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`;
+      return;
+    }
     if(!Array.isArray(data) || !data.length){
       vendasTable.innerHTML = `<tr><td colspan="6">Nenhuma venda registrada.</td></tr>`;
       return;
@@ -159,8 +185,8 @@ async function loadVendas(){
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
       </tr>`).join("");
-  }catch{
-    vendasTable.innerHTML = `<tr><td colspan="6">Erro ao carregar vendas.</td></tr>`;
+  }catch(error){
+    vendasTable.innerHTML = `<tr><td colspan="6">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`;
   }
 }
 

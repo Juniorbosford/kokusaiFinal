@@ -17,3 +17,8 @@ python main.py
 ## Como publicar
 - não envie `service_account.json` para o GitHub
 - use `GOOGLE_CREDENTIALS_JSON` no Render
+
+
+## Debug
+- A rota `/api/debug-config` mostra se as variáveis do Google Sheets foram lidas.
+- Os erros agora aparecem melhor no front e nos logs do Railway.
