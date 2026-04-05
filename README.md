@@ -1,7 +1,7 @@
 # Kokusai System - pacote corrigido
 
 ## Estrutura correta
-- app.py
+- main.py
 - requirements.txt
 - templates/index.html
 - static/css/style.css
@@ -11,7 +11,7 @@
 ## Como rodar localmente
 ```bash
 pip install -r requirements.txt
-python app.py
+python main.py
 ```
 
 ## Como publicar
