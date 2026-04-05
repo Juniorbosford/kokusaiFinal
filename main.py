@@ -8,9 +8,9 @@ from google.oauth2.service_account import Credentials
 app = Flask(__name__)
 
 SHEET_NAME = os.getenv("SHEET_NAME", "KokusaiDB")
-COMPRAS_WORKSHEET_NAME = os.getenv("WORKSHEET_NAME", "Compras")
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
+COMPRAS_WORKSHEET_NAME = os.getenv("COMPRAS_WORKSHEET_NAME", "Compras")
 VENDAS_WORKSHEET_NAME = os.getenv("VENDAS_WORKSHEET_NAME", "Vendas")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 
 def get_gsheet_client():
@@ -19,31 +19,57 @@ def get_gsheet_client():
         "https://www.googleapis.com/auth/drive",
     ]
 
-    if GOOGLE_CREDENTIALS_JSON:
-        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    else:
-        creds = Credentials.from_service_account_file("service_account.json", scopes=scopes)
+    credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
 
-    return gspread.authorize(creds)
+    try:
+        if credentials_json:
+            creds_dict = json.loads(credentials_json)
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            cred_path = os.path.join(base_dir, "service_account.json")
+
+            if not os.path.exists(cred_path):
+                raise FileNotFoundError(
+                    "Credenciais não encontradas. Defina GOOGLE_CREDENTIALS_JSON "
+                    "no Railway ou coloque service_account.json na raiz do projeto."
+                )
+
+            creds = Credentials.from_service_account_file(cred_path, scopes=scopes)
+
+        return gspread.authorize(creds)
+
+    except json.JSONDecodeError:
+        raise RuntimeError("GOOGLE_CREDENTIALS_JSON está com JSON inválido.")
+    except Exception as e:
+        raise RuntimeError(f"Erro ao autenticar no Google Sheets: {str(e)}")
 
 
 def get_or_create_spreadsheet():
     client = get_gsheet_client()
+
+    if SPREADSHEET_ID:
+        return client.open_by_key(SPREADSHEET_ID)
+
     try:
-        spreadsheet = client.open(SHEET_NAME)
+        return client.open(SHEET_NAME)
     except gspread.SpreadsheetNotFound:
         spreadsheet = client.create(SHEET_NAME)
-    return spreadsheet
+        return spreadsheet
+
+    except Exception as e:
+        raise RuntimeError(f"Erro ao abrir/criar planilha: {str(e)}")
 
 
 def get_or_create_worksheet(name, headers):
     spreadsheet = get_or_create_spreadsheet()
+
     try:
         worksheet = spreadsheet.worksheet(name)
     except gspread.WorksheetNotFound:
         worksheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=20)
         worksheet.append_row(headers)
+
     return worksheet
 
 
@@ -62,6 +88,9 @@ def get_vendas_worksheet():
 
 
 def validate_numeric_fields(data, required_fields):
+    if not isinstance(data, dict):
+        return False, "JSON inválido."
+
     missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
     if missing:
         return False, f"Campos obrigatórios ausentes: {', '.join(missing)}"
@@ -76,6 +105,7 @@ def validate_numeric_fields(data, required_fields):
         return False, "Quantidade deve ser maior que zero."
     if valor_unitario < 0:
         return False, "Valor unitário não pode ser negativo."
+
     return True, ""
 
 
@@ -114,7 +144,11 @@ def home():
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "kokusai-system-final", "timestamp": datetime.utcnow().isoformat() + "Z"})
+    return jsonify({
+        "ok": True,
+        "service": "kokusai-system-final",
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    })
 
 
 @app.get("/api/compras")
@@ -123,9 +157,11 @@ def list_compras():
         rows = get_compras_worksheet().get_all_values()
         if len(rows) <= 1:
             return jsonify([])
+
         data_rows = rows[1:][-100:]
         data_rows.reverse()
         return jsonify([normalize_compra(row) for row in data_rows])
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -133,8 +169,12 @@ def list_compras():
 @app.post("/api/compras")
 def create_compra():
     try:
-        data = request.get_json(force=True)
-        ok, message = validate_numeric_fields(data, ["produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade"])
+        data = request.get_json(silent=True)
+        ok, message = validate_numeric_fields(
+            data,
+            ["produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade"]
+        )
+
         if not ok:
             return jsonify({"ok": False, "error": message}), 400
 
@@ -145,11 +185,19 @@ def create_compra():
         registro_id = f"KKSC-{int(datetime.utcnow().timestamp())}"
 
         get_compras_worksheet().append_row([
-            registro_id, agora, data["produto"].strip(), data["quem_pediu"].strip(), data["quem_vendeu"].strip(),
-            valor_unitario, quantidade, valor_total, str(data.get("observacao", "")).strip()
+            registro_id,
+            agora,
+            data["produto"].strip(),
+            data["quem_pediu"].strip(),
+            data["quem_vendeu"].strip(),
+            valor_unitario,
+            quantidade,
+            valor_total,
+            str(data.get("observacao", "")).strip()
         ])
 
         return jsonify({"ok": True, "message": "Compra registrada com sucesso."}), 201
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -160,9 +208,11 @@ def list_vendas():
         rows = get_vendas_worksheet().get_all_values()
         if len(rows) <= 1:
             return jsonify([])
+
         data_rows = rows[1:][-100:]
         data_rows.reverse()
         return jsonify([normalize_venda(row) for row in data_rows])
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -170,8 +220,12 @@ def list_vendas():
 @app.post("/api/vendas")
 def create_venda():
     try:
-        data = request.get_json(force=True)
-        ok, message = validate_numeric_fields(data, ["produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade"])
+        data = request.get_json(silent=True)
+        ok, message = validate_numeric_fields(
+            data,
+            ["produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade"]
+        )
+
         if not ok:
             return jsonify({"ok": False, "error": message}), 400
 
@@ -182,11 +236,19 @@ def create_venda():
         registro_id = f"KKSV-{int(datetime.utcnow().timestamp())}"
 
         get_vendas_worksheet().append_row([
-            registro_id, agora, data["produto"].strip(), data["quem_compra"].strip(), data["quem_vende"].strip(),
-            valor_unitario, quantidade, valor_total, str(data.get("observacao", "")).strip()
+            registro_id,
+            agora,
+            data["produto"].strip(),
+            data["quem_compra"].strip(),
+            data["quem_vende"].strip(),
+            valor_unitario,
+            quantidade,
+            valor_total,
+            str(data.get("observacao", "")).strip()
         ])
 
         return jsonify({"ok": True, "message": "Venda registrada com sucesso."}), 201
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -197,16 +259,25 @@ def resumo_compras():
         rows = get_compras_worksheet().get_all_values()
         if len(rows) <= 1:
             return jsonify({"total_registros": 0, "valor_movimentado": 0, "ultimo_registro": "--"})
+
         registros = rows[1:]
         total = 0.0
+
         for row in registros:
             if len(row) > 7 and row[7]:
                 try:
                     total += float(row[7])
                 except ValueError:
                     pass
+
         ultimo = registros[-1][1] if registros else "--"
-        return jsonify({"total_registros": len(registros), "valor_movimentado": round(total, 2), "ultimo_registro": ultimo})
+
+        return jsonify({
+            "total_registros": len(registros),
+            "valor_movimentado": round(total, 2),
+            "ultimo_registro": ultimo
+        })
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -217,19 +288,28 @@ def resumo_vendas():
         rows = get_vendas_worksheet().get_all_values()
         if len(rows) <= 1:
             return jsonify({"total_registros": 0, "valor_movimentado": 0, "ultimo_registro": "--"})
+
         registros = rows[1:]
         total = 0.0
+
         for row in registros:
             if len(row) > 7 and row[7]:
                 try:
                     total += float(row[7])
                 except ValueError:
                     pass
+
         ultimo = registros[-1][1] if registros else "--"
-        return jsonify({"total_registros": len(registros), "valor_movimentado": round(total, 2), "ultimo_registro": ultimo})
+
+        return jsonify({
+            "total_registros": len(registros),
+            "valor_movimentado": round(total, 2),
+            "ultimo_registro": ultimo
+        })
+
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
