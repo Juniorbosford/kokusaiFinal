@@ -12,10 +12,13 @@ navLinks.forEach(link => {
 const refreshBtn = document.getElementById("refreshBtn");
 const form = document.getElementById("compraForm");
 const vendaForm = document.getElementById("vendaForm");
+const encomendaForm = document.getElementById("encomendaForm");
 const formFeedback = document.getElementById("formFeedback");
 const vendaFeedback = document.getElementById("vendaFeedback");
+const encomendaFeedback = document.getElementById("encomendaFeedback");
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
+const encomendasTable = document.getElementById("encomendasTable");
 
 function currency(value){
   return new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(Number(value||0));
@@ -25,7 +28,7 @@ function escapeHtml(value){
     .replace(/&/g,"&amp;")
     .replace(/</g,"&lt;")
     .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;")
+    .replace(/\"/g,"&quot;")
     .replace(/'/g,"&#039;");
 }
 function setFeedback(el, msg, isError=false){
@@ -50,6 +53,7 @@ document.getElementById("valor_unitario").addEventListener("input", updatePrevie
 document.getElementById("quantidade").addEventListener("input", updatePreviewCompra);
 document.getElementById("v_valor_unitario").addEventListener("input", updatePreviewVenda);
 document.getElementById("v_quantidade").addEventListener("input", updatePreviewVenda);
+document.getElementById("e_valor").addEventListener("input", updatePreviewEncomenda);
 
 function updatePreviewCompra(){
   const valor = Number(document.getElementById("valor_unitario").value||0);
@@ -60,6 +64,10 @@ function updatePreviewVenda(){
   const valor = Number(document.getElementById("v_valor_unitario").value||0);
   const qtd = Number(document.getElementById("v_quantidade").value||0);
   document.getElementById("previewVendaTotal").textContent = currency(valor*qtd);
+}
+function updatePreviewEncomenda(){
+  const valor = Number(document.getElementById("e_valor").value||0);
+  document.getElementById("previewEncomendaValor").textContent = currency(valor);
 }
 
 form.addEventListener("submit", async (e)=>{
@@ -116,6 +124,34 @@ vendaForm.addEventListener("submit", async (e)=>{
   }
 });
 
+encomendaForm.addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const payload = {
+    quem_pediu: document.getElementById("e_quem_pediu").value.trim(),
+    o_que_pediu: document.getElementById("e_o_que_pediu").value.trim(),
+    valor: Number(document.getElementById("e_valor").value),
+    para_quando: document.getElementById("e_para_quando").value.trim(),
+    quem_negociou: document.getElementById("e_quem_negociou").value.trim(),
+    entregue: document.getElementById("e_entregue").value,
+    observacao: document.getElementById("e_observacao").value.trim(),
+  };
+  try{
+    setFeedback(encomendaFeedback, "Salvando encomenda...");
+    const res = await fetch("/api/encomendas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const data = await parseResponse(res);
+    if(!res.ok){
+      setFeedback(encomendaFeedback, data.error || `Erro ${res.status} ao salvar encomenda.`, true);
+      return;
+    }
+    setFeedback(encomendaFeedback, data.message || "Encomenda salva com sucesso.");
+    encomendaForm.reset();
+    updatePreviewEncomenda();
+    await loadAll();
+  }catch(error){
+    setFeedback(encomendaFeedback, `Falha ao conectar com o servidor: ${error.message}`, true);
+  }
+});
+
 async function loadHealth(){
   try{
     const res = await fetch("/health");
@@ -128,13 +164,20 @@ async function loadHealth(){
 
 async function loadResumo(){
   try{
-    const [rc, rv] = await Promise.all([fetch("/api/resumo"), fetch("/api/resumo-vendas")]);
+    const [rc, rv, re] = await Promise.all([
+      fetch("/api/resumo"),
+      fetch("/api/resumo-vendas"),
+      fetch("/api/resumo-encomendas")
+    ]);
     const dc = await parseResponse(rc);
     const dv = await parseResponse(rv);
+    const de = await parseResponse(re);
     document.getElementById("statCompras").textContent = dc.total_registros ?? 0;
     document.getElementById("statVendas").textContent = dv.total_registros ?? 0;
+    document.getElementById("statEncomendas").textContent = de.total_registros ?? 0;
     document.getElementById("statValorCompras").textContent = currency(dc.valor_movimentado ?? 0);
     document.getElementById("statValorVendas").textContent = currency(dv.valor_movimentado ?? 0);
+    document.getElementById("statValorEncomendas").textContent = currency(de.valor_movimentado ?? 0);
   }catch{}
 }
 
@@ -190,11 +233,39 @@ async function loadVendas(){
   }
 }
 
+async function loadEncomendas(){
+  try{
+    const res = await fetch("/api/encomendas");
+    const data = await parseResponse(res);
+    if(!res.ok){
+      encomendasTable.innerHTML = `<tr><td colspan="7">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`;
+      return;
+    }
+    if(!Array.isArray(data) || !data.length){
+      encomendasTable.innerHTML = `<tr><td colspan="7">Nenhuma encomenda registrada.</td></tr>`;
+      return;
+    }
+    encomendasTable.innerHTML = data.map(item => `
+      <tr>
+        <td>${escapeHtml(item.data)}</td>
+        <td>${escapeHtml(item.quem_pediu)}</td>
+        <td>${escapeHtml(item.o_que_pediu)}</td>
+        <td>${escapeHtml(item.para_quando)}</td>
+        <td>${escapeHtml(item.quem_negociou)}</td>
+        <td>${escapeHtml(item.entregue)}</td>
+        <td>${currency(item.valor)}</td>
+      </tr>`).join("");
+  }catch(error){
+    encomendasTable.innerHTML = `<tr><td colspan="7">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
 async function loadAll(){
-  await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas()]);
+  await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas()]);
 }
 
 refreshBtn.addEventListener("click", loadAll);
 updatePreviewCompra();
 updatePreviewVenda();
+updatePreviewEncomenda();
 loadAll();

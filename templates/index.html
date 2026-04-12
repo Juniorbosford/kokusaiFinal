@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai Department | Compras e Vendas</title>
-<meta name="description" content="Painel profissional Kokusai com controle de compras e vendas." />
+  <title>Kokusai Department | Compras, Vendas e Encomendas</title>
+  <meta name="description" content="Painel profissional Kokusai com controle de compras, vendas e encomendas." />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
         <div>
           <p class="brand-kicker">Departamento</p>
           <h1>Kokusai</h1>
-          <span>Controle de Compra e Vendas</span>
+          <span>Controle de compras, vendas e encomendas</span>
         </div>
       </div>
 
@@ -28,6 +28,7 @@
         <button class="nav-link active" data-target="dashboard">Dashboard</button>
         <button class="nav-link" data-target="compras">Compras</button>
         <button class="nav-link" data-target="vendas">Vendas</button>
+        <button class="nav-link" data-target="encomendas">Encomendas</button>
       </nav>
 
       <div class="sidebar-panel">
@@ -44,7 +45,7 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">HUD Monstruosa</p>
-          <h2>Painel de compras e vendas</h2>
+          <h2>Painel do departamento</h2>
         </div>
         <div class="topbar-actions">
           <button class="ghost-btn" id="refreshBtn">Atualizar</button>
@@ -55,13 +56,14 @@
         <div class="hero-card">
           <div>
             <p class="hero-tag">Sistema ativo</p>
-            <h3>Compras e vendas ligadas na mesma planilha</h3>
+            <h3>Compras, vendas e encomendas na mesma planilha</h3>
             <p class="hero-copy">
-              Página focada em registro de compra e venda da Nekutai controlada pelo departamento Kokusai
+              Página focada em registrar compras, vendas e encomendas da Nekutai controladas pelo departamento Kokusai.
             </p>
+          </div>
         </div>
 
-        <div class="stats-grid">
+        <div class="stats-grid stats-grid-3">
           <article class="stat-card">
             <p>Total compras</p>
             <strong id="statCompras">0</strong>
@@ -73,6 +75,11 @@
             <span>registros</span>
           </article>
           <article class="stat-card">
+            <p>Total encomendas</p>
+            <strong id="statEncomendas">0</strong>
+            <span>registros</span>
+          </article>
+          <article class="stat-card">
             <p>Valor compras</p>
             <strong id="statValorCompras">R$ 0,00</strong>
             <span>movimentado</span>
@@ -80,6 +87,11 @@
           <article class="stat-card">
             <p>Valor vendas</p>
             <strong id="statValorVendas">R$ 0,00</strong>
+            <span>movimentado</span>
+          </article>
+          <article class="stat-card">
+            <p>Valor encomendas</p>
+            <strong id="statValorEncomendas">R$ 0,00</strong>
             <span>movimentado</span>
           </article>
         </div>
@@ -241,6 +253,97 @@
                   </tr>
                 </thead>
                 <tbody id="vendasTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="encomendas">
+        <div class="section-grid">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Nova encomenda</p>
+                <h3>Registrar encomenda</h3>
+              </div>
+            </div>
+
+            <form id="encomendaForm" class="form-grid">
+              <div class="field">
+                <label for="e_quem_pediu">Quem pediu</label>
+                <input id="e_quem_pediu" placeholder="Ex.: Nome (fac)" required />
+              </div>
+
+              <div class="field">
+                <label for="e_o_que_pediu">O que pediu</label>
+                <input id="e_o_que_pediu" placeholder="Ex.: 15 L85" required />
+              </div>
+
+              <div class="field">
+                <label for="e_valor">Valor</label>
+                <input id="e_valor" type="number" min="0" step="0.01" required />
+              </div>
+
+              <div class="field">
+                <label for="e_para_quando">Pra quando foi combinado</label>
+                <input id="e_para_quando" placeholder="Ex.: 09/04 - 21hrs" required />
+              </div>
+
+              <div class="field">
+                <label for="e_quem_negociou">Quem negociou</label>
+                <input id="e_quem_negociou" placeholder="Ex.: Dulce e Theo" required />
+              </div>
+
+              <div class="field">
+                <label for="e_entregue">Já foi entregue?</label>
+                <select id="e_entregue" required>
+                  <option value="">Selecione</option>
+                  <option value="Sim">Sim</option>
+                  <option value="Não">Não</option>
+                </select>
+              </div>
+
+              <div class="field field-full">
+                <label for="e_observacao">Observação</label>
+                <textarea id="e_observacao"></textarea>
+              </div>
+
+              <div class="calc-box">
+                <span>Valor informado da encomenda</span>
+                <strong id="previewEncomendaValor">R$ 0,00</strong>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Salvar encomenda</button>
+              </div>
+            </form>
+
+            <div class="feedback" id="encomendaFeedback">Aguardando envio.</div>
+          </section>
+
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Histórico</p>
+                <h3>Encomendas</h3>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Quem pediu</th>
+                    <th>O que pediu</th>
+                    <th>Pra quando</th>
+                    <th>Negociou</th>
+                    <th>Entrega</th>
+                    <th>Valor</th>
+                  </tr>
+                </thead>
+                <tbody id="encomendasTable"></tbody>
               </table>
             </div>
           </section>

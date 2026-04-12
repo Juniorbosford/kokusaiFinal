@@ -12,6 +12,7 @@ SHEET_NAME = os.getenv("SHEET_NAME", "KokusaiDB")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 COMPRAS_WORKSHEET_NAME = os.getenv("COMPRAS_WORKSHEET_NAME", "Compras")
 VENDAS_WORKSHEET_NAME = os.getenv("VENDAS_WORKSHEET_NAME", "Vendas")
+ENCOMENDAS_WORKSHEET_NAME = os.getenv("ENCOMENDAS_WORKSHEET_NAME", "Encomendas")
 
 
 def log_info(message):
@@ -41,6 +42,7 @@ def get_gsheet_client():
     log_info(f"SPREADSHEET_ID configurado? {bool(SPREADSHEET_ID)}")
     log_info(f"COMPRAS_WORKSHEET_NAME={COMPRAS_WORKSHEET_NAME}")
     log_info(f"VENDAS_WORKSHEET_NAME={VENDAS_WORKSHEET_NAME}")
+    log_info(f"ENCOMENDAS_WORKSHEET_NAME={ENCOMENDAS_WORKSHEET_NAME}")
 
     try:
         if credentials_json:
@@ -148,6 +150,13 @@ def get_vendas_worksheet():
     )
 
 
+def get_encomendas_worksheet():
+    return get_or_create_worksheet(
+        ENCOMENDAS_WORKSHEET_NAME,
+        ["id", "data", "quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue", "observacao"]
+    )
+
+
 def validate_numeric_fields(data, required_fields):
     if not isinstance(data, dict):
         return False, "JSON inválido."
@@ -198,6 +207,20 @@ def normalize_venda(row):
     }
 
 
+def normalize_encomenda(row):
+    return {
+        "id": row[0] if len(row) > 0 else "",
+        "data": row[1] if len(row) > 1 else "",
+        "quem_pediu": row[2] if len(row) > 2 else "",
+        "o_que_pediu": row[3] if len(row) > 3 else "",
+        "valor": row[4] if len(row) > 4 else "",
+        "para_quando": row[5] if len(row) > 5 else "",
+        "quem_negociou": row[6] if len(row) > 6 else "",
+        "entregue": row[7] if len(row) > 7 else "",
+        "observacao": row[8] if len(row) > 8 else "",
+    }
+
+
 @app.get("/")
 def home():
     return render_template("index.html")
@@ -212,6 +235,7 @@ def health():
         "spreadsheet_id_configured": bool(SPREADSHEET_ID),
         "compras_worksheet": COMPRAS_WORKSHEET_NAME,
         "vendas_worksheet": VENDAS_WORKSHEET_NAME,
+        "encomendas_worksheet": ENCOMENDAS_WORKSHEET_NAME,
     })
 
 
@@ -231,6 +255,7 @@ def debug_config():
         "sheet_name": SHEET_NAME,
         "compras_worksheet": COMPRAS_WORKSHEET_NAME,
         "vendas_worksheet": VENDAS_WORKSHEET_NAME,
+        "encomendas_worksheet": ENCOMENDAS_WORKSHEET_NAME,
         "credentials_present": bool(credentials_json),
         "service_account_email": client_email,
     })
@@ -413,6 +438,118 @@ def resumo_vendas():
 
     except Exception as e:
         log_error("Falha em /api/resumo-vendas", e)
+        return error_response(str(e))
+
+
+@app.get("/api/encomendas")
+def list_encomendas():
+    try:
+        rows = get_encomendas_worksheet().get_all_values()
+        if len(rows) <= 1:
+            return jsonify([])
+
+        data_rows = rows[1:][-100:]
+        data_rows.reverse()
+        return jsonify([normalize_encomenda(row) for row in data_rows])
+
+    except Exception as e:
+        log_error("Falha em /api/encomendas [GET]", e)
+        return error_response(str(e))
+
+
+@app.post("/api/encomendas")
+def create_encomenda():
+    try:
+        data = request.get_json(silent=True)
+        required_fields = ["quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue"]
+
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+
+        missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
+        if missing:
+            return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
+
+        try:
+            valor = float(data["valor"])
+        except (ValueError, TypeError):
+            return error_response("O valor da encomenda deve ser numérico.", 400)
+
+        if valor < 0:
+            return error_response("O valor da encomenda não pode ser negativo.", 400)
+
+        entregue = str(data["entregue"]).strip().capitalize()
+        if entregue not in ["Sim", "Não", "Nao"]:
+            return error_response("O campo 'entregue' deve ser 'Sim' ou 'Não'.", 400)
+
+        if entregue == "Nao":
+            entregue = "Não"
+
+        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        registro_id = f"KKSE-{int(datetime.utcnow().timestamp())}"
+
+        worksheet = get_encomendas_worksheet()
+        worksheet.append_row([
+            registro_id,
+            agora,
+            data["quem_pediu"].strip(),
+            data["o_que_pediu"].strip(),
+            round(valor, 2),
+            data["para_quando"].strip(),
+            data["quem_negociou"].strip(),
+            entregue,
+            data.get("observacao", "").strip(),
+        ])
+        log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
+
+        return jsonify({
+            "ok": True,
+            "message": "Encomenda salva com sucesso.",
+            "id": registro_id,
+            "valor": round(valor, 2),
+        }), 201
+
+    except Exception as e:
+        log_error("Falha em /api/encomendas [POST]", e)
+        return error_response(str(e))
+
+
+@app.get("/api/resumo-encomendas")
+def resumo_encomendas():
+    try:
+        rows = get_encomendas_worksheet().get_all_values()
+        if len(rows) <= 1:
+            return jsonify({"total_registros": 0, "valor_movimentado": 0, "ultimo_registro": "--", "pendentes": 0, "entregues": 0})
+
+        registros = rows[1:]
+        total = 0.0
+        pendentes = 0
+        entregues = 0
+
+        for row in registros:
+            if len(row) > 4 and row[4]:
+                try:
+                    total += float(row[4])
+                except ValueError:
+                    pass
+            status = row[7].strip().lower() if len(row) > 7 else ""
+            if status == "sim":
+                entregues += 1
+            else:
+                pendentes += 1
+
+        ultimo = registros[-1][1] if registros else "--"
+
+        return jsonify({
+            "total_registros": len(registros),
+            "valor_movimentado": round(total, 2),
+            "ultimo_registro": ultimo,
+            "pendentes": pendentes,
+            "entregues": entregues,
+        })
+
+    except Exception as e:
+        log_error("Falha em /api/resumo-encomendas", e)
         return error_response(str(e))
 
 

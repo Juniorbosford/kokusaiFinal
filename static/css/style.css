@@ -18,7 +18,7 @@ html,body{
   color:var(--text);
   font-family:'Inter',sans-serif;
 }
-button,input,textarea{font:inherit}
+button,input,textarea,select{font:inherit}
 button{cursor:pointer}
 img{max-width:100%;display:block}
 .app-shell{display:grid;grid-template-columns:300px 1fr;min-height:100vh}
@@ -82,6 +82,7 @@ img{max-width:100%;display:block}
   border:1px solid rgba(255,28,61,.22);color:#ffdbe1;font-size:.92rem
 }
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.stats-grid-3{grid-template-columns:repeat(3,1fr)}
 .stat-card{padding:22px}
 .stat-card p,.stat-card span{color:var(--muted)}
 .stat-card strong{display:block;font-size:2rem;margin:8px 0}
@@ -96,7 +97,7 @@ th{font-size:.82rem;color:#ff94a5;text-transform:uppercase;letter-spacing:.12em}
 .form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
 .field{display:flex;flex-direction:column;gap:8px}
 .field-full{grid-column:1/-1}
-input,textarea{
+input,textarea,select{
   width:100%;padding:14px 15px;border-radius:14px;border:1px solid rgba(255,255,255,.09);
   background:#090a0d;color:var(--text);outline:none
 }
