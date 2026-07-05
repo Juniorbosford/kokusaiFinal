@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entrar | Kokusai</title>
+  <meta name="description" content="Login do painel operacional Kokusai." />
+  <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body class="login-page">
+  <div class="page-noise" aria-hidden="true"></div>
+
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="login-brand">
+        <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="login-logo" />
+        <div>
+          <p class="brand-kicker">Kokusai</p>
+          <h1>Acesso restrito</h1>
+          <span>Entre para consultar ou administrar o painel.</span>
+        </div>
+      </div>
+
+      {% if error %}
+      <div class="login-error" role="alert">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" class="login-form" autocomplete="on">
+        <input type="hidden" name="next" value="{{ next_url }}" />
+
+        <div class="field">
+          <label for="username">Usuário</label>
+          <input id="username" name="username" placeholder="kokusai ou nekutai" autocomplete="username" required autofocus />
+        </div>
+
+        <div class="field">
+          <label for="password">Senha</label>
+          <input id="password" name="password" type="password" placeholder="Digite sua senha" autocomplete="current-password" required />
+        </div>
+
+        <button type="submit" class="primary-btn login-submit">Entrar no painel</button>
+      </form>
+
+      <div class="login-hint">
+        <span>kokusai</span> possui acesso total. <span>nekutai</span> acessa apenas em modo visualização.
+      </div>
+    </section>
+  </main>
+</body>
+</html>

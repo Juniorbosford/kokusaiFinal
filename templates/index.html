@@ -3,63 +3,94 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai Department | Compras, Vendas e Encomendas</title>
-  <meta name="description" content="Painel profissional Kokusai com controle de compras, vendas e encomendas." />
+  <title>Kokusai | Compras, Vendas, Encomendas, Metas e Craft</title>
+  <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, metas e craft no GTARP." />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
-<body>
+<body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
+  <div class="page-noise" aria-hidden="true"></div>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-glow"></div>
         <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="brand-logo" />
         <div>
-          <p class="brand-kicker">Departamento</p>
-          <h1>Kokusai</h1>
-          <span>Controle de compras, vendas e encomendas</span>
+          <p class="brand-kicker">Kokusai Ops</p>
+          <h1>Departamento</h1>
+          <span>Compras • Vendas • Encomendas • Metas • Craft</span>
         </div>
       </div>
 
-      <nav class="nav">
-        <button class="nav-link active" data-target="dashboard">Dashboard</button>
-        <button class="nav-link" data-target="compras">Compras</button>
-        <button class="nav-link" data-target="vendas">Vendas</button>
-        <button class="nav-link" data-target="encomendas">Encomendas</button>
+      <nav class="nav" aria-label="Navegação principal">
+        <button class="nav-link active" data-target="dashboard"><span>Visão geral</span></button>
+        <button class="nav-link" data-target="compras"><span>Compras</span></button>
+        <button class="nav-link" data-target="vendas"><span>Vendas</span></button>
+        <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
+        <button class="nav-link" data-target="metas"><span>Metas</span></button>
+        <button class="nav-link" data-target="craft"><span>Craft</span></button>
       </nav>
 
       <div class="sidebar-panel">
-        <p class="sidebar-label">Status do sistema</p>
+        <p class="sidebar-label">Ambiente</p>
         <div class="status-line">
           <span class="status-dot"></span>
           <span id="systemStatus">Conectando...</span>
         </div>
-        <p class="sidebar-help">Sistema operacional com persistência local.</p>
+        <p class="sidebar-help">Dados sincronizados com o backend configurado no projeto.</p>
+      </div>
+
+      <div class="user-panel">
+        <p class="sidebar-label">Sessão</p>
+        <strong>{{ current_user.display_name }}</strong>
+        <span>{{ "Acesso total" if is_admin else "Somente visualização" }}</span>
+        <form action="{{ url_for('logout') }}" method="post">
+          <button type="submit" class="logout-btn">Sair</button>
+        </form>
       </div>
     </aside>
 
     <main class="main-content">
       <header class="topbar">
         <div>
-          <p class="eyebrow">HUD Monstruosa</p>
-          <h2>Painel do departamento</h2>
+          <p class="eyebrow">Painel operacional</p>
+          <h2>Controle do departamento</h2>
+          <span class="topbar-subtitle">Registre movimentações, acompanhe totais e consulte históricos em um só lugar.</span>
         </div>
         <div class="topbar-actions">
-          <button class="ghost-btn" id="refreshBtn">Atualizar</button>
+          <span class="role-badge {{ current_user.role }}">{{ "Administrador" if is_admin else "Leitor" }}</span>
+          <span class="sync-label" id="lastSync">Aguardando atualização</span>
+          <button class="ghost-btn" id="refreshBtn" type="button">Atualizar dados</button>
         </div>
       </header>
 
       <section class="view active" id="dashboard">
         <div class="hero-card">
-          <div>
-            <p class="hero-tag">Sistema ativo</p>
-            <h3>Compras, vendas e encomendas na mesma planilha</h3>
+          <div class="hero-content">
+            <p class="hero-tag">Gestão GTARP</p>
+            <h3>Operação centralizada para compras, vendas, encomendas, metas e craft</h3>
             <p class="hero-copy">
-              Página focada em registrar compras, vendas e encomendas da Nekutai controladas pelo departamento Kokusai.
+              Um painel mais limpo, direto e profissional para registrar pedidos, acompanhar pagamentos de meta, calcular crafts e manter o histórico do departamento organizado.
             </p>
+            <div class="access-note {{ current_user.role }}">
+              {{ "Você está com permissão total para registrar e consultar movimentações." if is_admin else "Você está em modo somente leitura. Os registros podem ser consultados, mas não alterados." }}
+            </div>
+          </div>
+          <div class="hero-summary" aria-label="Resumo do sistema">
+            <div>
+              <strong>5</strong>
+              <span>módulos ativos</span>
+            </div>
+            <div>
+              <strong>BRL</strong>
+              <span>valores formatados</span>
+            </div>
+            <div>
+              <strong>Live</strong>
+              <span>consulta no backend</span>
+            </div>
           </div>
         </div>
 
@@ -79,67 +110,86 @@
             <strong id="statEncomendas">0</strong>
             <span>registros</span>
           </article>
-          <article class="stat-card">
+          <article class="stat-card accent-card">
             <p>Valor compras</p>
             <strong id="statValorCompras">R$ 0,00</strong>
             <span>movimentado</span>
           </article>
-          <article class="stat-card">
+          <article class="stat-card accent-card">
             <p>Valor vendas</p>
             <strong id="statValorVendas">R$ 0,00</strong>
             <span>movimentado</span>
           </article>
-          <article class="stat-card">
+          <article class="stat-card accent-card">
             <p>Valor encomendas</p>
             <strong id="statValorEncomendas">R$ 0,00</strong>
             <span>movimentado</span>
+          </article>
+          <article class="stat-card meta-card">
+            <p>Metas pagas</p>
+            <strong id="statMetasPagas">0</strong>
+            <span>confirmadas com SIM</span>
+          </article>
+          <article class="stat-card meta-card">
+            <p>Metas pendentes</p>
+            <strong id="statMetasPendentes">0</strong>
+            <span>marcadas como NÃO</span>
           </article>
         </div>
       </section>
 
       <section class="view" id="compras">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Módulo de compras</p>
+            <h3>Registrar e consultar compras</h3>
+          </div>
+          <p>Preencha os dados da compra e acompanhe o histórico atualizado ao lado.</p>
+        </div>
+
         <div class="section-grid">
           <section class="panel-card">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Nova compra</p>
-                <h3>Registrar compra</h3>
+                <h3>Dados da compra</h3>
               </div>
             </div>
+            {% if is_admin %}
 
             <form id="compraForm" class="form-grid">
               <div class="field">
                 <label for="produto">Produto</label>
-                <input id="produto" required />
+                <input id="produto" placeholder="Ex.: L85" required />
               </div>
 
               <div class="field">
                 <label for="quem_pediu">Quem pediu</label>
-                <input id="quem_pediu" required />
+                <input id="quem_pediu" placeholder="Nome ou facção" required />
               </div>
 
               <div class="field">
                 <label for="quem_vendeu">Quem vendeu</label>
-                <input id="quem_vendeu" required />
+                <input id="quem_vendeu" placeholder="Responsável pela venda" required />
               </div>
 
               <div class="field">
                 <label for="valor_unitario">Valor unitário</label>
-                <input id="valor_unitario" type="number" min="0" step="0.01" required />
+                <input id="valor_unitario" type="number" min="0" step="0.01" placeholder="0,00" required />
               </div>
 
               <div class="field">
                 <label for="quantidade">Quantidade</label>
-                <input id="quantidade" type="number" min="1" required />
+                <input id="quantidade" type="number" min="1" placeholder="1" required />
               </div>
 
               <div class="field field-full">
                 <label for="observacao">Observação</label>
-                <textarea id="observacao"></textarea>
+                <textarea id="observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
               <div class="calc-box">
-                <span>Total calculado automaticamente</span>
+                <span>Total calculado</span>
                 <strong id="previewTotal">R$ 0,00</strong>
               </div>
 
@@ -149,13 +199,20 @@
             </form>
 
             <div class="feedback" id="formFeedback">Aguardando envio.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Modo somente leitura</h4>
+              <p>Seu usuário pode visualizar o histórico e os totais de compras, mas não pode salvar novos registros.</p>
+            </div>
+            {% endif %}
           </section>
 
-          <section class="panel-card">
+          <section class="panel-card table-card">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Histórico</p>
-                <h3>Compras</h3>
+                <h3>Compras registradas</h3>
               </div>
             </div>
 
@@ -179,48 +236,57 @@
       </section>
 
       <section class="view" id="vendas">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Módulo de vendas</p>
+            <h3>Registrar e consultar vendas</h3>
+          </div>
+          <p>Controle quem comprou, quem vendeu, quantidade e valor total de cada saída.</p>
+        </div>
+
         <div class="section-grid">
           <section class="panel-card">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Nova venda</p>
-                <h3>Registrar venda</h3>
+                <h3>Dados da venda</h3>
               </div>
             </div>
+            {% if is_admin %}
 
             <form id="vendaForm" class="form-grid">
               <div class="field">
                 <label for="v_produto">Produto</label>
-                <input id="v_produto" required />
+                <input id="v_produto" placeholder="Ex.: Munição" required />
               </div>
 
               <div class="field">
                 <label for="quem_compra">Quem compra</label>
-                <input id="quem_compra" required />
+                <input id="quem_compra" placeholder="Comprador" required />
               </div>
 
               <div class="field">
                 <label for="quem_vende">Quem vende</label>
-                <input id="quem_vende" required />
+                <input id="quem_vende" placeholder="Vendedor" required />
               </div>
 
               <div class="field">
                 <label for="v_valor_unitario">Valor unitário</label>
-                <input id="v_valor_unitario" type="number" min="0" step="0.01" required />
+                <input id="v_valor_unitario" type="number" min="0" step="0.01" placeholder="0,00" required />
               </div>
 
               <div class="field">
                 <label for="v_quantidade">Quantidade</label>
-                <input id="v_quantidade" type="number" min="1" required />
+                <input id="v_quantidade" type="number" min="1" placeholder="1" required />
               </div>
 
               <div class="field field-full">
                 <label for="v_observacao">Observação</label>
-                <textarea id="v_observacao"></textarea>
+                <textarea id="v_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
               <div class="calc-box">
-                <span>Total calculado automaticamente</span>
+                <span>Total calculado</span>
                 <strong id="previewVendaTotal">R$ 0,00</strong>
               </div>
 
@@ -230,13 +296,20 @@
             </form>
 
             <div class="feedback" id="vendaFeedback">Aguardando envio.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Modo somente leitura</h4>
+              <p>Seu usuário pode visualizar o histórico e os totais de vendas, mas não pode salvar novos registros.</p>
+            </div>
+            {% endif %}
           </section>
 
-          <section class="panel-card">
+          <section class="panel-card table-card">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Histórico</p>
-                <h3>Vendas</h3>
+                <h3>Vendas registradas</h3>
               </div>
             </div>
 
@@ -260,14 +333,23 @@
       </section>
 
       <section class="view" id="encomendas">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Módulo de encomendas</p>
+            <h3>Registrar e acompanhar entregas</h3>
+          </div>
+          <p>Organize pedidos combinados, responsáveis pela negociação, prazo e status de entrega.</p>
+        </div>
+
         <div class="section-grid">
           <section class="panel-card">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Nova encomenda</p>
-                <h3>Registrar encomenda</h3>
+                <h3>Dados da encomenda</h3>
               </div>
             </div>
+            {% if is_admin %}
 
             <form id="encomendaForm" class="form-grid">
               <div class="field">
@@ -282,12 +364,12 @@
 
               <div class="field">
                 <label for="e_valor">Valor</label>
-                <input id="e_valor" type="number" min="0" step="0.01" required />
+                <input id="e_valor" type="number" min="0" step="0.01" placeholder="0,00" required />
               </div>
 
               <div class="field">
                 <label for="e_para_quando">Pra quando foi combinado</label>
-                <input id="e_para_quando" placeholder="Ex.: 09/04 - 21hrs" required />
+                <input id="e_para_quando" placeholder="Ex.: 09/04 - 21h" required />
               </div>
 
               <div class="field">
@@ -306,11 +388,11 @@
 
               <div class="field field-full">
                 <label for="e_observacao">Observação</label>
-                <textarea id="e_observacao"></textarea>
+                <textarea id="e_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
               <div class="calc-box">
-                <span>Valor informado da encomenda</span>
+                <span>Valor informado</span>
                 <strong id="previewEncomendaValor">R$ 0,00</strong>
               </div>
 
@@ -320,13 +402,20 @@
             </form>
 
             <div class="feedback" id="encomendaFeedback">Aguardando envio.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Modo somente leitura</h4>
+              <p>Seu usuário pode visualizar o histórico e os totais de encomendas, mas não pode salvar novos registros.</p>
+            </div>
+            {% endif %}
           </section>
 
-          <section class="panel-card">
+          <section class="panel-card table-card">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Histórico</p>
-                <h3>Encomendas</h3>
+                <h3>Encomendas registradas</h3>
               </div>
             </div>
 
@@ -348,6 +437,212 @@
             </div>
           </section>
         </div>
+      </section>
+
+
+      <section class="view" id="metas">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Pagamento de metas</p>
+            <h3>Controle semanal em formato de planilha</h3>
+          </div>
+          <p>Marque SIM ou NÃO em cada nome. Quando todos forem marcados, a semana é salva no histórico e a próxima semana abre zerada automaticamente.</p>
+        </div>
+
+        <div class="section-grid metas-layout">
+          <section class="panel-card metas-control-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Resumo rápido</p>
+                <h3>Status das metas</h3>
+              </div>
+            </div>
+
+            <div class="meta-week-box">
+              <span>Semana atual</span>
+              <strong id="metaSemanaAtual">--</strong>
+              <small id="metaProgresso">0/0 marcados</small>
+            </div>
+
+            <div class="meta-kpi-grid">
+              <div>
+                <span>Total</span>
+                <strong id="metaTotal">0</strong>
+              </div>
+              <div>
+                <span>Sim</span>
+                <strong id="metaPagas">0</strong>
+              </div>
+              <div>
+                <span>Não</span>
+                <strong id="metaPendentes">0</strong>
+              </div>
+            </div>
+
+            {% if is_admin %}
+            <form id="metaForm" class="form-grid compact-form">
+              <div class="field field-full">
+                <label for="meta_nome">Adicionar pessoa</label>
+                <input id="meta_nome" placeholder="Nome da pessoa" />
+              </div>
+
+              <div class="field field-full">
+                <label for="meta_pago">Status inicial</label>
+                <select id="meta_pago">
+                  <option value="Não">Não</option>
+                  <option value="Sim">Sim</option>
+                </select>
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Adicionar na planilha</button>
+              </div>
+            </form>
+            <div class="form-actions compact-actions">
+              <button type="button" class="secondary-btn" id="fecharSemanaBtn">Fechar semana agora</button>
+            </div>
+            <div class="feedback" id="metasFeedback">Clique em SIM ou NÃO para confirmar cada pessoa. Ao finalizar todos, o sistema reseta para a próxima semana.</div>
+            {% else %}
+            <div class="readonly-card compact-readonly">
+              <span class="readonly-icon">🔒</span>
+              <h4>Modo somente leitura</h4>
+              <p>Seu usuário pode visualizar os pagamentos de meta, mas não pode alterar status, fechar semana nem apagar nomes.</p>
+            </div>
+            {% endif %}
+          </section>
+
+          <section class="panel-card table-card metas-sheet-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Planilha</p>
+                <h3>Lista de pagamentos</h3>
+              </div>
+            </div>
+
+            <div class="table-wrap metas-table-wrap">
+              <table class="spreadsheet-table metas-sheet-table">
+                <thead>
+                  <tr>
+                    <th class="sheet-index-col">#</th>
+                    <th>Nome</th>
+                    <th>Meta paga?</th>
+                    <th>Atualizado</th>
+                    {% if is_admin %}<th>Ações</th>{% endif %}
+                  </tr>
+                </thead>
+                <tbody id="metasTable">
+                  <tr><td colspan="{{ 5 if is_admin else 4 }}">Carregando pagamentos de meta...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="craft">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Módulo de craft</p>
+            <h3>Calculadora de materiais</h3>
+          </div>
+          <p>Informe a quantidade que deseja produzir e veja o total de materiais necessários, seguindo a planilha de craft.</p>
+        </div>
+
+        <div class="section-grid craft-layout">
+          <section class="panel-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Novo cálculo</p>
+                <h3>O que deseja fazer?</h3>
+              </div>
+            </div>
+            {% if is_admin %}
+            <form id="craftForm" class="form-grid craft-form">
+              <div class="field">
+                <label for="craft_l85">Craft L85</label>
+                <input id="craft_l85" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
+              <div class="field">
+                <label for="craft_peca_pesada">Peça de arma pesada faltando</label>
+                <input id="craft_peca_pesada" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
+              <div class="field">
+                <label for="craft_corpo_rifle">Corpo de rifle faltando</label>
+                <input id="craft_corpo_rifle" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
+              <div class="field">
+                <label for="craft_seringa_crack">Seringa de crack</label>
+                <input id="craft_seringa_crack" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
+              <div class="field">
+                <label for="craft_macarico">Maçarico</label>
+                <input id="craft_macarico" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
+              <div class="field">
+                <label for="craft_rastreador">Rastreador ilegal</label>
+                <input id="craft_rastreador" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
+              <div class="calc-box craft-total-box">
+                <span>Total de itens no cálculo</span>
+                <strong id="craftTotalItens">0</strong>
+              </div>
+
+              <div class="form-actions">
+                <button type="button" class="ghost-btn" id="clearCraftBtn">Limpar cálculo</button>
+              </div>
+            </form>
+
+            <div class="feedback" id="craftFeedback">Informe uma quantidade para calcular os materiais.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Modo somente leitura</h4>
+              <p>Seu usuário pode visualizar a tabela de receitas, mas não pode alterar quantidades nem montar cálculos.</p>
+            </div>
+            {% endif %}
+          </section>
+
+          <section class="panel-card table-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Resumo</p>
+                <h3>Material necessário</h3>
+              </div>
+            </div>
+
+            <div class="table-wrap craft-table-wrap">
+              <table class="craft-result-table">
+                <thead>
+                  <tr>
+                    <th>Material</th>
+                    <th>Vai usar</th>
+                    <th>Tenho</th>
+                    <th>Falta</th>
+                  </tr>
+                </thead>
+                <tbody id="craftTable">
+                  <tr><td colspan="4">Informe uma quantidade para calcular.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel-card craft-recipes-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Transcrição da planilha</p>
+              <h3>Receitas disponíveis</h3>
+            </div>
+          </div>
+          <div class="recipe-grid" id="recipeGrid"></div>
+        </section>
       </section>
     </main>
   </div>
