@@ -1,4 +1,4 @@
-# Kokusai System - pacote corrigido
+# Kokusai Ops
 
 ## Estrutura correta
 - main.py
@@ -20,8 +20,8 @@ python main.py
 
 
 ## Debug
-- A rota `/api/debug-config` mostra se as variáveis do Google Sheets foram lidas.
-- Os erros agora aparecem melhor no front e nos logs do Railway.
+- A rota `/api/debug-config` fica bloqueada por padrão. Ative somente temporariamente com `ENABLE_DEBUG_CONFIG=true`.
+- Erros internos aparecem de forma resumida no navegador e detalhados apenas nos logs do Railway/terminal.
 
 ## Autenticação adicionada
 
@@ -51,11 +51,12 @@ O cálculo é feito no navegador e não salva nada na planilha. O usuário `koku
 
 A aba **Metas** foi adicionada abaixo de **Encomendas**.
 
-Ela usa a aba `Pagamento de Metas` no Google Sheets e mantém apenas:
+Ela usa a aba `Pagamento de Metas` no Google Sheets e mantém apenas o necessário para controle semanal:
 
 - nome da pessoa;
 - status de pagamento: `Sim` ou `Não`;
-- data da última atualização.
+- data da última atualização;
+- semana atual e confirmação de fechamento.
 
 A lista inicial foi transcrita da planilha **NKT - CONTROLE DE META FINANCEIRA.xlsx**, aba `Meta Semanal Padrao`. O usuário `kokusai` pode alterar o status, adicionar nomes e apagar nomes. O usuário `nekutai` apenas visualiza.
 

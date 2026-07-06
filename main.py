@@ -127,8 +127,12 @@ DEFAULT_META_NAMES = [
     "Kyotaka",
 ]
 
+COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
+VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao"]
+ENCOMENDAS_HEADERS = ["id", "data", "quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue", "observacao"]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
+LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
 
 def now_local():
@@ -427,18 +431,14 @@ def get_gsheet_client():
         scopes.append("https://www.googleapis.com/auth/drive")
 
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
-    log_info(f"GOOGLE_CREDENTIALS_JSON presente? {bool(credentials_json)}")
-    log_info(f"SPREADSHEET_ID configurado? {bool(SPREADSHEET_ID)}")
-    log_info(f"COMPRAS_WORKSHEET_NAME={COMPRAS_WORKSHEET_NAME}")
-    log_info(f"VENDAS_WORKSHEET_NAME={VENDAS_WORKSHEET_NAME}")
-    log_info(f"ENCOMENDAS_WORKSHEET_NAME={ENCOMENDAS_WORKSHEET_NAME}")
-    log_info(f"METAS_WORKSHEET_NAME={METAS_WORKSHEET_NAME}")
+    log_info(
+        "Preparando conexão com Google Sheets "
+        f"({'SPREADSHEET_ID' if SPREADSHEET_ID else 'nome da planilha'})."
+    )
 
     try:
         if credentials_json:
             creds_dict = json.loads(credentials_json)
-            client_email = creds_dict.get("client_email", "")
-            log_info(f"Service account em uso: {client_email or 'NÃO ENCONTRADO NO JSON'}")
             creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -499,6 +499,7 @@ def get_or_create_spreadsheet():
                 )
             raise RuntimeError(f"Erro ao abrir/criar planilha: {str(e)}")
 
+
 def ensure_headers(worksheet, headers):
     current_headers = worksheet.row_values(1)
     if not current_headers:
@@ -536,25 +537,17 @@ def get_or_create_worksheet(name, headers):
         _worksheet_cache[name] = worksheet
         return worksheet
 
+
 def get_compras_worksheet():
-    return get_or_create_worksheet(
-        COMPRAS_WORKSHEET_NAME,
-        ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
-    )
+    return get_or_create_worksheet(COMPRAS_WORKSHEET_NAME, COMPRAS_HEADERS)
 
 
 def get_vendas_worksheet():
-    return get_or_create_worksheet(
-        VENDAS_WORKSHEET_NAME,
-        ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao"]
-    )
+    return get_or_create_worksheet(VENDAS_WORKSHEET_NAME, VENDAS_HEADERS)
 
 
 def get_encomendas_worksheet():
-    return get_or_create_worksheet(
-        ENCOMENDAS_WORKSHEET_NAME,
-        ["id", "data", "quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue", "observacao"]
-    )
+    return get_or_create_worksheet(ENCOMENDAS_WORKSHEET_NAME, ENCOMENDAS_HEADERS)
 
 
 def get_metas_worksheet():
@@ -650,7 +643,7 @@ def ensure_metas_schema(worksheet):
 
 def ensure_current_meta_week(worksheet):
     rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-    registros = [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
+    registros = active_meta_rows(rows)
     if not registros:
         return
 
@@ -664,7 +657,7 @@ def ensure_current_meta_week(worksheet):
 
 def archive_and_reset_metas(worksheet, target_start_date=None):
     rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-    registros = [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
+    registros = active_meta_rows(rows)
     if not registros:
         return meta_week_payload(target_start_date or meta_week_start())
 
@@ -712,7 +705,7 @@ def archive_and_reset_metas(worksheet, target_start_date=None):
 
 def maybe_close_week_if_all_confirmed(worksheet, rows=None):
     rows = rows if rows is not None else cached_get_all_values(worksheet.title, worksheet, force=True)
-    registros = [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
+    registros = active_meta_rows(rows)
     if not registros:
         return False, None
 
@@ -745,6 +738,56 @@ def find_row_by_id(worksheet, registro_id):
     return None, None
 
 
+def generate_record_id(prefix):
+    return f"{prefix}-{int(datetime.utcnow().timestamp())}"
+
+
+def sheet_cell(row, index, default=""):
+    return row[index] if len(row) > index else default
+
+
+def row_to_dict(row, headers):
+    return {field: sheet_cell(row, index) for index, field in enumerate(headers)}
+
+
+def latest_data_rows(rows, limit=LIST_LIMIT):
+    data_rows = rows[1:][-limit:] if len(rows) > 1 else []
+    data_rows.reverse()
+    return data_rows
+
+
+def financial_summary(rows, value_index=7):
+    registros = rows[1:] if len(rows) > 1 else []
+    total = 0.0
+
+    for row in registros:
+        try:
+            total += float(sheet_cell(row, value_index, 0) or 0)
+        except (ValueError, TypeError):
+            pass
+
+    return {
+        "total_registros": len(registros),
+        "valor_movimentado": round(total, 2),
+        "ultimo_registro": sheet_cell(registros[-1], 1, "--") if registros else "--",
+    }
+
+
+def encomendas_summary(rows):
+    registros = rows[1:] if len(rows) > 1 else []
+    resumo = financial_summary(rows, value_index=4)
+    entregues = sum(1 for row in registros if str(sheet_cell(row, 7)).strip().lower() == "sim")
+    resumo.update({
+        "entregues": entregues,
+        "pendentes": max(len(registros) - entregues, 0),
+    })
+    return resumo
+
+
+def active_meta_rows(rows):
+    return [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
+
+
 def validate_numeric_fields(data, required_fields):
     if not isinstance(data, dict):
         return False, "JSON inválido."
@@ -772,56 +815,26 @@ def validate_numeric_fields(data, required_fields):
 
 
 def normalize_compra(row):
-    return {
-        "id": row[0] if len(row) > 0 else "",
-        "data": row[1] if len(row) > 1 else "",
-        "produto": row[2] if len(row) > 2 else "",
-        "quem_pediu": row[3] if len(row) > 3 else "",
-        "quem_vendeu": row[4] if len(row) > 4 else "",
-        "valor_unitario": row[5] if len(row) > 5 else "",
-        "quantidade": row[6] if len(row) > 6 else "",
-        "valor_total": row[7] if len(row) > 7 else "",
-        "observacao": row[8] if len(row) > 8 else "",
-    }
+    return row_to_dict(row, COMPRAS_HEADERS)
 
 
 def normalize_venda(row):
-    return {
-        "id": row[0] if len(row) > 0 else "",
-        "data": row[1] if len(row) > 1 else "",
-        "produto": row[2] if len(row) > 2 else "",
-        "quem_compra": row[3] if len(row) > 3 else "",
-        "quem_vende": row[4] if len(row) > 4 else "",
-        "valor_unitario": row[5] if len(row) > 5 else "",
-        "quantidade": row[6] if len(row) > 6 else "",
-        "valor_total": row[7] if len(row) > 7 else "",
-        "observacao": row[8] if len(row) > 8 else "",
-    }
+    return row_to_dict(row, VENDAS_HEADERS)
 
 
 def normalize_encomenda(row):
-    return {
-        "id": row[0] if len(row) > 0 else "",
-        "data": row[1] if len(row) > 1 else "",
-        "quem_pediu": row[2] if len(row) > 2 else "",
-        "o_que_pediu": row[3] if len(row) > 3 else "",
-        "valor": row[4] if len(row) > 4 else "",
-        "para_quando": row[5] if len(row) > 5 else "",
-        "quem_negociou": row[6] if len(row) > 6 else "",
-        "entregue": row[7] if len(row) > 7 else "",
-        "observacao": row[8] if len(row) > 8 else "",
-    }
+    return row_to_dict(row, ENCOMENDAS_HEADERS)
 
 
 def normalize_meta(row):
-    confirmado = str(row[6] if len(row) > 6 else "Não").strip().lower() in ["sim", "s"]
+    confirmado = str(sheet_cell(row, 6, "Não")).strip().lower() in ["sim", "s"]
     return {
-        "id": row[0] if len(row) > 0 else "",
-        "nome": row[1] if len(row) > 1 else "",
-        "pago": validate_yes_no(row[2] if len(row) > 2 else "Não") or "Não",
-        "atualizado_em": row[3] if len(row) > 3 else "",
-        "semana_inicio": row[4] if len(row) > 4 else "",
-        "semana_fim": row[5] if len(row) > 5 else "",
+        "id": sheet_cell(row, 0),
+        "nome": sheet_cell(row, 1),
+        "pago": validate_yes_no(sheet_cell(row, 2, "Não")) or "Não",
+        "atualizado_em": sheet_cell(row, 3),
+        "semana_inicio": sheet_cell(row, 4),
+        "semana_fim": sheet_cell(row, 5),
         "confirmado": confirmado,
     }
 
@@ -929,12 +942,7 @@ def list_compras():
     try:
         worksheet = get_compras_worksheet()
         rows = cached_get_all_values(COMPRAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify([])
-
-        data_rows = rows[1:][-100:]
-        data_rows.reverse()
-        return jsonify([normalize_compra(row) for row in data_rows])
+        return jsonify([normalize_compra(row) for row in latest_data_rows(rows)])
 
     except Exception as e:
         log_error("Falha em /api/compras [GET]", e)
@@ -968,8 +976,8 @@ def create_compra():
         if valor_total > MAX_MONEY_VALUE:
             return error_response("Valor total muito alto.", 400)
 
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        registro_id = f"KKSC-{int(datetime.utcnow().timestamp())}"
+        agora = format_timestamp()
+        registro_id = generate_record_id("KKSC")
 
         worksheet = get_compras_worksheet()
         worksheet.append_row([
@@ -1004,12 +1012,7 @@ def list_vendas():
     try:
         worksheet = get_vendas_worksheet()
         rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify([])
-
-        data_rows = rows[1:][-100:]
-        data_rows.reverse()
-        return jsonify([normalize_venda(row) for row in data_rows])
+        return jsonify([normalize_venda(row) for row in latest_data_rows(rows)])
 
     except Exception as e:
         log_error("Falha em /api/vendas [GET]", e)
@@ -1043,8 +1046,8 @@ def create_venda():
         if valor_total > MAX_MONEY_VALUE:
             return error_response("Valor total muito alto.", 400)
 
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        registro_id = f"KKSV-{int(datetime.utcnow().timestamp())}"
+        agora = format_timestamp()
+        registro_id = generate_record_id("KKSV")
 
         worksheet = get_vendas_worksheet()
         worksheet.append_row([
@@ -1079,26 +1082,7 @@ def resumo_compras():
     try:
         worksheet = get_compras_worksheet()
         rows = cached_get_all_values(COMPRAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify({"total_registros": 0, "valor_movimentado": 0, "ultimo_registro": "--"})
-
-        registros = rows[1:]
-        total = 0.0
-
-        for row in registros:
-            if len(row) > 7 and row[7]:
-                try:
-                    total += float(row[7])
-                except ValueError:
-                    pass
-
-        ultimo = registros[-1][1] if registros else "--"
-
-        return jsonify({
-            "total_registros": len(registros),
-            "valor_movimentado": round(total, 2),
-            "ultimo_registro": ultimo
-        })
+        return jsonify(financial_summary(rows))
 
     except Exception as e:
         log_error("Falha em /api/resumo", e)
@@ -1111,26 +1095,7 @@ def resumo_vendas():
     try:
         worksheet = get_vendas_worksheet()
         rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify({"total_registros": 0, "valor_movimentado": 0, "ultimo_registro": "--"})
-
-        registros = rows[1:]
-        total = 0.0
-
-        for row in registros:
-            if len(row) > 7 and row[7]:
-                try:
-                    total += float(row[7])
-                except ValueError:
-                    pass
-
-        ultimo = registros[-1][1] if registros else "--"
-
-        return jsonify({
-            "total_registros": len(registros),
-            "valor_movimentado": round(total, 2),
-            "ultimo_registro": ultimo
-        })
+        return jsonify(financial_summary(rows))
 
     except Exception as e:
         log_error("Falha em /api/resumo-vendas", e)
@@ -1143,12 +1108,7 @@ def list_encomendas():
     try:
         worksheet = get_encomendas_worksheet()
         rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify([])
-
-        data_rows = rows[1:][-100:]
-        data_rows.reverse()
-        return jsonify([normalize_encomenda(row) for row in data_rows])
+        return jsonify([normalize_encomenda(row) for row in latest_data_rows(rows)])
 
     except Exception as e:
         log_error("Falha em /api/encomendas [GET]", e)
@@ -1195,8 +1155,8 @@ def create_encomenda():
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
-        agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        registro_id = f"KKSE-{int(datetime.utcnow().timestamp())}"
+        agora = format_timestamp()
+        registro_id = generate_record_id("KKSE")
 
         worksheet = get_encomendas_worksheet()
         worksheet.append_row([
@@ -1231,35 +1191,7 @@ def resumo_encomendas():
     try:
         worksheet = get_encomendas_worksheet()
         rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify({"total_registros": 0, "valor_movimentado": 0, "ultimo_registro": "--", "pendentes": 0, "entregues": 0})
-
-        registros = rows[1:]
-        total = 0.0
-        pendentes = 0
-        entregues = 0
-
-        for row in registros:
-            if len(row) > 4 and row[4]:
-                try:
-                    total += float(row[4])
-                except ValueError:
-                    pass
-            status = row[7].strip().lower() if len(row) > 7 else ""
-            if status == "sim":
-                entregues += 1
-            else:
-                pendentes += 1
-
-        ultimo = registros[-1][1] if registros else "--"
-
-        return jsonify({
-            "total_registros": len(registros),
-            "valor_movimentado": round(total, 2),
-            "ultimo_registro": ultimo,
-            "pendentes": pendentes,
-            "entregues": entregues,
-        })
+        return jsonify(encomendas_summary(rows))
 
     except Exception as e:
         log_error("Falha em /api/resumo-encomendas", e)
@@ -1272,11 +1204,7 @@ def list_metas():
     try:
         worksheet = get_metas_worksheet()
         rows = cached_get_all_values(METAS_WORKSHEET_NAME, worksheet)
-        if len(rows) <= 1:
-            return jsonify([])
-
-        data_rows = [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
-        return jsonify([normalize_meta(row) for row in data_rows])
+        return jsonify([normalize_meta(row) for row in active_meta_rows(rows)])
 
     except Exception as e:
         log_error("Falha em /api/metas [GET]", e)
@@ -1289,7 +1217,7 @@ def resumo_metas():
     try:
         worksheet = get_metas_worksheet()
         rows = cached_get_all_values(METAS_WORKSHEET_NAME, worksheet)
-        registros = [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
+        registros = active_meta_rows(rows)
         total = len(registros)
         pagos = 0
         confirmados = 0
@@ -1346,10 +1274,9 @@ def create_meta():
             return error_response("Esse nome já está na lista de metas.", 409)
 
         agora = format_timestamp()
-        rows = cached_get_all_values(worksheet.title, worksheet, force=True)
         semana_inicio = rows[1][4] if len(rows) > 1 and len(rows[1]) > 4 and rows[1][4] else meta_week_payload()["semana_inicio"]
         semana_fim = rows[1][5] if len(rows) > 1 and len(rows[1]) > 5 and rows[1][5] else meta_week_payload()["semana_fim"]
-        registro_id = f"META-{int(datetime.utcnow().timestamp())}"
+        registro_id = generate_record_id("META")
         worksheet.append_row([registro_id, nome, pago, agora, semana_inicio, semana_fim, "Sim"], value_input_option="RAW")
         invalidate_values_cache(METAS_WORKSHEET_NAME)
 
@@ -1446,7 +1373,7 @@ def fechar_semana_metas():
     try:
         worksheet = get_metas_worksheet()
         rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-        registros = [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
+        registros = active_meta_rows(rows)
         if not registros:
             return error_response("Nenhum nome cadastrado para fechar a semana.", 400)
 

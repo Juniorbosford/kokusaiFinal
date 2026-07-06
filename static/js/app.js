@@ -172,6 +172,11 @@ async function parseResponse(res){
   }
 }
 
+async function fetchJson(url, options = {}){
+  const res = await fetch(url, options);
+  return { res, data: await parseResponse(res) };
+}
+
 function inputValue(id){
   return document.getElementById(id)?.value ?? "";
 }
@@ -216,12 +221,11 @@ async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage
 
   try{
     setFeedback(feedbackEl, loadingMessage);
-    const res = await fetch(url, {
+    const {res, data} = await fetchJson(url, {
       method:"POST",
       headers:csrfHeaders({"Content-Type":"application/json"}),
       body:JSON.stringify(payload)
     });
-    const data = await parseResponse(res);
     if(!res.ok){
       setFeedback(feedbackEl, data.error || `Erro ${res.status} ao salvar registro.`, true);
       return false;
@@ -317,12 +321,11 @@ metasTable?.addEventListener("click", async (event) => {
   setFeedback(metasFeedback, `Marcando ${pago.toUpperCase()}...`);
 
   try{
-    const res = await fetch(`/api/metas/${encodeURIComponent(id)}/status`, {
+    const {res, data} = await fetchJson(`/api/metas/${encodeURIComponent(id)}/status`, {
       method:"POST",
       headers:csrfHeaders({"Content-Type":"application/json"}),
       body:JSON.stringify({pago})
     });
-    const data = await parseResponse(res);
     if(!res.ok){
       setFeedback(metasFeedback, data.error || "Erro ao atualizar status.", true);
       await loadMetas();
@@ -353,8 +356,7 @@ metasTable?.addEventListener("click", async (event) => {
   setFeedback(metasFeedback, "Apagando nome da planilha...");
 
   try{
-    const res = await fetch(`/api/metas/${encodeURIComponent(id)}`, {method:"DELETE", headers:csrfHeaders()});
-    const data = await parseResponse(res);
+    const {res, data} = await fetchJson(`/api/metas/${encodeURIComponent(id)}`, {method:"DELETE", headers:csrfHeaders()});
     if(!res.ok){
       setFeedback(metasFeedback, data.error || "Erro ao apagar nome.", true);
       return;
@@ -376,8 +378,7 @@ fecharSemanaBtn?.addEventListener("click", async () => {
   setFeedback(metasFeedback, "Fechando semana e abrindo a próxima...");
 
   try{
-    const res = await fetch("/api/metas/fechar-semana", {method:"POST", headers:csrfHeaders()});
-    const data = await parseResponse(res);
+    const {res, data} = await fetchJson("/api/metas/fechar-semana", {method:"POST", headers:csrfHeaders()});
     if(!res.ok){
       setFeedback(metasFeedback, data.error || "Erro ao fechar semana.", true);
       return;
@@ -501,8 +502,7 @@ clearCraftBtn?.addEventListener("click", () => {
 
 async function loadHealth(){
   try{
-    const res = await fetch("/health");
-    const data = await parseResponse(res);
+    const {data} = await fetchJson("/health");
     document.getElementById("systemStatus").textContent = data.ok ? "Operacional" : "Erro";
   }catch{
     document.getElementById("systemStatus").textContent = "Offline";
@@ -533,8 +533,7 @@ async function loadResumo(){
 
 async function loadCompras(){
   try{
-    const res = await fetch("/api/compras");
-    const data = await parseResponse(res);
+    const {res, data} = await fetchJson("/api/compras");
     if(!res.ok){
       comprasTable.innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`;
       return;
@@ -559,8 +558,7 @@ async function loadCompras(){
 
 async function loadVendas(){
   try{
-    const res = await fetch("/api/vendas");
-    const data = await parseResponse(res);
+    const {res, data} = await fetchJson("/api/vendas");
     if(!res.ok){
       vendasTable.innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`;
       return;
@@ -585,8 +583,7 @@ async function loadVendas(){
 
 async function loadEncomendas(){
   try{
-    const res = await fetch("/api/encomendas");
-    const data = await parseResponse(res);
+    const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
       encomendasTable.innerHTML = `<tr><td colspan="7">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`;
       return;
@@ -615,8 +612,7 @@ async function loadMetas(){
 
   const colspan = canWrite ? 5 : 4;
   try{
-    const res = await fetch("/api/metas");
-    const data = await parseResponse(res);
+    const {res, data} = await fetchJson("/api/metas");
     if(!res.ok){
       metasTable.innerHTML = `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar metas.")}</td></tr>`;
       return;
