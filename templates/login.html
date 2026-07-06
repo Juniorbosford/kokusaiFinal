@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Entrar | Kokusai</title>
+  <title>Entrar | Kokusai Ops</title>
   <meta name="description" content="Login do painel operacional Kokusai." />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,7 +20,7 @@
       <div class="login-brand">
         <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="login-logo" />
         <div>
-          <p class="brand-kicker">Kokusai</p>
+          <p class="brand-kicker">Kokusai Ops</p>
           <h1>Acesso restrito</h1>
           <span>Entre para consultar ou administrar o painel.</span>
         </div>
@@ -31,6 +32,7 @@
 
       <form method="post" class="login-form" autocomplete="on">
         <input type="hidden" name="next" value="{{ next_url }}" />
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
         <div class="field">
           <label for="username">Usuário</label>

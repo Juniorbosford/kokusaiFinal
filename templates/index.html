@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai | Compras, Vendas, Encomendas, Metas e Craft</title>
+  <title>Kokusai Ops | Compras, Vendas, Encomendas, Metas e Craft</title>
   <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, metas e craft no GTARP." />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -47,6 +48,7 @@
         <strong>{{ current_user.display_name }}</strong>
         <span>{{ "Acesso total" if is_admin else "Somente visualização" }}</span>
         <form action="{{ url_for('logout') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
           <button type="submit" class="logout-btn">Sair</button>
         </form>
       </div>
@@ -76,20 +78,6 @@
             </p>
             <div class="access-note {{ current_user.role }}">
               {{ "Você está com permissão total para registrar e consultar movimentações." if is_admin else "Você está em modo somente leitura. Os registros podem ser consultados, mas não alterados." }}
-            </div>
-          </div>
-          <div class="hero-summary" aria-label="Resumo do sistema">
-            <div>
-              <strong>5</strong>
-              <span>módulos ativos</span>
-            </div>
-            <div>
-              <strong>BRL</strong>
-              <span>valores formatados</span>
-            </div>
-            <div>
-              <strong>Live</strong>
-              <span>consulta no backend</span>
             </div>
           </div>
         </div>

@@ -1,6 +1,11 @@
 const navLinks = document.querySelectorAll(".nav-link");
 const views = document.querySelectorAll(".view");
 const canWrite = document.body.dataset.canWrite === "true";
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+
+function csrfHeaders(headers = {}){
+  return csrfToken ? {...headers, "X-CSRF-Token": csrfToken} : headers;
+}
 
 navLinks.forEach(link => {
   link.addEventListener("click", () => {
@@ -213,7 +218,7 @@ async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage
     setFeedback(feedbackEl, loadingMessage);
     const res = await fetch(url, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:csrfHeaders({"Content-Type":"application/json"}),
       body:JSON.stringify(payload)
     });
     const data = await parseResponse(res);
@@ -314,7 +319,7 @@ metasTable?.addEventListener("click", async (event) => {
   try{
     const res = await fetch(`/api/metas/${encodeURIComponent(id)}/status`, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:csrfHeaders({"Content-Type":"application/json"}),
       body:JSON.stringify({pago})
     });
     const data = await parseResponse(res);
@@ -348,7 +353,7 @@ metasTable?.addEventListener("click", async (event) => {
   setFeedback(metasFeedback, "Apagando nome da planilha...");
 
   try{
-    const res = await fetch(`/api/metas/${encodeURIComponent(id)}`, {method:"DELETE"});
+    const res = await fetch(`/api/metas/${encodeURIComponent(id)}`, {method:"DELETE", headers:csrfHeaders()});
     const data = await parseResponse(res);
     if(!res.ok){
       setFeedback(metasFeedback, data.error || "Erro ao apagar nome.", true);
@@ -371,7 +376,7 @@ fecharSemanaBtn?.addEventListener("click", async () => {
   setFeedback(metasFeedback, "Fechando semana e abrindo a próxima...");
 
   try{
-    const res = await fetch("/api/metas/fechar-semana", {method:"POST"});
+    const res = await fetch("/api/metas/fechar-semana", {method:"POST", headers:csrfHeaders()});
     const data = await parseResponse(res);
     if(!res.ok){
       setFeedback(metasFeedback, data.error || "Erro ao fechar semana.", true);

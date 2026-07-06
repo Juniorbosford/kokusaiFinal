@@ -16,7 +16,7 @@ python main.py
 
 ## Como publicar
 - não envie `service_account.json` para o GitHub
-- use `GOOGLE_CREDENTIALS_JSON` no Render
+- use `GOOGLE_CREDENTIALS_JSON` no Railway
 
 
 ## Debug
@@ -64,3 +64,8 @@ Variável opcional no Railway:
 ```txt
 METAS_WORKSHEET_NAME=Pagamento de Metas
 ```
+
+
+## Segurança
+
+Consulte `SECURITY_REVIEW.md` antes de publicar alterações no GitHub/Railway.

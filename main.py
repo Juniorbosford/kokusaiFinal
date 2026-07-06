@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import time
 import threading
+import secrets
 from copy import deepcopy
 from datetime import datetime, timedelta, date, timezone
 from functools import wraps
@@ -19,11 +20,21 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "kokusai-dev-secret-change-this")
+DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
+IS_RAILWAY = bool(
+    os.getenv("RAILWAY_ENVIRONMENT")
+    or os.getenv("RAILWAY_ENVIRONMENT_NAME")
+    or os.getenv("RAILWAY_PROJECT_ID")
+)
+app.secret_key = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=12)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv(
+    "SESSION_COOKIE_SECURE",
+    "true" if IS_RAILWAY else "false",
+).lower() == "true"
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(64 * 1024)))
 
 
 SHEET_NAME = os.getenv("SHEET_NAME", "KokusaiDB")
@@ -48,6 +59,17 @@ _spreadsheet_cache = {"spreadsheet": None}
 _worksheet_cache = {}
 _values_cache = {}
 _meta_maintenance_cache = {"checked_at": 0}
+
+# Proteções simples contra abuso. Como o app roda em poucos usuários,
+# limites curtos já reduzem bastante risco de força bruta e payload gigante.
+LOGIN_ATTEMPTS = {}
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "900"))
+MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
+MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
+MAX_QUANTITY = int(os.getenv("MAX_QUANTITY", "1000000"))
+MAX_MONEY_VALUE = float(os.getenv("MAX_MONEY_VALUE", "1000000000"))
+SHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
 # Usuários do sistema. As senhas não ficam salvas em texto puro: são hashes PBKDF2-SHA256.
@@ -208,6 +230,72 @@ def safe_next_url(target):
     return url_for("home")
 
 
+def get_csrf_token():
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+def csrf_error_if_invalid():
+    sent = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
+    expected = session.get("csrf_token")
+    if not sent or not expected or not hmac.compare_digest(str(sent), str(expected)):
+        return error_response("Token de segurança inválido. Atualize a página e tente novamente.", 403)
+    return None
+
+
+def get_client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip()
+    return request.remote_addr or "unknown"
+
+
+def login_attempt_key(username):
+    return f"{get_client_ip()}:{str(username or '').lower()}"
+
+
+def is_login_limited(key):
+    now = time.time()
+    with _sheets_lock:
+        attempts = [ts for ts in LOGIN_ATTEMPTS.get(key, []) if now - ts < LOGIN_WINDOW_SECONDS]
+        LOGIN_ATTEMPTS[key] = attempts
+        return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+
+def record_failed_login(key):
+    now = time.time()
+    with _sheets_lock:
+        attempts = [ts for ts in LOGIN_ATTEMPTS.get(key, []) if now - ts < LOGIN_WINDOW_SECONDS]
+        attempts.append(now)
+        LOGIN_ATTEMPTS[key] = attempts
+
+
+def clear_login_attempts(key):
+    with _sheets_lock:
+        LOGIN_ATTEMPTS.pop(key, None)
+
+
+def clean_text(value, field_name="Campo", max_length=MAX_TEXT_LENGTH, required=False):
+    text = str(value or "").replace("\x00", "").strip()
+    text = "".join(ch for ch in text if ch in "\n\t" or ord(ch) >= 32)
+
+    if required and not text:
+        raise ValueError(f"{field_name} é obrigatório.")
+    if len(text) > max_length:
+        raise ValueError(f"{field_name} deve ter no máximo {max_length} caracteres.")
+    if text.startswith(SHEET_FORMULA_PREFIXES):
+        # Evita que dados digitados por usuário virem fórmula no Google Sheets.
+        return "'" + text
+    return text
+
+
+def clean_text_field(data, key, label=None, max_length=MAX_TEXT_LENGTH, required=True):
+    return clean_text(data.get(key, ""), label or key, max_length=max_length, required=required)
+
+
 def require_login(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -230,6 +318,10 @@ def require_admin(view):
             return redirect(url_for("login", next=request.path))
         if user["role"] != "admin":
             return error_response("Seu usuário tem acesso somente para visualização.", 403)
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            csrf_error = csrf_error_if_invalid()
+            if csrf_error:
+                return csrf_error
         return view(*args, **kwargs)
 
     return wrapped
@@ -246,7 +338,34 @@ def inject_auth_context():
     return {
         "current_user": user,
         "is_admin": bool(user and user.get("role") == "admin"),
+        "csrf_token": get_csrf_token(),
     }
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=()",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'",
+    )
+    if app.config.get("SESSION_COOKIE_SECURE"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
 
 
 def log_info(message):
@@ -259,6 +378,9 @@ def log_error(context, error):
 
 
 def error_response(message, status=500, details=None):
+    if status >= 500:
+        message = "Erro interno no servidor. Confira os logs do Railway ou do terminal local."
+        details = None
     payload = {"ok": False, "error": message}
     if details:
         payload["details"] = details
@@ -298,10 +420,11 @@ def get_gsheet_client():
         if _gsheet_client_cache.get("client") is not None:
             return _gsheet_client_cache["client"]
 
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    # Escopo do Drive só é necessário quando o app abre/cria planilha pelo nome.
+    # Em produção, prefira SPREADSHEET_ID para reduzir permissões da service account.
+    if not SPREADSHEET_ID:
+        scopes.append("https://www.googleapis.com/auth/drive")
 
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
     log_info(f"GOOGLE_CREDENTIALS_JSON presente? {bool(credentials_json)}")
@@ -469,7 +592,7 @@ def seed_metas_if_empty(worksheet):
             for index, nome in enumerate(DEFAULT_META_NAMES, start=1)
         ]
         if seed_rows:
-            worksheet.append_rows(seed_rows, value_input_option="USER_ENTERED")
+            worksheet.append_rows(seed_rows, value_input_option="RAW")
             invalidate_values_cache(worksheet.title)
             log_info(f"Aba de metas populada com {len(seed_rows)} nomes iniciais.")
     except Exception as e:
@@ -520,7 +643,7 @@ def ensure_metas_schema(worksheet):
         updated_rows.append(padded[:len(META_HEADERS)])
 
     if changed and updated_rows:
-        worksheet.update(f"A2:G{len(updated_rows) + 1}", updated_rows, value_input_option="USER_ENTERED")
+        worksheet.update(f"A2:G{len(updated_rows) + 1}", updated_rows, value_input_option="RAW")
         invalidate_values_cache(worksheet.title)
         log_info("Aba de metas atualizada para o formato semanal.")
 
@@ -562,7 +685,7 @@ def archive_and_reset_metas(worksheet, target_start_date=None):
 
     if history_rows:
         historico = get_historico_metas_worksheet()
-        historico.append_rows(history_rows, value_input_option="USER_ENTERED")
+        historico.append_rows(history_rows, value_input_option="RAW")
         invalidate_values_cache(historico.title)
 
     if target_start_date is None:
@@ -582,7 +705,7 @@ def archive_and_reset_metas(worksheet, target_start_date=None):
             "Não",
         ])
 
-    worksheet.update(f"A2:G{len(reset_rows) + 1}", reset_rows, value_input_option="USER_ENTERED")
+    worksheet.update(f"A2:G{len(reset_rows) + 1}", reset_rows, value_input_option="RAW")
     invalidate_values_cache(worksheet.title)
     return week
 
@@ -638,8 +761,12 @@ def validate_numeric_fields(data, required_fields):
 
     if quantidade <= 0:
         return False, "Quantidade deve ser maior que zero."
+    if quantidade > MAX_QUANTITY:
+        return False, f"Quantidade deve ser no máximo {MAX_QUANTITY}."
     if valor_unitario < 0:
         return False, "Valor unitário não pode ser negativo."
+    if valor_unitario > MAX_MONEY_VALUE:
+        return False, "Valor unitário muito alto."
 
     return True, ""
 
@@ -714,16 +841,30 @@ def login():
     next_url = safe_next_url(request.args.get("next"))
 
     if request.method == "POST":
+        csrf_error = csrf_error_if_invalid()
+        if csrf_error:
+            error = "Sessão de login expirada. Atualize a página e tente novamente."
+            return render_template("login.html", error=error, next_url=next_url), 403
+
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "")
+        key = login_attempt_key(username)
+
+        if is_login_limited(key):
+            error = "Muitas tentativas de login. Aguarde alguns minutos e tente novamente."
+            return render_template("login.html", error=error, next_url=next_url), 429
+
         user = AUTH_USERS.get(username)
 
         if user and verify_password(password, user["password_hash"]):
             session.clear()
             session.permanent = True
             session["username"] = username
+            get_csrf_token()
+            clear_login_attempts(key)
             return redirect(safe_next_url(request.form.get("next") or next_url))
 
+        record_failed_login(key)
         error = "Usuário ou senha inválidos."
 
     return render_template("login.html", error=error, next_url=next_url)
@@ -731,6 +872,10 @@ def login():
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
+    if request.method == "POST":
+        csrf_error = csrf_error_if_invalid()
+        if csrf_error:
+            return csrf_error
     session.clear()
     return redirect(url_for("login"))
 
@@ -745,20 +890,17 @@ def current_session():
 def health():
     return jsonify({
         "ok": True,
-        "service": "kokusai-system-final",
+        "service": "kokusai-system",
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "spreadsheet_id_configured": bool(SPREADSHEET_ID),
-        "compras_worksheet": COMPRAS_WORKSHEET_NAME,
-        "vendas_worksheet": VENDAS_WORKSHEET_NAME,
-        "encomendas_worksheet": ENCOMENDAS_WORKSHEET_NAME,
-        "metas_worksheet": METAS_WORKSHEET_NAME,
-        "historico_metas_worksheet": HISTORICO_METAS_WORKSHEET_NAME,
     })
 
 
 @app.get("/api/debug-config")
 @require_admin
 def debug_config():
+    if os.getenv("ENABLE_DEBUG_CONFIG", "false").lower() != "true":
+        return error_response("Rota de diagnóstico desativada em produção.", 404)
+
     credentials_json = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
     client_email = None
     if credentials_json:
@@ -769,7 +911,7 @@ def debug_config():
 
     return jsonify({
         "ok": True,
-        "spreadsheet_id": SPREADSHEET_ID,
+        "spreadsheet_id_configured": bool(SPREADSHEET_ID),
         "sheet_name": SHEET_NAME,
         "compras_worksheet": COMPRAS_WORKSHEET_NAME,
         "vendas_worksheet": VENDAS_WORKSHEET_NAME,
@@ -812,9 +954,20 @@ def create_compra():
         if not ok:
             return error_response(message, 400)
 
+        try:
+            produto = clean_text_field(data, "produto", "Produto")
+            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            quem_vendeu = clean_text_field(data, "quem_vendeu", "Quem vendeu")
+            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
         valor_total = round(quantidade * valor_unitario, 2)
+        if valor_total > MAX_MONEY_VALUE:
+            return error_response("Valor total muito alto.", 400)
+
         agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         registro_id = f"KKSC-{int(datetime.utcnow().timestamp())}"
 
@@ -822,14 +975,14 @@ def create_compra():
         worksheet.append_row([
             registro_id,
             agora,
-            data["produto"].strip(),
-            data["quem_pediu"].strip(),
-            data["quem_vendeu"].strip(),
+            produto,
+            quem_pediu,
+            quem_vendeu,
             valor_unitario,
             quantidade,
             valor_total,
-            data.get("observacao", "").strip(),
-        ])
+            observacao,
+        ], value_input_option="RAW")
         invalidate_values_cache(COMPRAS_WORKSHEET_NAME)
         log_info(f"Compra registrada com sucesso. ID={registro_id}")
 
@@ -876,9 +1029,20 @@ def create_venda():
         if not ok:
             return error_response(message, 400)
 
+        try:
+            produto = clean_text_field(data, "produto", "Produto")
+            quem_compra = clean_text_field(data, "quem_compra", "Quem compra")
+            quem_vende = clean_text_field(data, "quem_vende", "Quem vende")
+            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
         valor_total = round(quantidade * valor_unitario, 2)
+        if valor_total > MAX_MONEY_VALUE:
+            return error_response("Valor total muito alto.", 400)
+
         agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         registro_id = f"KKSV-{int(datetime.utcnow().timestamp())}"
 
@@ -886,14 +1050,14 @@ def create_venda():
         worksheet.append_row([
             registro_id,
             agora,
-            data["produto"].strip(),
-            data["quem_compra"].strip(),
-            data["quem_vende"].strip(),
+            produto,
+            quem_compra,
+            quem_vende,
             valor_unitario,
             quantidade,
             valor_total,
-            data.get("observacao", "").strip(),
-        ])
+            observacao,
+        ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
         log_info(f"Venda registrada com sucesso. ID={registro_id}")
 
@@ -1012,6 +1176,8 @@ def create_encomenda():
 
         if valor < 0:
             return error_response("O valor da encomenda não pode ser negativo.", 400)
+        if valor > MAX_MONEY_VALUE:
+            return error_response("Valor da encomenda muito alto.", 400)
 
         entregue = str(data["entregue"]).strip().capitalize()
         if entregue not in ["Sim", "Não", "Nao"]:
@@ -1020,6 +1186,15 @@ def create_encomenda():
         if entregue == "Nao":
             entregue = "Não"
 
+        try:
+            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
+            para_quando = clean_text_field(data, "para_quando", "Para quando")
+            quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
+            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
         agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
         registro_id = f"KKSE-{int(datetime.utcnow().timestamp())}"
 
@@ -1027,14 +1202,14 @@ def create_encomenda():
         worksheet.append_row([
             registro_id,
             agora,
-            data["quem_pediu"].strip(),
-            data["o_que_pediu"].strip(),
+            quem_pediu,
+            o_que_pediu,
             round(valor, 2),
-            data["para_quando"].strip(),
-            data["quem_negociou"].strip(),
+            para_quando,
+            quem_negociou,
             entregue,
-            data.get("observacao", "").strip(),
-        ])
+            observacao,
+        ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
 
@@ -1158,11 +1333,11 @@ def create_meta():
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
-        nome = str(data.get("nome", "")).strip()
+        try:
+            nome = clean_text_field(data, "nome", "Nome")
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
         pago = validate_yes_no(data.get("pago", "Não")) or "Não"
-
-        if not nome:
-            return error_response("Informe o nome da pessoa.", 400)
 
         worksheet = get_metas_worksheet()
         rows = cached_get_all_values(worksheet.title, worksheet, force=True)
@@ -1175,7 +1350,7 @@ def create_meta():
         semana_inicio = rows[1][4] if len(rows) > 1 and len(rows[1]) > 4 and rows[1][4] else meta_week_payload()["semana_inicio"]
         semana_fim = rows[1][5] if len(rows) > 1 and len(rows[1]) > 5 and rows[1][5] else meta_week_payload()["semana_fim"]
         registro_id = f"META-{int(datetime.utcnow().timestamp())}"
-        worksheet.append_row([registro_id, nome, pago, agora, semana_inicio, semana_fim, "Sim"], value_input_option="USER_ENTERED")
+        worksheet.append_row([registro_id, nome, pago, agora, semana_inicio, semana_fim, "Sim"], value_input_option="RAW")
         invalidate_values_cache(METAS_WORKSHEET_NAME)
 
         return jsonify({
@@ -1217,7 +1392,7 @@ def update_meta_status(registro_id):
         agora = format_timestamp()
         semana_inicio = row[4] if len(row) > 4 and row[4] else meta_week_payload()["semana_inicio"]
         semana_fim = row[5] if len(row) > 5 and row[5] else meta_week_payload()["semana_fim"]
-        worksheet.update(f"C{row_index}:G{row_index}", [[pago, agora, semana_inicio, semana_fim, "Sim"]], value_input_option="USER_ENTERED")
+        worksheet.update(f"C{row_index}:G{row_index}", [[pago, agora, semana_inicio, semana_fim, "Sim"]], value_input_option="RAW")
         invalidate_values_cache(METAS_WORKSHEET_NAME)
 
         updated_rows = deepcopy(rows)
@@ -1291,4 +1466,6 @@ def fechar_semana_metas():
 
 if __name__ == "__main__":
     log_info("Iniciando aplicação Kokusai...")
+    if app.secret_key == DEFAULT_SECRET_KEY:
+        log_info("ATENÇÃO: SECRET_KEY padrão em uso. Configure SECRET_KEY no Railway antes de publicar.")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
