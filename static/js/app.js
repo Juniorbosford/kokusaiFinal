@@ -140,10 +140,19 @@ function updateLastSync(){
 }
 
 function deliveryBadge(value){
-  const label = escapeHtml(value || "Não informado");
-  const normalized = String(value || "").trim().toLowerCase();
-  const cls = normalized === "sim" ? "success" : "pending";
-  return `<span class="status-badge ${cls}">${label}</span>`;
+  const normalized = String(value || "Não").trim().toLowerCase();
+  const delivered = normalized === "sim";
+  return `<span class="status-badge ${delivered ? "success" : "pending"}">${delivered ? "SIM" : "NÃO"}</span>`;
+}
+
+function deliveryControl(item){
+  const delivered = String(item.entregue || "Não").trim().toLowerCase() === "sim";
+  if(!canWrite) return deliveryBadge(item.entregue);
+
+  return `<div class="payment-toggle-group delivery-toggle" aria-label="Entrega de ${escapeHtml(item.o_que_pediu || "encomenda")}">
+    <button type="button" class="payment-choice ${delivered ? "active success" : ""}" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Sim">SIM</button>
+    <button type="button" class="payment-choice ${!delivered ? "active pending" : ""}" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Não">NÃO</button>
+  </div>`;
 }
 
 function paymentBadge(value){
@@ -291,6 +300,39 @@ encomendaForm?.addEventListener("submit", async (e) => {
   if(ok){
     encomendaForm.reset();
     updatePreviewEncomenda();
+  }
+});
+
+encomendasTable?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-encomenda-entrega]");
+  if(!button || !canWrite) return;
+
+  const id = button.dataset.encomendaEntrega;
+  const entregue = button.dataset.encomendaChoice;
+  const row = button.closest("tr");
+  const buttons = row ? row.querySelectorAll("[data-encomenda-entrega]") : [button];
+  buttons.forEach(btn => btn.disabled = true);
+  setFeedback(encomendaFeedback, `Atualizando entrega para ${entregue.toUpperCase()}...`);
+
+  try{
+    const {res, data} = await fetchJson(`/api/encomendas/${encodeURIComponent(id)}/entrega`, {
+      method:"POST",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify({entregue})
+    });
+
+    if(!res.ok){
+      setFeedback(encomendaFeedback, data.error || "Erro ao atualizar entrega.", true);
+      await loadEncomendas();
+      return;
+    }
+
+    setFeedback(encomendaFeedback, data.message || "Status de entrega atualizado.");
+    await Promise.all([loadEncomendas(), loadResumo()]);
+  }catch(error){
+    setFeedback(encomendaFeedback, `Falha ao atualizar entrega: ${error.message}`, true);
+  }finally{
+    buttons.forEach(btn => btn.disabled = false);
   }
 });
 
@@ -582,14 +624,17 @@ async function loadVendas(){
 }
 
 async function loadEncomendas(){
+  if(!encomendasTable) return;
+
+  const colspan = 8;
   try{
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
-      encomendasTable.innerHTML = `<tr><td colspan="7">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`;
+      encomendasTable.innerHTML = `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`;
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      encomendasTable.innerHTML = `<tr><td colspan="7">Nenhuma encomenda registrada.</td></tr>`;
+      encomendasTable.innerHTML = `<tr><td colspan="${colspan}">Nenhuma encomenda registrada.</td></tr>`;
       return;
     }
     encomendasTable.innerHTML = data.map(item => `
@@ -599,11 +644,12 @@ async function loadEncomendas(){
         <td>${escapeHtml(item.o_que_pediu)}</td>
         <td>${escapeHtml(item.para_quando)}</td>
         <td>${escapeHtml(item.quem_negociou)}</td>
-        <td>${deliveryBadge(item.entregue)}</td>
+        <td>${deliveryControl(item)}</td>
+        <td class="delivered-at-cell">${escapeHtml(item.entregue_em || "--")}</td>
         <td>${currency(item.valor)}</td>
       </tr>`).join("");
   }catch(error){
-    encomendasTable.innerHTML = `<tr><td colspan="7">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`;
+    encomendasTable.innerHTML = `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`;
   }
 }
 

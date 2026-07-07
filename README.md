@@ -1,4 +1,4 @@
-# Kokusai Ops
+# Kokusai
 
 ## Estrutura correta
 - main.py

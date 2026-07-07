@@ -657,3 +657,9 @@ table.craft-result-table{min-width:650px}
   .meta-kpi-grid{grid-template-columns:1fr}
   .payment-toggle-group{display:flex;flex-wrap:wrap}
 }
+.delivered-at-cell{
+  min-width:140px;
+  color:var(--muted-strong);
+  font-weight:700;
+}
+.delivery-toggle{white-space:nowrap}

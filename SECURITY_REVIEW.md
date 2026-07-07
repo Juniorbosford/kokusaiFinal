@@ -1,4 +1,4 @@
-# Revisão de segurança - Kokusai Ops
+# Revisão de segurança - Kokusai
 
 ## Pontos corrigidos nesta versão
 

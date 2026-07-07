@@ -129,7 +129,18 @@ DEFAULT_META_NAMES = [
 
 COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
 VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao"]
-ENCOMENDAS_HEADERS = ["id", "data", "quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue", "observacao"]
+ENCOMENDAS_HEADERS = [
+    "id",
+    "data",
+    "quem_pediu",
+    "o_que_pediu",
+    "valor",
+    "para_quando",
+    "quem_negociou",
+    "entregue",
+    "observacao",
+    "entregue_em",
+]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
@@ -823,7 +834,9 @@ def normalize_venda(row):
 
 
 def normalize_encomenda(row):
-    return row_to_dict(row, ENCOMENDAS_HEADERS)
+    item = row_to_dict(row, ENCOMENDAS_HEADERS)
+    item["entregue"] = validate_yes_no(item.get("entregue")) or "Não"
+    return item
 
 
 def normalize_meta(row):
@@ -1169,6 +1182,7 @@ def create_encomenda():
             quem_negociou,
             entregue,
             observacao,
+            agora if entregue == "Sim" else "",
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -1182,6 +1196,49 @@ def create_encomenda():
 
     except Exception as e:
         log_error("Falha em /api/encomendas [POST]", e)
+        return error_response(str(e))
+
+
+@app.post("/api/encomendas/<registro_id>/entrega")
+@require_admin
+def update_encomenda_entrega(registro_id):
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+
+        entregue = validate_yes_no(data.get("entregue"))
+        if not entregue:
+            return error_response("A entrega deve ser somente 'Sim' ou 'Não'.", 400)
+
+        worksheet = get_encomendas_worksheet()
+        row_index, row = find_row_by_id(worksheet, registro_id)
+        if not row_index:
+            return error_response("Encomenda não encontrada.", 404)
+
+        while len(row) < len(ENCOMENDAS_HEADERS):
+            row.append("")
+
+        entregue_em_atual = row[9] if len(row) > 9 else ""
+        entregue_em = entregue_em_atual
+        if entregue == "Sim" and not str(entregue_em_atual or "").strip():
+            entregue_em = format_timestamp()
+        elif entregue == "Não":
+            entregue_em = ""
+
+        worksheet.update(f"H{row_index}:J{row_index}", [[entregue, row[8] if len(row) > 8 else "", entregue_em]], value_input_option="RAW")
+        invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
+
+        return jsonify({
+            "ok": True,
+            "message": "Status de entrega atualizado.",
+            "id": registro_id,
+            "entregue": entregue,
+            "entregue_em": entregue_em,
+        })
+
+    except Exception as e:
+        log_error("Falha em /api/encomendas/<id>/entrega [POST]", e)
         return error_response(str(e))
 
 
