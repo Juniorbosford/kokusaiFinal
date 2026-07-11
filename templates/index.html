@@ -205,7 +205,7 @@
             </div>
 
             <div class="table-wrap">
-              <table>
+              <table class="responsive-table">
                 <thead>
                   <tr>
                     <th>Data</th>
@@ -302,7 +302,7 @@
             </div>
 
             <div class="table-wrap">
-              <table>
+              <table class="responsive-table">
                 <thead>
                   <tr>
                     <th>Data</th>
@@ -326,7 +326,7 @@
             <p class="eyebrow">Módulo de encomendas</p>
             <h3>Registrar e acompanhar entregas</h3>
           </div>
-          <p>Organize pedidos combinados, responsáveis pela negociação, prazo e status de entrega.</p>
+          <p>Organize os pedidos pendentes. Ao confirmar uma entrega, o registro sai daqui e entra automaticamente em Vendas.</p>
         </div>
 
         <div class="section-grid">
@@ -366,11 +366,11 @@
               </div>
 
               <div class="field">
-                <label for="e_entregue">Já foi entregue?</label>
+                <label for="e_entregue">Status inicial</label>
                 <select id="e_entregue" required>
                   <option value="">Selecione</option>
-                  <option value="Sim">Sim</option>
-                  <option value="Não">Não</option>
+                  <option value="Não">Pendente — manter em Encomendas</option>
+                  <option value="Sim">Já entregue — registrar direto em Vendas</option>
                 </select>
               </div>
 
@@ -408,7 +408,7 @@
             </div>
 
             <div class="table-wrap">
-              <table>
+              <table class="responsive-table encomendas-table">
                 <thead>
                   <tr>
                     <th>Data</th>
@@ -416,9 +416,8 @@
                     <th>O que pediu</th>
                     <th>Pra quando</th>
                     <th>Negociou</th>
-                    <th>Entrega</th>
-                    <th>Entregue em</th>
                     <th>Valor</th>
+                    <th>Ação</th>
                   </tr>
                 </thead>
                 <tbody id="encomendasTable"></tbody>
@@ -509,7 +508,7 @@
             </div>
 
             <div class="table-wrap metas-table-wrap">
-              <table class="spreadsheet-table metas-sheet-table">
+              <table class="spreadsheet-table metas-sheet-table responsive-table">
                 <thead>
                   <tr>
                     <th class="sheet-index-col">#</th>
@@ -606,7 +605,7 @@
             </div>
 
             <div class="table-wrap craft-table-wrap">
-              <table class="craft-result-table">
+              <table class="craft-result-table responsive-table">
                 <thead>
                   <tr>
                     <th>Material</th>

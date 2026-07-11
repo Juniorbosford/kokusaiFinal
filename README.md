@@ -66,6 +66,18 @@ Variável opcional no Railway:
 METAS_WORKSHEET_NAME=Pagamento de Metas
 ```
 
+## Fluxo de encomendas e vendas
+
+- Encomendas pendentes permanecem na aba **Encomendas**.
+- Ao clicar em **Confirmar entrega**, o registro é criado na aba **Vendas** e removido de **Encomendas**.
+- Uma encomenda cadastrada inicialmente como já entregue é registrada diretamente em **Vendas**.
+- Pedidos escritos como `15 L85` ou `15x L85` são convertidos para produto `L85` e quantidade `15`. Sem quantidade explícita, o sistema usa quantidade `1`.
+- A conversão usa um ID estável para evitar venda duplicada caso a exclusão da encomenda precise ser tentada novamente.
+
+## Layout responsivo
+
+Os formulários e históricos agora usam toda a largura disponível. Em telas menores, as linhas das tabelas viram cartões, evitando barras de rolagem horizontal nas abas Compras, Vendas, Encomendas, Metas e Craft.
+
 
 ## Segurança
 

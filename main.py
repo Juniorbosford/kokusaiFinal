@@ -4,6 +4,7 @@ import traceback
 import base64
 import hashlib
 import hmac
+import re
 import time
 import threading
 import secrets
@@ -750,7 +751,8 @@ def find_row_by_id(worksheet, registro_id):
 
 
 def generate_record_id(prefix):
-    return f"{prefix}-{int(datetime.utcnow().timestamp())}"
+    timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    return f"{prefix}-{timestamp_ms}-{secrets.token_hex(2).upper()}"
 
 
 def sheet_cell(row, index, default=""):
@@ -837,6 +839,68 @@ def normalize_encomenda(row):
     item = row_to_dict(row, ENCOMENDAS_HEADERS)
     item["entregue"] = validate_yes_no(item.get("entregue")) or "Não"
     return item
+
+
+ENCOMENDA_ITEM_PATTERN = re.compile(r"^\s*(\d+)(?:\s*x\s*|\s+)(.+?)\s*$", re.IGNORECASE)
+
+
+def parse_encomenda_item(item_text):
+    """Extrai quantidade e produto quando o pedido começa com um número.
+
+    Ex.: "15 L85" ou "15x L85" vira quantidade 15 e produto "L85".
+    Quando não há quantidade explícita, a venda é registrada com quantidade 1.
+    """
+    text = str(item_text or "").strip()
+    match = ENCOMENDA_ITEM_PATTERN.match(text)
+    if not match:
+        return 1, text
+
+    try:
+        quantidade = int(match.group(1))
+    except (TypeError, ValueError):
+        return 1, text
+
+    produto = match.group(2).strip()
+    if quantidade <= 0 or quantidade > MAX_QUANTITY or not produto:
+        return 1, text
+    return quantidade, produto
+
+
+def venda_id_from_encomenda(encomenda_id):
+    """Gera um ID estável para impedir venda duplicada em uma nova tentativa."""
+    return f"KKSV-ENC-{str(encomenda_id or '').strip()}"
+
+
+def build_venda_row_from_encomenda(item, entregue_em=None):
+    quantidade, produto = parse_encomenda_item(item.get("o_que_pediu"))
+    valor_total = round(float(item.get("valor") or 0), 2)
+    valor_unitario = round(valor_total / quantidade, 2) if quantidade else valor_total
+    encomenda_id = str(item.get("id") or "").strip()
+    prazo = str(item.get("para_quando") or "").strip()
+    observacao_original = str(item.get("observacao") or "").strip()
+
+    detalhes = [f"Convertida da encomenda {encomenda_id}."]
+    if prazo:
+        detalhes.append(f"Prazo combinado: {prazo}.")
+    observacao = " ".join(filter(None, [observacao_original, *detalhes]))
+    observacao = observacao[:MAX_OBSERVATION_LENGTH]
+
+    return [
+        venda_id_from_encomenda(encomenda_id),
+        entregue_em or format_timestamp(),
+        produto,
+        str(item.get("quem_pediu") or "").strip(),
+        str(item.get("quem_negociou") or "").strip(),
+        valor_unitario,
+        quantidade,
+        valor_total,
+        observacao,
+    ]
+
+
+def worksheet_has_record_id(worksheet, registro_id):
+    rows = cached_get_all_values(worksheet.title, worksheet, force=True)
+    return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
 
 
 def normalize_meta(row):
@@ -1171,6 +1235,35 @@ def create_encomenda():
         agora = format_timestamp()
         registro_id = generate_record_id("KKSE")
 
+        encomenda_item = {
+            "id": registro_id,
+            "data": agora,
+            "quem_pediu": quem_pediu,
+            "o_que_pediu": o_que_pediu,
+            "valor": round(valor, 2),
+            "para_quando": para_quando,
+            "quem_negociou": quem_negociou,
+            "entregue": entregue,
+            "observacao": observacao,
+            "entregue_em": agora if entregue == "Sim" else "",
+        }
+
+        if entregue == "Sim":
+            vendas_worksheet = get_vendas_worksheet()
+            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=agora)
+            vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+            invalidate_values_cache(VENDAS_WORKSHEET_NAME)
+            log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={registro_id}")
+
+            return jsonify({
+                "ok": True,
+                "message": "Encomenda entregue e registrada diretamente em Vendas.",
+                "id": registro_id,
+                "venda_id": venda_row[0],
+                "valor": round(valor, 2),
+                "moved_to_vendas": True,
+            }), 201
+
         worksheet = get_encomendas_worksheet()
         worksheet.append_row([
             registro_id,
@@ -1182,7 +1275,7 @@ def create_encomenda():
             quem_negociou,
             entregue,
             observacao,
-            agora if entregue == "Sim" else "",
+            "",
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -1192,6 +1285,7 @@ def create_encomenda():
             "message": "Encomenda salva com sucesso.",
             "id": registro_id,
             "valor": round(valor, 2),
+            "moved_to_vendas": False,
         }), 201
 
     except Exception as e:
@@ -1211,30 +1305,57 @@ def update_encomenda_entrega(registro_id):
         if not entregue:
             return error_response("A entrega deve ser somente 'Sim' ou 'Não'.", 400)
 
-        worksheet = get_encomendas_worksheet()
-        row_index, row = find_row_by_id(worksheet, registro_id)
-        if not row_index:
-            return error_response("Encomenda não encontrada.", 404)
+        with _sheets_lock:
+            worksheet = get_encomendas_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Encomenda não encontrada.", 404)
 
-        while len(row) < len(ENCOMENDAS_HEADERS):
-            row.append("")
+            while len(row) < len(ENCOMENDAS_HEADERS):
+                row.append("")
 
-        entregue_em_atual = row[9] if len(row) > 9 else ""
-        entregue_em = entregue_em_atual
-        if entregue == "Sim" and not str(entregue_em_atual or "").strip():
-            entregue_em = format_timestamp()
-        elif entregue == "Não":
-            entregue_em = ""
+            if entregue == "Não":
+                worksheet.update(
+                    f"H{row_index}:J{row_index}",
+                    [["Não", row[8] if len(row) > 8 else "", ""]],
+                    value_input_option="RAW",
+                )
+                invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
+                return jsonify({
+                    "ok": True,
+                    "message": "Encomenda mantida como pendente.",
+                    "id": registro_id,
+                    "entregue": "Não",
+                    "entregue_em": "",
+                    "moved_to_vendas": False,
+                })
 
-        worksheet.update(f"H{row_index}:J{row_index}", [[entregue, row[8] if len(row) > 8 else "", entregue_em]], value_input_option="RAW")
-        invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
+            entregue_em = str(row[9] or "").strip() or format_timestamp()
+            encomenda_item = normalize_encomenda(row)
+            encomenda_item["entregue"] = "Sim"
+            encomenda_item["entregue_em"] = entregue_em
+
+            vendas_worksheet = get_vendas_worksheet()
+            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=entregue_em)
+            venda_id = venda_row[0]
+
+            # Se a gravação da venda tiver ocorrido e a exclusão da encomenda falhar,
+            # uma nova tentativa apenas conclui a exclusão, sem duplicar a venda.
+            if not worksheet_has_record_id(vendas_worksheet, venda_id):
+                vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+
+            worksheet.delete_rows(row_index)
+            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+            log_info(f"Encomenda movida para Vendas. Encomenda={registro_id} Venda={venda_id}")
 
         return jsonify({
             "ok": True,
-            "message": "Status de entrega atualizado.",
+            "message": "Entrega confirmada. A encomenda foi movida para Vendas.",
             "id": registro_id,
-            "entregue": entregue,
+            "venda_id": venda_id,
+            "entregue": "Sim",
             "entregue_em": entregue_em,
+            "moved_to_vendas": True,
         })
 
     except Exception as e:

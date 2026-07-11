@@ -1,30 +1,37 @@
 # Revisão de qualidade - Kokusai
 
-Esta versão recebeu uma limpeza conservadora para reduzir repetição sem alterar o comportamento do site.
+## Ajustes desta versão
 
-## Ajustes feitos
+- Removida a limitação de largura do conteúdo principal.
+- Formulários e históricos passam a ocupar toda a largura disponível.
+- Todas as tabelas ficam responsivas e viram cartões em telas menores, sem rolagem horizontal.
+- A tabela de encomendas foi simplificada para exibir apenas os dados necessários e a ação de confirmar entrega.
+- Ao confirmar uma entrega, a encomenda é convertida em venda e removida da aba de encomendas.
+- Encomendas cadastradas como já entregues vão diretamente para vendas.
+- A conversão reconhece quantidade em textos como `15 L85` e `15x L85`.
+- O fluxo é idempotente: uma repetição após falha parcial não duplica a venda.
+- IDs novos receberam milissegundos e sufixo aleatório para reduzir colisões.
 
-- Centralizados os cabeçalhos das abas do Google Sheets em constantes.
-- Criados helpers para normalizar linhas, gerar IDs, limitar listas e calcular resumos financeiros.
-- Reduzida repetição nos endpoints de listagem e resumo de compras/vendas/encomendas.
-- Removida uma leitura duplicada da aba de metas ao adicionar novo nome.
-- Mantida a proteção de login, CSRF, modo leitura e cache de planilha.
-- Reduzidos logs sensíveis/desnecessários da autenticação com Google Sheets.
-- Corrigido `.replit`, que ainda apontava para `app.py`.
-- Removidos arquivos gerados automaticamente (`__pycache__`/`.pyc`) do pacote.
+## Mapeamento da encomenda para venda
 
-## O que não foi alterado
+- `O que pediu` → produto; quando começa com quantidade, ela é separada automaticamente.
+- `Quem pediu` → quem compra.
+- `Quem negociou` → quem vende.
+- `Valor` → valor total; o valor unitário é calculado pela quantidade.
+- O prazo e o ID original são preservados na observação da venda.
 
-- Rotas públicas e endpoints da API.
-- Estrutura visual do painel.
-- Nomes das abas do Google Sheets.
-- Regras de permissão dos usuários.
-- Fluxo semanal da aba Metas.
-- Sistema de Craft no navegador.
-
-## Validação feita
+## Validação executada
 
 - `python -m py_compile main.py`
-- validação sintática dos templates Jinja
 - `node --check static/js/app.js`
-- checagem do pacote para não incluir `service_account.json`
+- renderização do template Flask
+- testes do fluxo de conversão com planilhas simuladas
+- teste do fluxo no frontend com navegador headless
+- verificação em larguras de 1440 px, 600 px e 390 px sem overflow horizontal
+
+## Itens preservados
+
+- Login, perfis administrador/leitor e proteção CSRF.
+- Cache e integração com Google Sheets.
+- Compras, vendas manuais, metas e craft.
+- Nomes das abas e cabeçalhos atuais da planilha.

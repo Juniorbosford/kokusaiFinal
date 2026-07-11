@@ -7,13 +7,14 @@ function csrfHeaders(headers = {}){
   return csrfToken ? {...headers, "X-CSRF-Token": csrfToken} : headers;
 }
 
+function activateView(target){
+  navLinks.forEach(btn => btn.classList.toggle("active", btn.dataset.target === target));
+  views.forEach(view => view.classList.toggle("active", view.id === target));
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
 navLinks.forEach(link => {
-  link.addEventListener("click", () => {
-    navLinks.forEach(btn => btn.classList.remove("active"));
-    views.forEach(view => view.classList.remove("active"));
-    link.classList.add("active");
-    document.getElementById(link.dataset.target)?.classList.add("active");
-  });
+  link.addEventListener("click", () => activateView(link.dataset.target));
 });
 
 const refreshBtn = document.getElementById("refreshBtn");
@@ -147,12 +148,11 @@ function deliveryBadge(value){
 
 function deliveryControl(item){
   const delivered = String(item.entregue || "Não").trim().toLowerCase() === "sim";
-  if(!canWrite) return deliveryBadge(item.entregue);
+  if(!canWrite) return delivered ? deliveryBadge("Sim") : deliveryBadge("Não");
 
-  return `<div class="payment-toggle-group delivery-toggle" aria-label="Entrega de ${escapeHtml(item.o_que_pediu || "encomenda")}">
-    <button type="button" class="payment-choice ${delivered ? "active success" : ""}" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Sim">SIM</button>
-    <button type="button" class="payment-choice ${!delivered ? "active pending" : ""}" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Não">NÃO</button>
-  </div>`;
+  return `<button type="button" class="delivery-confirm-btn" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Sim">
+    ${delivered ? "Mover para Vendas" : "Confirmar entrega"}
+  </button>`;
 }
 
 function paymentBadge(value){
@@ -195,6 +195,31 @@ function setText(id, value){
   if(el) el.textContent = value;
 }
 
+function applyResponsiveTableLabels(tbody){
+  const table = tbody?.closest("table");
+  if(!table) return;
+
+  const labels = Array.from(table.querySelectorAll("thead th"))
+    .map(header => header.textContent.trim());
+
+  tbody.querySelectorAll("tr").forEach(row => {
+    const cells = Array.from(row.children).filter(cell => cell.tagName === "TD");
+    if(cells.length === 1 && Number(cells[0].colSpan) > 1){
+      cells[0].classList.add("table-message");
+      return;
+    }
+    cells.forEach((cell, index) => {
+      cell.dataset.label = labels[index] || "";
+    });
+  });
+}
+
+function setTableContent(tbody, html){
+  if(!tbody) return;
+  tbody.innerHTML = html;
+  applyResponsiveTableLabels(tbody);
+}
+
 function onInput(id, handler){
   document.getElementById(id)?.addEventListener("input", handler);
 }
@@ -225,7 +250,7 @@ function updatePreviewEncomenda(){
 async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage){
   if(!canWrite){
     setFeedback(feedbackEl, "Seu usuário está em modo somente leitura.", true);
-    return false;
+    return null;
   }
 
   try{
@@ -237,14 +262,14 @@ async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage
     });
     if(!res.ok){
       setFeedback(feedbackEl, data.error || `Erro ${res.status} ao salvar registro.`, true);
-      return false;
+      return null;
     }
     setFeedback(feedbackEl, data.message || successMessage);
     await loadAll();
-    return true;
+    return data;
   }catch(error){
     setFeedback(feedbackEl, `Falha ao conectar com o servidor: ${error.message}`, true);
-    return false;
+    return null;
   }
 }
 
@@ -296,10 +321,13 @@ encomendaForm?.addEventListener("submit", async (e) => {
     observacao: inputValue("e_observacao").trim(),
   };
 
-  const ok = await sendPost("/api/encomendas", payload, encomendaFeedback, "Salvando encomenda...", "Encomenda salva com sucesso.");
-  if(ok){
+  const result = await sendPost("/api/encomendas", payload, encomendaFeedback, "Salvando encomenda...", "Encomenda salva com sucesso.");
+  if(result){
     encomendaForm.reset();
     updatePreviewEncomenda();
+    if(result.moved_to_vendas){
+      activateView("vendas");
+    }
   }
 });
 
@@ -309,6 +337,7 @@ encomendasTable?.addEventListener("click", async (event) => {
 
   const id = button.dataset.encomendaEntrega;
   const entregue = button.dataset.encomendaChoice;
+  if(entregue === "Sim" && !window.confirm("Confirmar a entrega? A encomenda será removida daqui e registrada em Vendas.")) return;
   const row = button.closest("tr");
   const buttons = row ? row.querySelectorAll("[data-encomenda-entrega]") : [button];
   buttons.forEach(btn => btn.disabled = true);
@@ -328,7 +357,10 @@ encomendasTable?.addEventListener("click", async (event) => {
     }
 
     setFeedback(encomendaFeedback, data.message || "Status de entrega atualizado.");
-    await Promise.all([loadEncomendas(), loadResumo()]);
+    await Promise.all([loadEncomendas(), loadVendas(), loadResumo()]);
+    if(data.moved_to_vendas){
+      activateView("vendas");
+    }
   }catch(error){
     setFeedback(encomendaFeedback, `Falha ao atualizar entrega: ${error.message}`, true);
   }finally{
@@ -476,7 +508,7 @@ function renderCraft(){
   if(!craftTable) return;
 
   if(!canWrite){
-    craftTable.innerHTML = `<tr><td colspan="4">Modo somente leitura. A tabela de receitas está disponível abaixo.</td></tr>`;
+    setTableContent(craftTable, `<tr><td colspan="4">Modo somente leitura. A tabela de receitas está disponível abaixo.</td></tr>`);
     return;
   }
 
@@ -484,12 +516,12 @@ function renderCraft(){
   setText("craftTotalItens", integer(totalItens));
 
   if(totalItens <= 0 || totals.size === 0){
-    craftTable.innerHTML = `<tr><td colspan="4">Informe uma quantidade para calcular.</td></tr>`;
+    setTableContent(craftTable, `<tr><td colspan="4">Informe uma quantidade para calcular.</td></tr>`);
     setFeedback(craftFeedback, "Informe uma quantidade para calcular os materiais.");
     return;
   }
 
-  craftTable.innerHTML = Array.from(totals.entries()).map(([material, total]) => {
+  setTableContent(craftTable, Array.from(totals.entries()).map(([material, total]) => {
     const tenho = Math.max(0, Math.floor(Number(craftInventory[material] || 0)) || 0);
     const falta = Math.max(total - tenho, 0);
     return `
@@ -501,7 +533,7 @@ function renderCraft(){
         </td>
         <td><span class="missing-value ${falta > 0 ? "pending" : "success"}">${integer(falta)}</span></td>
       </tr>`;
-  }).join("");
+  }).join(""));
 
   setFeedback(craftFeedback, `Cálculo pronto: ${integer(totalItens)} item(ns) selecionado(s).`);
   bindInventoryInputs();
@@ -577,14 +609,14 @@ async function loadCompras(){
   try{
     const {res, data} = await fetchJson("/api/compras");
     if(!res.ok){
-      comprasTable.innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`;
+      setTableContent(comprasTable, `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      comprasTable.innerHTML = `<tr><td colspan="6">Nenhuma compra registrada.</td></tr>`;
+      setTableContent(comprasTable, `<tr><td colspan="6">Nenhuma compra registrada.</td></tr>`);
       return;
     }
-    comprasTable.innerHTML = data.map(item => `
+    setTableContent(comprasTable, data.map(item => `
       <tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
@@ -592,9 +624,9 @@ async function loadCompras(){
         <td>${escapeHtml(item.quem_vendeu)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
-      </tr>`).join("");
+      </tr>`).join(""));
   }catch(error){
-    comprasTable.innerHTML = `<tr><td colspan="6">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`;
+    setTableContent(comprasTable, `<tr><td colspan="6">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -602,14 +634,14 @@ async function loadVendas(){
   try{
     const {res, data} = await fetchJson("/api/vendas");
     if(!res.ok){
-      vendasTable.innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`;
+      setTableContent(vendasTable, `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      vendasTable.innerHTML = `<tr><td colspan="6">Nenhuma venda registrada.</td></tr>`;
+      setTableContent(vendasTable, `<tr><td colspan="6">Nenhuma venda registrada.</td></tr>`);
       return;
     }
-    vendasTable.innerHTML = data.map(item => `
+    setTableContent(vendasTable, data.map(item => `
       <tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
@@ -617,39 +649,38 @@ async function loadVendas(){
         <td>${escapeHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
-      </tr>`).join("");
+      </tr>`).join(""));
   }catch(error){
-    vendasTable.innerHTML = `<tr><td colspan="6">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`;
+    setTableContent(vendasTable, `<tr><td colspan="6">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
 async function loadEncomendas(){
   if(!encomendasTable) return;
 
-  const colspan = 8;
+  const colspan = 7;
   try{
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
-      encomendasTable.innerHTML = `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`;
+      setTableContent(encomendasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      encomendasTable.innerHTML = `<tr><td colspan="${colspan}">Nenhuma encomenda registrada.</td></tr>`;
+      setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
       return;
     }
-    encomendasTable.innerHTML = data.map(item => `
+    setTableContent(encomendasTable, data.map(item => `
       <tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.quem_pediu)}</td>
         <td>${escapeHtml(item.o_que_pediu)}</td>
         <td>${escapeHtml(item.para_quando)}</td>
         <td>${escapeHtml(item.quem_negociou)}</td>
-        <td>${deliveryControl(item)}</td>
-        <td class="delivered-at-cell">${escapeHtml(item.entregue_em || "--")}</td>
         <td>${currency(item.valor)}</td>
-      </tr>`).join("");
+        <td>${deliveryControl(item)}</td>
+      </tr>`).join(""));
   }catch(error){
-    encomendasTable.innerHTML = `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`;
+    setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -660,11 +691,11 @@ async function loadMetas(){
   try{
     const {res, data} = await fetchJson("/api/metas");
     if(!res.ok){
-      metasTable.innerHTML = `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar metas.")}</td></tr>`;
+      setTableContent(metasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar metas.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      metasTable.innerHTML = `<tr><td colspan="${colspan}">Nenhum nome cadastrado na lista de metas.</td></tr>`;
+      setTableContent(metasTable, `<tr><td colspan="${colspan}">Nenhum nome cadastrado na lista de metas.</td></tr>`);
       updateMetaCounters(0, 0, 0, 0, "--");
       return;
     }
@@ -675,7 +706,7 @@ async function loadMetas(){
     const semanaLabel = first.semana_inicio && first.semana_fim ? `${first.semana_inicio} até ${first.semana_fim}` : "--";
     updateMetaCounters(data.length, pagos, data.length - pagos, confirmados, semanaLabel);
 
-    metasTable.innerHTML = data.map((item, index) => {
+    setTableContent(metasTable, data.map((item, index) => {
       const pago = String(item.pago || "Não").trim().toLowerCase() === "sim" ? "Sim" : "Não";
       const confirmado = Boolean(item.confirmado);
       const statusCell = canWrite
@@ -696,9 +727,9 @@ async function loadMetas(){
           <td>${confirmado ? escapeHtml(item.atualizado_em || "--") : "--"}</td>
           ${actionCell}
         </tr>`;
-    }).join("");
+    }).join(""));
   }catch(error){
-    metasTable.innerHTML = `<tr><td colspan="${colspan}">Falha ao carregar metas: ${escapeHtml(error.message)}</td></tr>`;
+    setTableContent(metasTable, `<tr><td colspan="${colspan}">Falha ao carregar metas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
