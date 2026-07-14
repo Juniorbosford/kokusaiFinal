@@ -400,6 +400,19 @@ reunioesGrid?.addEventListener("click", async (event) => {
   const editButton = event.target.closest("[data-editar-reuniao]");
   if(editButton){ iniciarEdicaoReuniao(editButton.dataset.editarReuniao); return; }
 
+  const cancelButton = event.target.closest("[data-cancelar-reuniao]");
+  if(cancelButton){
+    if(!window.confirm("Marcar esta reunião como cancelada?")) return;
+    cancelButton.disabled = true;
+    try{
+      const {res, data} = await fetchJson(`/api/reunioes/${encodeURIComponent(cancelButton.dataset.cancelarReuniao)}/cancelar`, {method:"POST", headers:csrfHeaders()});
+      setFeedback(reuniaoFeedback, data.message || (res.ok ? "Reunião cancelada." : "Erro ao cancelar."), !res.ok);
+      if(res.ok) await loadReunioes();
+    }catch(error){ setFeedback(reuniaoFeedback, `Falha ao cancelar: ${error.message}`, true); }
+    finally{ cancelButton.disabled = false; }
+    return;
+  }
+
   const button = event.target.closest("[data-finalizar-reuniao]");
   if(!button) return;
   if(!window.confirm("Marcar esta reunião como finalizada?")) return;
@@ -774,14 +787,18 @@ async function loadReunioes(){
     const items = Array.isArray(data) ? data : [];
     reunioesCache = items;
     const finalizadas = items.filter(item => item.status === "Finalizada").length;
-    setText("reunioesAgendadas", integer(items.length - finalizadas));
+    const canceladas = items.filter(item => item.status === "Cancelada").length;
+    const agendadas = items.length - finalizadas - canceladas;
+    setText("reunioesAgendadas", integer(agendadas));
     setText("reunioesFinalizadas", integer(finalizadas));
+    setText("reunioesCanceladas", integer(canceladas));
     if(!items.length){ reunioesGrid.innerHTML = '<div class="meeting-empty">Nenhuma reunião agendada até o momento.</div>'; return; }
     reunioesGrid.innerHTML = items.map(item => {
       const done = item.status === "Finalizada";
+      const canceled = item.status === "Cancelada";
       const pending = item.status === "Aguardando confirmação";
-      const statusClass = done ? "finished" : (pending ? "pending" : "scheduled");
-      const statusLabel = done ? "Finalizada" : (pending ? "Aguardando confirmação" : "Agendada");
+      const statusClass = done ? "finished" : (canceled ? "canceled" : (pending ? "pending" : "scheduled"));
+      const statusLabel = done ? "Finalizada" : (canceled ? "Cancelada" : (pending ? "Aguardando confirmação" : "Agendada"));
       const date = item.data ? new Date(`${item.data}T12:00:00`) : null;
       const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("pt-BR", {weekday:"short", day:"2-digit", month:"short"}) : item.data;
       return `<article class="meeting-card ${statusClass}">
@@ -792,7 +809,8 @@ async function loadReunioes(){
           <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
           ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
           ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
-          ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">✏️ Editar</button>${done ? "" : `<button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>`}</div>` : ""}
+          ${canceled ? `<small class="meeting-canceled-at">Cancelada em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
+          ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">✏️ Editar</button>${done || canceled ? "" : `<button class="meeting-cancel-btn" type="button" data-cancelar-reuniao="${escapeHtml(item.id)}">Cancelar reunião</button><button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>`}</div>` : ""}
         </div>
       </article>`;
     }).join("");

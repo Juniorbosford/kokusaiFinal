@@ -938,6 +938,8 @@ def normalize_reuniao(row):
     raw_status = str(item.get("status", "")).strip().lower()
     if raw_status == "finalizada":
         item["status"] = "Finalizada"
+    elif raw_status == "cancelada":
+        item["status"] = "Cancelada"
     elif raw_status in {"aguardando confirmação", "aguardando confirmacao", "a confirmar"}:
         item["status"] = "Aguardando confirmação"
     else:
@@ -1426,7 +1428,8 @@ def list_reunioes():
         worksheet = get_reunioes_worksheet()
         rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, worksheet)
         reunioes = [normalize_reuniao(row) for row in latest_data_rows(rows)]
-        reunioes.sort(key=lambda item: (item.get("status") == "Finalizada", item.get("data", ""), item.get("horario", "")))
+        status_order = {"Agendada": 0, "Aguardando confirmação": 1, "Cancelada": 2, "Finalizada": 3}
+        reunioes.sort(key=lambda item: (status_order.get(item.get("status"), 0), item.get("data", ""), item.get("horario", "")))
         return jsonify(reunioes)
     except Exception as e:
         log_error("Falha em /api/reunioes [GET]", e)
@@ -1511,6 +1514,10 @@ def update_reuniao(registro_id):
         row[6] = horario
         row[7] = local
         row[8] = pauta
+        # Ao confirmar novos dados de uma reunião pendente, ela passa a estar agendada.
+        if str(row[9]).strip().lower() in {"aguardando confirmação", "aguardando confirmacao", "a confirmar"}:
+            row[9] = "Agendada"
+            row[10] = ""
 
         worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
@@ -1538,6 +1545,29 @@ def finalizar_reuniao(registro_id):
         return jsonify({"ok": True, "message": "Reunião marcada como finalizada."})
     except Exception as e:
         log_error("Falha em /api/reunioes/<id>/finalizar [POST]", e)
+        return error_response(str(e))
+
+
+@app.post("/api/reunioes/<registro_id>/cancelar")
+@require_admin
+def cancelar_reuniao(registro_id):
+    try:
+        worksheet = get_reunioes_worksheet()
+        row_index, row = find_row_by_id(worksheet, registro_id)
+        if not row_index:
+            return error_response("Reunião não encontrada.", 404)
+
+        while len(row) < len(REUNIOES_HEADERS):
+            row.append("")
+        if str(row[9]).strip().lower() == "finalizada":
+            return error_response("Uma reunião finalizada não pode ser cancelada.", 400)
+        row[9] = "Cancelada"
+        row[10] = format_timestamp()
+        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
+        return jsonify({"ok": True, "message": "Reunião marcada como cancelada."})
+    except Exception as e:
+        log_error("Falha em /api/reunioes/<id>/cancelar [POST]", e)
         return error_response(str(e))
 
 
