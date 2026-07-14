@@ -442,8 +442,8 @@
           <section class="panel-card meeting-form-card">
             <div class="panel-head">
               <div>
-                <p class="panel-kicker">Nova reunião</p>
-                <h3>Agendar compromisso</h3>
+                <p class="panel-kicker" id="reuniaoFormKicker">Nova reunião</p>
+                <h3 id="reuniaoFormTitle">Agendar compromisso</h3>
               </div>
               <span class="meeting-header-icon">📅</span>
             </div>
@@ -478,7 +478,8 @@
                 <textarea id="r_pauta" placeholder="Assuntos que serão discutidos, responsáveis e objetivos"></textarea>
               </div>
               <div class="form-actions">
-                <button type="submit" class="primary-btn">Agendar reunião</button>
+                <button type="submit" class="primary-btn" id="reuniaoSubmitBtn">Agendar reunião</button>
+                <button type="button" class="secondary-btn meeting-cancel-edit" id="reuniaoCancelEditBtn" hidden>Cancelar edição</button>
               </div>
             </form>
             <div class="feedback" id="reuniaoFeedback">Aguardando agendamento.</div>

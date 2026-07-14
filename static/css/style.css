@@ -807,3 +807,11 @@ table.craft-result-table{min-width:650px}
 @media(max-width:1180px){.meetings-layout{grid-template-columns:1fr}.meeting-form-card{position:relative;top:auto}}
 @media(max-width:850px){.meetings-grid{grid-template-columns:1fr}}
 @media(max-width:520px){.meeting-card{align-items:flex-start}.meeting-icon{flex-basis:44px;width:44px;height:44px;font-size:1.35rem}.meeting-card-top{align-items:flex-start;flex-direction:column}.meeting-counters{justify-content:flex-start}}
+
+.meeting-actions{display:grid;grid-template-columns:minmax(0,.72fr) minmax(0,1.28fr);gap:8px;margin-top:12px}
+.meeting-actions .meeting-finish-btn{margin-top:0}
+.meeting-edit-btn{min-height:38px;border-radius:11px;border:1px solid rgba(139,92,246,.32);background:rgba(139,92,246,.11);color:#e1d7ff;font-weight:900;cursor:pointer}
+.meeting-edit-btn:hover{background:rgba(139,92,246,.19)}
+.meeting-cancel-edit{display:inline-flex;align-items:center;justify-content:center}
+.meeting-cancel-edit[hidden]{display:none}
+@media(max-width:520px){.meeting-actions{grid-template-columns:1fr}}

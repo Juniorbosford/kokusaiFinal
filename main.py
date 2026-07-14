@@ -1471,6 +1471,55 @@ def create_reuniao():
         return error_response(str(e))
 
 
+@app.put("/api/reunioes/<registro_id>")
+@require_admin
+def update_reuniao(registro_id):
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+
+        try:
+            titulo = clean_text_field(data, "titulo", "Título")
+            gangue = clean_text_field(data, "gangue", "Gangue")
+            icone = clean_text_field(data, "icone", "Ícone", max_length=12)
+            data_reuniao = clean_text_field(data, "data", "Data", max_length=10)
+            horario = clean_text_field(data, "horario", "Horário", max_length=5)
+            local = clean_text_field(data, "local", "Local", required=False)
+            pauta = clean_text_field(data, "pauta", "Pauta", max_length=MAX_OBSERVATION_LENGTH, required=False)
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        try:
+            datetime.strptime(data_reuniao, "%Y-%m-%d")
+            datetime.strptime(horario, "%H:%M")
+        except ValueError:
+            return error_response("Informe uma data e um horário válidos.", 400)
+
+        worksheet = get_reunioes_worksheet()
+        row_index, row = find_row_by_id(worksheet, registro_id)
+        if not row_index:
+            return error_response("Reunião não encontrada.", 404)
+
+        while len(row) < len(REUNIOES_HEADERS):
+            row.append("")
+
+        row[2] = titulo
+        row[3] = gangue
+        row[4] = icone
+        row[5] = data_reuniao
+        row[6] = horario
+        row[7] = local
+        row[8] = pauta
+
+        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
+        return jsonify({"ok": True, "message": "Reunião atualizada com sucesso."})
+    except Exception as e:
+        log_error("Falha em /api/reunioes/<id> [PUT]", e)
+        return error_response(str(e))
+
+
 @app.post("/api/reunioes/<registro_id>/finalizar")
 @require_admin
 def finalizar_reuniao(registro_id):

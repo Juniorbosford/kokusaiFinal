@@ -26,6 +26,10 @@ const formFeedback = document.getElementById("formFeedback");
 const vendaFeedback = document.getElementById("vendaFeedback");
 const encomendaFeedback = document.getElementById("encomendaFeedback");
 const reuniaoFeedback = document.getElementById("reuniaoFeedback");
+const reuniaoSubmitBtn = document.getElementById("reuniaoSubmitBtn");
+const reuniaoCancelEditBtn = document.getElementById("reuniaoCancelEditBtn");
+let reuniaoEmEdicaoId = null;
+let reunioesCache = [];
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
@@ -334,17 +338,68 @@ encomendaForm?.addEventListener("submit", async (e) => {
   }
 });
 
+function resetReuniaoForm(){
+  reuniaoEmEdicaoId = null;
+  reuniaoForm?.reset();
+  if(reuniaoSubmitBtn) reuniaoSubmitBtn.textContent = "Agendar reunião";
+  if(reuniaoCancelEditBtn) reuniaoCancelEditBtn.hidden = true;
+  setText("reuniaoFormKicker", "Nova reunião");
+  setText("reuniaoFormTitle", "Agendar compromisso");
+}
+
+function iniciarEdicaoReuniao(id){
+  const item = reunioesCache.find(reuniao => reuniao.id === id);
+  if(!item || !reuniaoForm) return;
+  reuniaoEmEdicaoId = id;
+  document.getElementById("r_titulo").value = item.titulo || "";
+  document.getElementById("r_gangue").value = item.gangue || "";
+  document.getElementById("r_icone").value = item.icone || "";
+  document.getElementById("r_data").value = item.data || "";
+  document.getElementById("r_horario").value = item.horario || "";
+  document.getElementById("r_local").value = item.local || "";
+  document.getElementById("r_pauta").value = item.pauta || "";
+  if(reuniaoSubmitBtn) reuniaoSubmitBtn.textContent = "Salvar alterações";
+  if(reuniaoCancelEditBtn) reuniaoCancelEditBtn.hidden = false;
+  setText("reuniaoFormKicker", "Editar reunião");
+  setText("reuniaoFormTitle", item.titulo || "Atualizar compromisso");
+  setFeedback(reuniaoFeedback, "Edite os campos e clique em Salvar alterações.");
+  reuniaoForm.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+reuniaoCancelEditBtn?.addEventListener("click", () => {
+  resetReuniaoForm();
+  setFeedback(reuniaoFeedback, "Edição cancelada.");
+});
+
 reuniaoForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = {
     titulo: inputValue("r_titulo"), gangue: inputValue("r_gangue"), icone: inputValue("r_icone"),
     data: inputValue("r_data"), horario: inputValue("r_horario"), local: inputValue("r_local"), pauta: inputValue("r_pauta")
   };
+
+  if(reuniaoEmEdicaoId){
+    try{
+      setFeedback(reuniaoFeedback, "Salvando alterações...");
+      const {res, data} = await fetchJson(`/api/reunioes/${encodeURIComponent(reuniaoEmEdicaoId)}`, {
+        method:"PUT",
+        headers:csrfHeaders({"Content-Type":"application/json"}),
+        body:JSON.stringify(payload)
+      });
+      setFeedback(reuniaoFeedback, data.message || (res.ok ? "Reunião atualizada." : "Erro ao atualizar reunião."), !res.ok);
+      if(res.ok){ resetReuniaoForm(); await loadReunioes(); }
+    }catch(error){ setFeedback(reuniaoFeedback, `Falha ao atualizar: ${error.message}`, true); }
+    return;
+  }
+
   const result = await sendPost("/api/reunioes", payload, reuniaoFeedback, "Agendando reunião...", "Reunião agendada com sucesso.");
-  if(result){ reuniaoForm.reset(); await loadReunioes(); }
+  if(result){ resetReuniaoForm(); await loadReunioes(); }
 });
 
 reunioesGrid?.addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-editar-reuniao]");
+  if(editButton){ iniciarEdicaoReuniao(editButton.dataset.editarReuniao); return; }
+
   const button = event.target.closest("[data-finalizar-reuniao]");
   if(!button) return;
   if(!window.confirm("Marcar esta reunião como finalizada?")) return;
@@ -717,6 +772,7 @@ async function loadReunioes(){
     const {res, data} = await fetchJson("/api/reunioes");
     if(!res.ok){ reunioesGrid.innerHTML = `<div class="meeting-empty">${escapeHtml(data.error || "Erro ao carregar reuniões.")}</div>`; return; }
     const items = Array.isArray(data) ? data : [];
+    reunioesCache = items;
     const finalizadas = items.filter(item => item.status === "Finalizada").length;
     setText("reunioesAgendadas", integer(items.length - finalizadas));
     setText("reunioesFinalizadas", integer(finalizadas));
@@ -735,7 +791,8 @@ async function loadReunioes(){
           <h4>${escapeHtml(item.titulo)}</h4>
           <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
           ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
-          ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : (canWrite ? `<button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>` : "")}
+          ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
+          ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">✏️ Editar</button>${done ? "" : `<button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>`}</div>` : ""}
         </div>
       </article>`;
     }).join("");
