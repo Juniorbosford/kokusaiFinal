@@ -21,7 +21,7 @@
         <div>
           <p class="brand-kicker">Kokusai</p>
           <h1>Departamento</h1>
-          <span>Compras • Vendas • Encomendas • Metas • Craft</span>
+          <span>Compras • Vendas • Encomendas • Reuniões • Metas • Craft</span>
         </div>
       </div>
 
@@ -30,6 +30,7 @@
         <button class="nav-link" data-target="compras"><span>Compras</span></button>
         <button class="nav-link" data-target="vendas"><span>Vendas</span></button>
         <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
+        <button class="nav-link" data-target="reunioes"><span>Reuniões</span></button>
         <button class="nav-link" data-target="metas"><span>Metas</span></button>
         <button class="nav-link" data-target="craft"><span>Craft</span></button>
       </nav>
@@ -427,6 +428,85 @@
         </div>
       </section>
 
+
+
+      <section class="view" id="reunioes">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Agenda estratégica</p>
+            <h3>Reuniões com gangues e departamentos</h3>
+          </div>
+          <p>Organize compromissos do GTARP com data, horário, local, pauta e acompanhamento de conclusão.</p>
+        </div>
+
+        <div class="meetings-layout">
+          <section class="panel-card meeting-form-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Nova reunião</p>
+                <h3>Agendar compromisso</h3>
+              </div>
+              <span class="meeting-header-icon">📅</span>
+            </div>
+            {% if is_admin %}
+            <form id="reuniaoForm" class="form-grid">
+              <div class="field field-full">
+                <label for="r_titulo">Título da reunião</label>
+                <input id="r_titulo" placeholder="Ex.: Alinhamento de parceria" required />
+              </div>
+              <div class="field">
+                <label for="r_gangue">Gangue / grupo</label>
+                <input id="r_gangue" placeholder="Ex.: Yakuza" required />
+              </div>
+              <div class="field">
+                <label for="r_icone">Ícone ou emoji</label>
+                <input id="r_icone" maxlength="12" placeholder="Ex.: 🐉" required />
+              </div>
+              <div class="field">
+                <label for="r_data">Dia</label>
+                <input id="r_data" type="date" required />
+              </div>
+              <div class="field">
+                <label for="r_horario">Horário</label>
+                <input id="r_horario" type="time" required />
+              </div>
+              <div class="field field-full">
+                <label for="r_local">Local</label>
+                <input id="r_local" placeholder="Ex.: Sede da Kokusai ou Discord" />
+              </div>
+              <div class="field field-full">
+                <label for="r_pauta">Pauta / observações</label>
+                <textarea id="r_pauta" placeholder="Assuntos que serão discutidos, responsáveis e objetivos"></textarea>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Agendar reunião</button>
+              </div>
+            </form>
+            <div class="feedback" id="reuniaoFeedback">Aguardando agendamento.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Agenda em modo leitura</h4>
+              <p>Você pode consultar todas as reuniões, mas apenas administradores podem agendar ou finalizar.</p>
+            </div>
+            {% endif %}
+          </section>
+
+          <section class="panel-card meeting-board-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Calendário corporativo</p>
+                <h3>Próximas reuniões</h3>
+              </div>
+              <div class="meeting-counters">
+                <span><strong id="reunioesAgendadas">0</strong> agendadas</span>
+                <span><strong id="reunioesFinalizadas">0</strong> finalizadas</span>
+              </div>
+            </div>
+            <div id="reunioesGrid" class="meetings-grid"></div>
+          </section>
+        </div>
+      </section>
 
       <section class="view" id="metas">
         <div class="section-intro">

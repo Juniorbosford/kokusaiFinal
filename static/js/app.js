@@ -21,12 +21,15 @@ const refreshBtn = document.getElementById("refreshBtn");
 const form = document.getElementById("compraForm");
 const vendaForm = document.getElementById("vendaForm");
 const encomendaForm = document.getElementById("encomendaForm");
+const reuniaoForm = document.getElementById("reuniaoForm");
 const formFeedback = document.getElementById("formFeedback");
 const vendaFeedback = document.getElementById("vendaFeedback");
 const encomendaFeedback = document.getElementById("encomendaFeedback");
+const reuniaoFeedback = document.getElementById("reuniaoFeedback");
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
+const reunioesGrid = document.getElementById("reunioesGrid");
 const metasTable = document.getElementById("metasTable");
 const metaForm = document.getElementById("metaForm");
 const metasFeedback = document.getElementById("metasFeedback");
@@ -329,6 +332,29 @@ encomendaForm?.addEventListener("submit", async (e) => {
       activateView("vendas");
     }
   }
+});
+
+reuniaoForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    titulo: inputValue("r_titulo"), gangue: inputValue("r_gangue"), icone: inputValue("r_icone"),
+    data: inputValue("r_data"), horario: inputValue("r_horario"), local: inputValue("r_local"), pauta: inputValue("r_pauta")
+  };
+  const result = await sendPost("/api/reunioes", payload, reuniaoFeedback, "Agendando reunião...", "Reunião agendada com sucesso.");
+  if(result){ reuniaoForm.reset(); await loadReunioes(); }
+});
+
+reunioesGrid?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-finalizar-reuniao]");
+  if(!button) return;
+  if(!window.confirm("Marcar esta reunião como finalizada?")) return;
+  button.disabled = true;
+  try{
+    const {res, data} = await fetchJson(`/api/reunioes/${encodeURIComponent(button.dataset.finalizarReuniao)}/finalizar`, {method:"POST", headers:csrfHeaders()});
+    setFeedback(reuniaoFeedback, data.message || (res.ok ? "Reunião finalizada." : "Erro ao finalizar."), !res.ok);
+    if(res.ok) await loadReunioes();
+  }catch(error){ setFeedback(reuniaoFeedback, `Falha ao finalizar: ${error.message}`, true); }
+  finally{ button.disabled = false; }
 });
 
 encomendasTable?.addEventListener("click", async (event) => {
@@ -684,6 +710,38 @@ async function loadEncomendas(){
   }
 }
 
+
+async function loadReunioes(){
+  if(!reunioesGrid) return;
+  try{
+    const {res, data} = await fetchJson("/api/reunioes");
+    if(!res.ok){ reunioesGrid.innerHTML = `<div class="meeting-empty">${escapeHtml(data.error || "Erro ao carregar reuniões.")}</div>`; return; }
+    const items = Array.isArray(data) ? data : [];
+    const finalizadas = items.filter(item => item.status === "Finalizada").length;
+    setText("reunioesAgendadas", integer(items.length - finalizadas));
+    setText("reunioesFinalizadas", integer(finalizadas));
+    if(!items.length){ reunioesGrid.innerHTML = '<div class="meeting-empty">Nenhuma reunião agendada até o momento.</div>'; return; }
+    reunioesGrid.innerHTML = items.map(item => {
+      const done = item.status === "Finalizada";
+      const pending = item.status === "Aguardando confirmação";
+      const statusClass = done ? "finished" : (pending ? "pending" : "scheduled");
+      const statusLabel = done ? "Finalizada" : (pending ? "Aguardando confirmação" : "Agendada");
+      const date = item.data ? new Date(`${item.data}T12:00:00`) : null;
+      const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("pt-BR", {weekday:"short", day:"2-digit", month:"short"}) : item.data;
+      return `<article class="meeting-card ${statusClass}">
+        <div class="meeting-icon">${escapeHtml(item.icone || "🤝")}</div>
+        <div class="meeting-card-content">
+          <div class="meeting-card-top"><span class="meeting-status ${statusClass}">${statusLabel}</span><span class="meeting-gang">${escapeHtml(item.gangue)}</span></div>
+          <h4>${escapeHtml(item.titulo)}</h4>
+          <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
+          ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
+          ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : (canWrite ? `<button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>` : "")}
+        </div>
+      </article>`;
+    }).join("");
+  }catch(error){ reunioesGrid.innerHTML = `<div class="meeting-empty">Falha ao carregar reuniões: ${escapeHtml(error.message)}</div>`; }
+}
+
 async function loadMetas(){
   if(!metasTable) return;
 
@@ -739,7 +797,7 @@ async function loadAll(){
     refreshBtn.textContent = "Atualizando...";
   }
   try{
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadMetas()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadReunioes(), loadMetas()]);
     updateLastSync();
   }finally{
     if(refreshBtn){

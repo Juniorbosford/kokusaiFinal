@@ -45,6 +45,7 @@ VENDAS_WORKSHEET_NAME = os.getenv("VENDAS_WORKSHEET_NAME", "Vendas")
 ENCOMENDAS_WORKSHEET_NAME = os.getenv("ENCOMENDAS_WORKSHEET_NAME", "Encomendas")
 METAS_WORKSHEET_NAME = os.getenv("METAS_WORKSHEET_NAME", "Pagamento de Metas")
 HISTORICO_METAS_WORKSHEET_NAME = os.getenv("HISTORICO_METAS_WORKSHEET_NAME", "Historico Metas")
+REUNIOES_WORKSHEET_NAME = os.getenv("REUNIOES_WORKSHEET_NAME", "Reunioes")
 META_RESET_WEEKDAY = int(os.getenv("META_RESET_WEEKDAY", "2"))  # 0=segunda, 2=quarta
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 APP_UTC_OFFSET_HOURS = int(os.getenv("APP_UTC_OFFSET_HOURS", "-3"))
@@ -144,6 +145,7 @@ ENCOMENDAS_HEADERS = [
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
+REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em"]
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
 
@@ -562,6 +564,34 @@ def get_encomendas_worksheet():
     return get_or_create_worksheet(ENCOMENDAS_WORKSHEET_NAME, ENCOMENDAS_HEADERS)
 
 
+DEFAULT_REUNIOES = [
+    ["KKSR-REUNIAO-BALLAS-20260714", "13/07/2026 20:00:00", "Apresentar produtos", "Ballas", "🟣", "2026-07-14", "21:00", "", "Trocou 01", "Agendada", ""],
+    ["KKSR-REUNIAO-LEGACY-20260713", "13/07/2026 19:00:00", "Apresentar produtos", "Legacy", "👑", "2026-07-13", "20:30", "", "Família Nova", "Finalizada", "13/07/2026 20:30:00"],
+    ["KKSR-REUNIAO-BLACKHERTS-20260715", "13/07/2026 20:00:00", "Trocar contatos", "Blackherts", "🖤", "2026-07-15", "20:30", "", "Reunião rápida", "Agendada", ""],
+    ["KKSR-REUNIAO-LEVIATA-20260714", "13/07/2026 20:00:00", "Trocar contatos", "Leviatã", "🐉", "2026-07-14", "21:30", "", "Reunião rápida — horário aguardando confirmação", "Aguardando confirmação", ""],
+    ["KKSR-REUNIAO-FAMILIES-20260714", "13/07/2026 20:00:00", "Trocar contatos", "Families", "💚", "2026-07-14", "21:00", "", "Reunião rápida", "Agendada", ""],
+    ["KKSR-REUNIAO-THELOST-20260714", "13/07/2026 20:00:00", "Trocar contatos", "The Lost", "🏍️", "2026-07-14", "20:30", "", "Reunião rápida", "Agendada", ""],
+    ["KKSR-REUNIAO-VAGOS-20260713", "13/07/2026 20:00:00", "Apresentar produtos", "Vagos", "💛", "2026-07-13", "21:30", "", "", "Agendada", ""],
+    ["KKSR-REUNIAO-DISTRITO-20260715", "13/07/2026 20:00:00", "Apresentar produtos", "Distrito", "🏙️", "2026-07-15", "21:30", "", "Família Nova", "Agendada", ""],
+]
+
+
+def seed_default_reunioes(worksheet):
+    """Adiciona a agenda inicial sem duplicar reuniões já cadastradas."""
+    rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, worksheet, force=True)
+    existing_ids = {sheet_cell(row, 0) for row in rows[1:]}
+    missing = [row for row in DEFAULT_REUNIOES if row[0] not in existing_ids]
+    if missing:
+        worksheet.append_rows(missing, value_input_option="RAW")
+        invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
+
+
+def get_reunioes_worksheet():
+    worksheet = get_or_create_worksheet(REUNIOES_WORKSHEET_NAME, REUNIOES_HEADERS)
+    seed_default_reunioes(worksheet)
+    return worksheet
+
+
 def get_metas_worksheet():
     worksheet = get_or_create_worksheet(METAS_WORKSHEET_NAME, META_HEADERS)
     ensure_metas_ready(worksheet)
@@ -901,6 +931,18 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
 def worksheet_has_record_id(worksheet, registro_id):
     rows = cached_get_all_values(worksheet.title, worksheet, force=True)
     return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
+
+
+def normalize_reuniao(row):
+    item = row_to_dict(row, REUNIOES_HEADERS)
+    raw_status = str(item.get("status", "")).strip().lower()
+    if raw_status == "finalizada":
+        item["status"] = "Finalizada"
+    elif raw_status in {"aguardando confirmação", "aguardando confirmacao", "a confirmar"}:
+        item["status"] = "Aguardando confirmação"
+    else:
+        item["status"] = "Agendada"
+    return item
 
 
 def normalize_meta(row):
@@ -1373,6 +1415,80 @@ def resumo_encomendas():
 
     except Exception as e:
         log_error("Falha em /api/resumo-encomendas", e)
+        return error_response(str(e))
+
+
+
+@app.get("/api/reunioes")
+@require_login
+def list_reunioes():
+    try:
+        worksheet = get_reunioes_worksheet()
+        rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, worksheet)
+        reunioes = [normalize_reuniao(row) for row in latest_data_rows(rows)]
+        reunioes.sort(key=lambda item: (item.get("status") == "Finalizada", item.get("data", ""), item.get("horario", "")))
+        return jsonify(reunioes)
+    except Exception as e:
+        log_error("Falha em /api/reunioes [GET]", e)
+        return error_response(str(e))
+
+
+@app.post("/api/reunioes")
+@require_admin
+def create_reuniao():
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+
+        try:
+            titulo = clean_text_field(data, "titulo", "Título")
+            gangue = clean_text_field(data, "gangue", "Gangue")
+            icone = clean_text_field(data, "icone", "Ícone", max_length=12)
+            data_reuniao = clean_text_field(data, "data", "Data", max_length=10)
+            horario = clean_text_field(data, "horario", "Horário", max_length=5)
+            local = clean_text_field(data, "local", "Local", required=False)
+            pauta = clean_text_field(data, "pauta", "Pauta", max_length=MAX_OBSERVATION_LENGTH, required=False)
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        try:
+            datetime.strptime(data_reuniao, "%Y-%m-%d")
+            datetime.strptime(horario, "%H:%M")
+        except ValueError:
+            return error_response("Informe uma data e um horário válidos.", 400)
+
+        registro_id = generate_record_id("KKSR")
+        worksheet = get_reunioes_worksheet()
+        worksheet.append_row([
+            registro_id, format_timestamp(), titulo, gangue, icone, data_reuniao, horario,
+            local, pauta, "Agendada", ""
+        ], value_input_option="RAW")
+        invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
+        return jsonify({"ok": True, "message": "Reunião agendada com sucesso.", "id": registro_id}), 201
+    except Exception as e:
+        log_error("Falha em /api/reunioes [POST]", e)
+        return error_response(str(e))
+
+
+@app.post("/api/reunioes/<registro_id>/finalizar")
+@require_admin
+def finalizar_reuniao(registro_id):
+    try:
+        worksheet = get_reunioes_worksheet()
+        row_index, row = find_row_by_id(worksheet, registro_id)
+        if not row_index:
+            return error_response("Reunião não encontrada.", 404)
+
+        while len(row) < len(REUNIOES_HEADERS):
+            row.append("")
+        row[9] = "Finalizada"
+        row[10] = format_timestamp()
+        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
+        return jsonify({"ok": True, "message": "Reunião marcada como finalizada."})
+    except Exception as e:
+        log_error("Falha em /api/reunioes/<id>/finalizar [POST]", e)
         return error_response(str(e))
 
 
