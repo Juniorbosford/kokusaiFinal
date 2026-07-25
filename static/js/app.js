@@ -33,7 +33,31 @@ let reunioesCache = [];
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
+let encomendasCache = [];
+const deliveryModal = document.getElementById("deliveryModal");
+const deliveryForm = document.getElementById("deliveryForm");
+const deliveryFeedback = document.getElementById("deliveryFeedback");
+const deliveryConfirmBtn = document.getElementById("deliveryConfirmBtn");
+const encomendaEditModal = document.getElementById("encomendaEditModal");
+const encomendaEditForm = document.getElementById("encomendaEditForm");
+const encomendaEditFeedback = document.getElementById("encomendaEditFeedback");
+const encomendaEditSaveBtn = document.getElementById("encomendaEditSaveBtn");
+let activeDeliveryEncomendaId = null;
+let activeEditEncomendaId = null;
 const reunioesGrid = document.getElementById("reunioesGrid");
+const flyersGrid = document.getElementById("flyersGrid");
+const flyerSearch = document.getElementById("flyerSearch");
+const reuniaoOrganizationSelect = document.getElementById("r_organizacao");
+const reuniaoOrganizationFilter = document.getElementById("reuniaoOrganizationFilter");
+const reuniaoCustomOrganizationWrap = document.getElementById("r_gangue_wrap");
+const flyerModal = document.getElementById("flyerModal");
+const flyerModalImage = document.getElementById("flyerModalImage");
+const flyerModalPrevious = document.getElementById("flyerModalPrevious");
+const flyerModalNext = document.getElementById("flyerModalNext");
+const flyerModalMeetings = document.getElementById("flyerModalMeetings");
+let organizacoesCache = [];
+let activeFlyerOrganizationId = null;
+let activeFlyerIndex = 0;
 const metasTable = document.getElementById("metasTable");
 const metaForm = document.getElementById("metaForm");
 const metasFeedback = document.getElementById("metasFeedback");
@@ -153,13 +177,23 @@ function deliveryBadge(value){
   return `<span class="status-badge ${delivered ? "success" : "pending"}">${delivered ? "SIM" : "NÃO"}</span>`;
 }
 
+function moneyTypeBadge(value){
+  const normalized = String(value || "").trim().toLowerCase();
+  if(normalized === "sujo") return `<span class="money-type-badge dirty">SUJO +30%</span>`;
+  if(normalized === "limpo") return `<span class="money-type-badge clean">LIMPO</span>`;
+  return `<span class="money-type-badge neutral">NÃO INFORMADO</span>`;
+}
+
 function deliveryControl(item){
   const delivered = String(item.entregue || "Não").trim().toLowerCase() === "sim";
   if(!canWrite) return delivered ? deliveryBadge("Sim") : deliveryBadge("Não");
 
-  return `<button type="button" class="delivery-confirm-btn" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Sim">
-    ${delivered ? "Mover para Vendas" : "Confirmar entrega"}
-  </button>`;
+  return `<div class="encomenda-action-group">
+    <button type="button" class="delivery-confirm-btn" data-open-delivery="${escapeHtml(item.id)}">
+      ${delivered ? "Mover para Vendas" : "Confirmar entrega"}
+    </button>
+    <button type="button" class="encomenda-edit-btn" data-edit-encomenda="${escapeHtml(item.id)}">Editar</button>
+  </div>`;
 }
 
 function paymentBadge(value){
@@ -236,6 +270,8 @@ onInput("quantidade", updatePreviewCompra);
 onInput("v_valor_unitario", updatePreviewVenda);
 onInput("v_quantidade", updatePreviewVenda);
 onInput("e_valor", updatePreviewEncomenda);
+onInput("edit_e_valor", updateEditEncomendaPreview);
+document.getElementById("e_entregue")?.addEventListener("change", updateEncomendaPaymentField);
 
 function updatePreviewCompra(){
   const valor = Number(inputValue("valor_unitario") || 0);
@@ -252,6 +288,23 @@ function updatePreviewVenda(){
 function updatePreviewEncomenda(){
   const valor = Number(inputValue("e_valor") || 0);
   setText("previewEncomendaValor", currency(valor));
+  setText("previewEncomendaSujo", `No sujo (+30%): ${currency(valor * 1.30)}`);
+}
+
+function updateEncomendaPaymentField(){
+  const delivered = inputValue("e_entregue") === "Sim";
+  const wrap = document.getElementById("e_tipo_dinheiro_wrap");
+  const select = document.getElementById("e_tipo_dinheiro");
+  if(wrap) wrap.hidden = !delivered;
+  if(select){
+    select.required = delivered;
+    if(!delivered) select.value = "";
+  }
+}
+
+function updateEditEncomendaPreview(){
+  const valor = Number(inputValue("edit_e_valor") || 0);
+  setText("editEncomendaDirtyPreview", `No sujo (+30%): ${currency(valor * 1.30)}`);
 }
 
 async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage){
@@ -325,6 +378,7 @@ encomendaForm?.addEventListener("submit", async (e) => {
     para_quando: inputValue("e_para_quando").trim(),
     quem_negociou: inputValue("e_quem_negociou").trim(),
     entregue: inputValue("e_entregue"),
+    tipo_dinheiro: inputValue("e_tipo_dinheiro"),
     observacao: inputValue("e_observacao").trim(),
   };
 
@@ -332,10 +386,206 @@ encomendaForm?.addEventListener("submit", async (e) => {
   if(result){
     encomendaForm.reset();
     updatePreviewEncomenda();
+    updateEncomendaPaymentField();
     if(result.moved_to_vendas){
       activateView("vendas");
     }
   }
+});
+
+
+function organizationById(id){
+  return organizacoesCache.find(item => item.id === id) || null;
+}
+
+function meetingOrganization(item){
+  return item?.organizacao || organizationById(item?.organizacao_id) || null;
+}
+
+function setMeetingOrganizationPreview(organization, custom=false){
+  const icon = document.getElementById("r_icone");
+  const customName = document.getElementById("r_gangue");
+  if(icon){
+    icon.readOnly = !custom;
+    if(organization) icon.value = organization.icone || "🤝";
+    else if(!custom) icon.value = "";
+  }
+  if(reuniaoCustomOrganizationWrap) reuniaoCustomOrganizationWrap.hidden = !custom;
+  if(custom && customName) customName.required = true;
+  else if(customName) customName.required = false;
+
+  setText("reuniaoOrgPreviewIcon", organization?.icone || (custom ? icon?.value || "🤝" : "🤝"));
+  setText("reuniaoOrgPreviewName", organization?.nome || (custom ? customName?.value || "Nova organização" : "Nenhuma organização"));
+  setText(
+    "reuniaoOrgPreviewStatus",
+    organization
+      ? (organization.tem_flyer ? `${organization.flyers.length} flyer${organization.flyers.length > 1 ? "s" : ""} vinculado${organization.flyers.length > 1 ? "s" : ""}.` : "Flyer ainda não enviado.")
+      : (custom ? "A reunião ficará sem flyer até esta organização ser cadastrada." : "Selecione um parceiro para relacionar.")
+  );
+}
+
+function updateMeetingOrganizationSelection(){
+  if(!reuniaoOrganizationSelect) return;
+  const selectedId = reuniaoOrganizationSelect.value;
+  const isCustom = selectedId === "__custom__";
+  setMeetingOrganizationPreview(isCustom ? null : organizationById(selectedId), isCustom);
+}
+
+function populateOrganizationControls(){
+  const sorted = [...organizacoesCache].sort((a,b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+  if(reuniaoOrganizationSelect){
+    const previous = reuniaoOrganizationSelect.value;
+    reuniaoOrganizationSelect.innerHTML = [
+      '<option value="">Selecione uma organização</option>',
+      ...sorted.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}${item.tem_flyer ? "" : " — flyer pendente"}</option>`),
+      '<option value="__custom__">＋ Outra organização</option>'
+    ].join("");
+    if([...reuniaoOrganizationSelect.options].some(option => option.value === previous)) reuniaoOrganizationSelect.value = previous;
+    updateMeetingOrganizationSelection();
+  }
+
+  if(reuniaoOrganizationFilter){
+    const previous = reuniaoOrganizationFilter.value;
+    reuniaoOrganizationFilter.innerHTML = [
+      '<option value="">Todas as organizações</option>',
+      ...sorted.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.nome)}</option>`),
+      '<option value="__custom__">Sem organização cadastrada</option>'
+    ].join("");
+    if([...reuniaoOrganizationFilter.options].some(option => option.value === previous)) reuniaoOrganizationFilter.value = previous;
+  }
+}
+
+function renderFlyers(){
+  if(!flyersGrid) return;
+  const query = String(flyerSearch?.value || "").trim().toLocaleLowerCase("pt-BR");
+  const items = organizacoesCache.filter(item => !query || item.nome.toLocaleLowerCase("pt-BR").includes(query));
+
+  if(!items.length){
+    flyersGrid.innerHTML = '<div class="flyer-empty">Nenhuma organização encontrada para esta pesquisa.</div>';
+    return;
+  }
+
+  flyersGrid.innerHTML = items.map(organization => {
+    const flyers = Array.isArray(organization.flyers) ? organization.flyers : [];
+    const hasFlyer = flyers.length > 0;
+    const preview = hasFlyer
+      ? `<button class="flyer-preview-button" type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="0" aria-label="Abrir flyer de ${escapeHtml(organization.nome)}">
+          <img src="${escapeHtml(flyers[0].url)}" alt="${escapeHtml(flyers[0].titulo)} — ${escapeHtml(organization.nome)}" loading="lazy" />
+          ${flyers.length > 1 ? `<span class="flyer-stack-badge">+${flyers.length - 1}</span>` : ""}
+        </button>`
+      : `<div class="flyer-missing-preview"><span>${escapeHtml(organization.icone || "🤝")}</span><strong>Flyer pendente</strong><small>A imagem ainda não foi enviada.</small></div>`;
+
+    return `<article class="flyer-card ${hasFlyer ? "has-flyer" : "missing-flyer"}">
+      <div class="flyer-card-media">${preview}</div>
+      <div class="flyer-card-content">
+        <div class="flyer-card-heading">
+          <span class="flyer-organization-icon">${escapeHtml(organization.icone || "🤝")}</span>
+          <div><p>Organização</p><h4>${escapeHtml(organization.nome)}</h4></div>
+          <span class="flyer-status-badge ${hasFlyer ? "available" : "pending"}">${hasFlyer ? `${flyers.length} flyer${flyers.length > 1 ? "s" : ""}` : "Pendente"}</span>
+        </div>
+        ${hasFlyer ? `<div class="flyer-title-list">${flyers.map((flyer,index) => `<button type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="${index}">${escapeHtml(flyer.titulo)}</button>`).join("")}</div>` : '<p class="flyer-pending-copy">Esta organização já pode ser relacionada às reuniões. O flyer aparecerá aqui quando for adicionado.</p>'}
+        <div class="flyer-card-actions">
+          ${hasFlyer ? `<button class="primary-btn flyer-open-btn" type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="0">Abrir flyer</button>` : ""}
+          <button class="ghost-btn flyer-meetings-btn" type="button" data-org-meetings="${escapeHtml(organization.id)}">Ver reuniões</button>
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function updateOrganizationStats(){
+  const flyerCount = organizacoesCache.reduce((total,item) => total + (Array.isArray(item.flyers) ? item.flyers.length : 0), 0);
+  const pending = organizacoesCache.filter(item => !item.tem_flyer).length;
+  setText("statOrganizacoes", integer(organizacoesCache.length));
+  setText("statFlyers", integer(flyerCount));
+  setText("flyerOrganizationCount", integer(organizacoesCache.length));
+  setText("flyerAssetCount", integer(flyerCount));
+  setText("flyerPendingCount", integer(pending));
+}
+
+async function loadOrganizacoes(){
+  try{
+    const {res, data} = await fetchJson("/api/organizacoes");
+    if(!res.ok) throw new Error(data.error || "Erro ao carregar organizações.");
+    organizacoesCache = Array.isArray(data) ? data : [];
+    updateOrganizationStats();
+    populateOrganizationControls();
+    renderFlyers();
+    renderReunioes();
+  }catch(error){
+    if(flyersGrid) flyersGrid.innerHTML = `<div class="flyer-empty">Falha ao carregar organizações: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function updateFlyerModal(){
+  const organization = organizationById(activeFlyerOrganizationId);
+  const flyers = organization?.flyers || [];
+  if(!organization || !flyers.length) return closeFlyerModal();
+  activeFlyerIndex = (activeFlyerIndex + flyers.length) % flyers.length;
+  const flyer = flyers[activeFlyerIndex];
+  setText("flyerModalOrganization", organization.nome);
+  setText("flyerModalTitle", flyer.titulo);
+  setText("flyerModalCounter", `${activeFlyerIndex + 1} de ${flyers.length}`);
+  if(flyerModalImage){
+    flyerModalImage.src = flyer.url;
+    flyerModalImage.alt = `${flyer.titulo} — ${organization.nome}`;
+  }
+  if(flyerModalPrevious) flyerModalPrevious.hidden = flyers.length <= 1;
+  if(flyerModalNext) flyerModalNext.hidden = flyers.length <= 1;
+}
+
+function openFlyerModal(organizationId, index=0){
+  const organization = organizationById(organizationId);
+  if(!flyerModal || !organization?.flyers?.length) return;
+  activeFlyerOrganizationId = organizationId;
+  activeFlyerIndex = Number(index) || 0;
+  flyerModal.hidden = false;
+  flyerModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  updateFlyerModal();
+  flyerModal.querySelector(".flyer-modal-close")?.focus();
+}
+
+function closeFlyerModal(){
+  if(!flyerModal) return;
+  flyerModal.hidden = true;
+  flyerModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function openOrganizationMeetings(organizationId){
+  closeFlyerModal();
+  activateView("reunioes");
+  if(reuniaoOrganizationFilter){
+    reuniaoOrganizationFilter.value = organizationId || "";
+    renderReunioes();
+  }
+  document.getElementById("reunioesGrid")?.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+reuniaoOrganizationSelect?.addEventListener("change", updateMeetingOrganizationSelection);
+document.getElementById("r_gangue")?.addEventListener("input", () => setMeetingOrganizationPreview(null, true));
+document.getElementById("r_icone")?.addEventListener("input", () => setMeetingOrganizationPreview(null, reuniaoOrganizationSelect?.value === "__custom__"));
+reuniaoOrganizationFilter?.addEventListener("change", renderReunioes);
+flyerSearch?.addEventListener("input", renderFlyers);
+flyersGrid?.addEventListener("click", event => {
+  const openButton = event.target.closest("[data-open-flyer]");
+  if(openButton){ openFlyerModal(openButton.dataset.openFlyer, openButton.dataset.flyerIndex); return; }
+  const meetingButton = event.target.closest("[data-org-meetings]");
+  if(meetingButton) openOrganizationMeetings(meetingButton.dataset.orgMeetings);
+});
+flyerModal?.addEventListener("click", event => {
+  if(event.target.closest("[data-close-flyer]")) closeFlyerModal();
+});
+flyerModalPrevious?.addEventListener("click", () => { activeFlyerIndex -= 1; updateFlyerModal(); });
+flyerModalNext?.addEventListener("click", () => { activeFlyerIndex += 1; updateFlyerModal(); });
+flyerModalMeetings?.addEventListener("click", () => openOrganizationMeetings(activeFlyerOrganizationId));
+document.addEventListener("keydown", event => {
+  if(flyerModal?.hidden !== false) return;
+  if(event.key === "Escape") closeFlyerModal();
+  if(event.key === "ArrowLeft"){ activeFlyerIndex -= 1; updateFlyerModal(); }
+  if(event.key === "ArrowRight"){ activeFlyerIndex += 1; updateFlyerModal(); }
 });
 
 function resetReuniaoForm(){
@@ -345,6 +595,7 @@ function resetReuniaoForm(){
   if(reuniaoCancelEditBtn) reuniaoCancelEditBtn.hidden = true;
   setText("reuniaoFormKicker", "Nova reunião");
   setText("reuniaoFormTitle", "Agendar compromisso");
+  updateMeetingOrganizationSelection();
 }
 
 function iniciarEdicaoReuniao(id){
@@ -352,8 +603,15 @@ function iniciarEdicaoReuniao(id){
   if(!item || !reuniaoForm) return;
   reuniaoEmEdicaoId = id;
   document.getElementById("r_titulo").value = item.titulo || "";
-  document.getElementById("r_gangue").value = item.gangue || "";
-  document.getElementById("r_icone").value = item.icone || "";
+  const hasKnownOrganization = item.organizacao_id && organizationById(item.organizacao_id);
+  if(reuniaoOrganizationSelect) reuniaoOrganizationSelect.value = hasKnownOrganization ? item.organizacao_id : "__custom__";
+  document.getElementById("r_gangue").value = hasKnownOrganization ? "" : (item.gangue || "");
+  document.getElementById("r_icone").value = item.icone || item.organizacao?.icone || "🤝";
+  updateMeetingOrganizationSelection();
+  if(!hasKnownOrganization){
+    document.getElementById("r_icone").value = item.icone || "🤝";
+    setMeetingOrganizationPreview(null, true);
+  }
   document.getElementById("r_data").value = item.data || "";
   document.getElementById("r_horario").value = item.horario || "";
   document.getElementById("r_local").value = item.local || "";
@@ -373,9 +631,17 @@ reuniaoCancelEditBtn?.addEventListener("click", () => {
 
 reuniaoForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const selectedOrganizationId = inputValue("r_organizacao");
+  const organization = organizationById(selectedOrganizationId);
   const payload = {
-    titulo: inputValue("r_titulo"), gangue: inputValue("r_gangue"), icone: inputValue("r_icone"),
-    data: inputValue("r_data"), horario: inputValue("r_horario"), local: inputValue("r_local"), pauta: inputValue("r_pauta")
+    titulo: inputValue("r_titulo").trim(),
+    organizacao_id: organization?.id || "",
+    gangue: organization?.nome || inputValue("r_gangue").trim(),
+    icone: organization?.icone || inputValue("r_icone").trim(),
+    data: inputValue("r_data"),
+    horario: inputValue("r_horario"),
+    local: inputValue("r_local").trim(),
+    pauta: inputValue("r_pauta").trim()
   };
 
   if(reuniaoEmEdicaoId){
@@ -397,6 +663,8 @@ reuniaoForm?.addEventListener("submit", async (e) => {
 });
 
 reunioesGrid?.addEventListener("click", async (event) => {
+  const flyerButton = event.target.closest("[data-open-flyer]");
+  if(flyerButton){ openFlyerModal(flyerButton.dataset.openFlyer, flyerButton.dataset.flyerIndex); return; }
   const editButton = event.target.closest("[data-editar-reuniao]");
   if(editButton){ iniciarEdicaoReuniao(editButton.dataset.editarReuniao); return; }
 
@@ -425,41 +693,172 @@ reunioesGrid?.addEventListener("click", async (event) => {
   finally{ button.disabled = false; }
 });
 
-encomendasTable?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-encomenda-entrega]");
-  if(!button || !canWrite) return;
+function encomendaById(id){
+  return encomendasCache.find(item => String(item.id) === String(id)) || null;
+}
 
-  const id = button.dataset.encomendaEntrega;
-  const entregue = button.dataset.encomendaChoice;
-  if(entregue === "Sim" && !window.confirm("Confirmar a entrega? A encomenda será removida daqui e registrada em Vendas.")) return;
-  const row = button.closest("tr");
-  const buttons = row ? row.querySelectorAll("[data-encomenda-entrega]") : [button];
-  buttons.forEach(btn => btn.disabled = true);
-  setFeedback(encomendaFeedback, `Atualizando entrega para ${entregue.toUpperCase()}...`);
+function setInputValue(id, value){
+  const element = document.getElementById(id);
+  if(element) element.value = value ?? "";
+}
 
+function openDeliveryModal(id){
+  const item = encomendaById(id);
+  if(!deliveryModal || !item || !canWrite) return;
+
+  activeDeliveryEncomendaId = item.id;
+  deliveryForm?.reset();
+  setText("deliveryOrderName", item.o_que_pediu || "Encomenda");
+  setText("deliveryOrderCustomer", `${item.quem_pediu || "--"} • valor base ${currency(item.valor)}`);
+  setText("deliveryCleanValue", currency(item.valor));
+  setText("deliveryDirtyValue", currency(Number(item.valor || 0) * 1.30));
+  setText("deliverySelectedValue", "Escolha uma opção");
+  setFeedback(deliveryFeedback, "Selecione dinheiro limpo ou sujo.");
+  deliveryModal.hidden = false;
+  deliveryModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  deliveryModal.querySelector('input[name="delivery_money_type"]')?.focus();
+}
+
+function closeDeliveryModal(){
+  if(!deliveryModal) return;
+  deliveryModal.hidden = true;
+  deliveryModal.setAttribute("aria-hidden", "true");
+  activeDeliveryEncomendaId = null;
+  document.body.classList.remove("modal-open");
+}
+
+function updateDeliverySelectedValue(){
+  const item = encomendaById(activeDeliveryEncomendaId);
+  const selected = deliveryForm?.querySelector('input[name="delivery_money_type"]:checked')?.value;
+  if(!item || !selected){
+    setText("deliverySelectedValue", "Escolha uma opção");
+    return;
+  }
+  const total = Number(item.valor || 0) * (selected === "Sujo" ? 1.30 : 1);
+  setText("deliverySelectedValue", `${selected}: ${currency(total)}`);
+}
+
+function openEncomendaEditModal(id){
+  const item = encomendaById(id);
+  if(!encomendaEditModal || !item || !canWrite) return;
+  activeEditEncomendaId = item.id;
+  setInputValue("edit_e_quem_pediu", item.quem_pediu);
+  setInputValue("edit_e_o_que_pediu", item.o_que_pediu);
+  setInputValue("edit_e_valor", item.valor);
+  setInputValue("edit_e_para_quando", item.para_quando);
+  setInputValue("edit_e_quem_negociou", item.quem_negociou);
+  setInputValue("edit_e_observacao", item.observacao);
+  updateEditEncomendaPreview();
+  setFeedback(encomendaEditFeedback, "Edite os campos e salve.");
+  encomendaEditModal.hidden = false;
+  encomendaEditModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  document.getElementById("edit_e_quem_pediu")?.focus();
+}
+
+function closeEncomendaEditModal(){
+  if(!encomendaEditModal) return;
+  encomendaEditModal.hidden = true;
+  encomendaEditModal.setAttribute("aria-hidden", "true");
+  activeEditEncomendaId = null;
+  document.body.classList.remove("modal-open");
+}
+
+encomendasTable?.addEventListener("click", event => {
+  if(!canWrite) return;
+  const deliveryButton = event.target.closest("[data-open-delivery]");
+  if(deliveryButton){
+    openDeliveryModal(deliveryButton.dataset.openDelivery);
+    return;
+  }
+  const editButton = event.target.closest("[data-edit-encomenda]");
+  if(editButton) openEncomendaEditModal(editButton.dataset.editEncomenda);
+});
+
+deliveryModal?.addEventListener("click", event => {
+  if(event.target.closest("[data-close-delivery]")) closeDeliveryModal();
+});
+
+deliveryForm?.addEventListener("change", updateDeliverySelectedValue);
+
+deliveryForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const id = activeDeliveryEncomendaId;
+  const tipoDinheiro = deliveryForm.querySelector('input[name="delivery_money_type"]:checked')?.value;
+  if(!id || !tipoDinheiro){
+    setFeedback(deliveryFeedback, "Escolha dinheiro limpo ou sujo antes de confirmar.", true);
+    return;
+  }
+
+  deliveryConfirmBtn.disabled = true;
+  setFeedback(deliveryFeedback, "Confirmando entrega e calculando o valor...");
   try{
     const {res, data} = await fetchJson(`/api/encomendas/${encodeURIComponent(id)}/entrega`, {
       method:"POST",
       headers:csrfHeaders({"Content-Type":"application/json"}),
-      body:JSON.stringify({entregue})
+      body:JSON.stringify({entregue:"Sim", tipo_dinheiro:tipoDinheiro})
     });
-
     if(!res.ok){
-      setFeedback(encomendaFeedback, data.error || "Erro ao atualizar entrega.", true);
-      await loadEncomendas();
+      setFeedback(deliveryFeedback, data.error || "Erro ao confirmar a entrega.", true);
       return;
     }
 
-    setFeedback(encomendaFeedback, data.message || "Status de entrega atualizado.");
+    closeDeliveryModal();
+    setFeedback(encomendaFeedback, `${data.message || "Entrega confirmada."} ${data.tipo_dinheiro || tipoDinheiro}: ${currency(data.valor_total)}.`);
     await Promise.all([loadEncomendas(), loadVendas(), loadResumo()]);
-    if(data.moved_to_vendas){
-      activateView("vendas");
-    }
+    activateView("vendas");
   }catch(error){
-    setFeedback(encomendaFeedback, `Falha ao atualizar entrega: ${error.message}`, true);
+    setFeedback(deliveryFeedback, `Falha ao atualizar a entrega: ${error.message}`, true);
   }finally{
-    buttons.forEach(btn => btn.disabled = false);
+    deliveryConfirmBtn.disabled = false;
   }
+});
+
+encomendaEditModal?.addEventListener("click", event => {
+  if(event.target.closest("[data-close-encomenda-edit]")) closeEncomendaEditModal();
+});
+
+encomendaEditForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const id = activeEditEncomendaId;
+  if(!id) return;
+
+  const payload = {
+    quem_pediu: inputValue("edit_e_quem_pediu").trim(),
+    o_que_pediu: inputValue("edit_e_o_que_pediu").trim(),
+    valor: Number(inputValue("edit_e_valor")),
+    para_quando: inputValue("edit_e_para_quando").trim(),
+    quem_negociou: inputValue("edit_e_quem_negociou").trim(),
+    observacao: inputValue("edit_e_observacao").trim(),
+  };
+
+  encomendaEditSaveBtn.disabled = true;
+  setFeedback(encomendaEditFeedback, "Salvando alterações...");
+  try{
+    const {res, data} = await fetchJson(`/api/encomendas/${encodeURIComponent(id)}`, {
+      method:"PUT",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify(payload)
+    });
+    if(!res.ok){
+      setFeedback(encomendaEditFeedback, data.error || "Erro ao editar a encomenda.", true);
+      return;
+    }
+    closeEncomendaEditModal();
+    setFeedback(encomendaFeedback, data.message || "Encomenda atualizada com sucesso.");
+    await Promise.all([loadEncomendas(), loadResumo()]);
+  }catch(error){
+    setFeedback(encomendaEditFeedback, `Falha ao editar a encomenda: ${error.message}`, true);
+  }finally{
+    encomendaEditSaveBtn.disabled = false;
+  }
+});
+
+document.addEventListener("keydown", event => {
+  if(event.key !== "Escape") return;
+  if(deliveryModal?.hidden === false) closeDeliveryModal();
+  if(encomendaEditModal?.hidden === false) closeEncomendaEditModal();
 });
 
 metaForm?.addEventListener("submit", async (e) => {
@@ -699,40 +1098,68 @@ async function loadResumo(){
   }catch{}
 }
 
+comprasTable?.addEventListener("click", event => {
+  const button = event.target.closest("[data-toggle-purchase-details]");
+  if(!button) return;
+  const id = button.dataset.togglePurchaseDetails;
+  const detailRow = Array.from(comprasTable.querySelectorAll("[data-purchase-detail-row]"))
+    .find(row => row.dataset.purchaseDetailRow === id);
+  if(!detailRow) return;
+  const willOpen = detailRow.hidden;
+  detailRow.hidden = !willOpen;
+  button.setAttribute("aria-expanded", String(willOpen));
+  button.textContent = willOpen ? "Ocultar justificativa" : "Ver justificativa";
+});
+
 async function loadCompras(){
+  const colspan = 7;
   try{
     const {res, data} = await fetchJson("/api/compras");
     if(!res.ok){
-      setTableContent(comprasTable, `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      setTableContent(comprasTable, `<tr><td colspan="6">Nenhuma compra registrada.</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="${colspan}">Nenhuma compra registrada.</td></tr>`);
       return;
     }
-    setTableContent(comprasTable, data.map(item => `
-      <tr>
+    setTableContent(comprasTable, data.map(item => {
+      const observation = String(item.observacao || "").trim();
+      const detailButton = observation
+        ? `<button type="button" class="purchase-details-btn" data-toggle-purchase-details="${escapeHtml(item.id)}" aria-expanded="false">Ver justificativa</button>`
+        : `<span class="purchase-no-details">Sem justificativa</span>`;
+      const detailRow = observation
+        ? `<tr class="purchase-detail-row" data-purchase-detail-row="${escapeHtml(item.id)}" hidden>
+            <td colspan="${colspan}">
+              <div class="purchase-detail-content"><strong>Justificativa da compra</strong><p>${escapeHtml(observation)}</p></div>
+            </td>
+          </tr>`
+        : "";
+      return `<tr class="purchase-main-row">
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
         <td>${escapeHtml(item.quem_pediu)}</td>
         <td>${escapeHtml(item.quem_vendeu)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
-      </tr>`).join(""));
+        <td>${detailButton}</td>
+      </tr>${detailRow}`;
+    }).join(""));
   }catch(error){
-    setTableContent(comprasTable, `<tr><td colspan="6">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
+    setTableContent(comprasTable, `<tr><td colspan="${colspan}">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
 async function loadVendas(){
+  const colspan = 7;
   try{
     const {res, data} = await fetchJson("/api/vendas");
     if(!res.ok){
-      setTableContent(vendasTable, `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`);
+      setTableContent(vendasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      setTableContent(vendasTable, `<tr><td colspan="6">Nenhuma venda registrada.</td></tr>`);
+      setTableContent(vendasTable, `<tr><td colspan="${colspan}">Nenhuma venda registrada.</td></tr>`);
       return;
     }
     setTableContent(vendasTable, data.map(item => `
@@ -743,9 +1170,10 @@ async function loadVendas(){
         <td>${escapeHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
+        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
       </tr>`).join(""));
   }catch(error){
-    setTableContent(vendasTable, `<tr><td colspan="6">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`);
+    setTableContent(vendasTable, `<tr><td colspan="${colspan}">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -756,13 +1184,16 @@ async function loadEncomendas(){
   try{
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
+      encomendasCache = [];
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
+      encomendasCache = [];
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
       return;
     }
+    encomendasCache = data;
     setTableContent(encomendasTable, data.map(item => `
       <tr>
         <td>${escapeHtml(item.data)}</td>
@@ -774,46 +1205,73 @@ async function loadEncomendas(){
         <td>${deliveryControl(item)}</td>
       </tr>`).join(""));
   }catch(error){
+    encomendasCache = [];
     setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
+
+function renderReunioes(){
+  if(!reunioesGrid) return;
+  const selectedOrganization = reuniaoOrganizationFilter?.value || "";
+  const items = reunioesCache.filter(item => {
+    if(!selectedOrganization) return true;
+    if(selectedOrganization === "__custom__") return !item.organizacao_id;
+    return item.organizacao_id === selectedOrganization;
+  });
+
+  const finalizadas = items.filter(item => item.status === "Finalizada").length;
+  const canceladas = items.filter(item => item.status === "Cancelada").length;
+  const agendadas = items.length - finalizadas - canceladas;
+  setText("reunioesAgendadas", integer(agendadas));
+  setText("reunioesFinalizadas", integer(finalizadas));
+  setText("reunioesCanceladas", integer(canceladas));
+
+  if(!items.length){
+    reunioesGrid.innerHTML = `<div class="meeting-empty">${selectedOrganization ? "Nenhuma reunião encontrada para esta organização." : "Nenhuma reunião agendada até o momento."}</div>`;
+    return;
+  }
+
+  reunioesGrid.innerHTML = items.map(item => {
+    const done = item.status === "Finalizada";
+    const canceled = item.status === "Cancelada";
+    const pending = item.status === "Aguardando confirmação";
+    const statusClass = done ? "finished" : (canceled ? "canceled" : (pending ? "pending" : "scheduled"));
+    const statusLabel = done ? "Finalizada" : (canceled ? "Cancelada" : (pending ? "Aguardando confirmação" : "Agendada"));
+    const date = item.data ? new Date(`${item.data}T12:00:00`) : null;
+    const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("pt-BR", {weekday:"short", day:"2-digit", month:"short"}) : item.data;
+    const organization = meetingOrganization(item);
+    const firstFlyer = organization?.flyers?.[0];
+    const linkedFlyer = firstFlyer
+      ? `<button class="meeting-flyer-link" type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="0">
+          <img src="${escapeHtml(firstFlyer.url)}" alt="Flyer de ${escapeHtml(organization.nome)}" loading="lazy" />
+          <span><strong>Flyer vinculado</strong><small>Abrir material da organização</small></span>
+        </button>`
+      : `<div class="meeting-flyer-link unavailable"><span class="meeting-no-flyer-icon">${escapeHtml(organization?.icone || item.icone || "🤝")}</span><span><strong>Sem flyer</strong><small>${organization ? "Imagem ainda não enviada" : "Organização personalizada"}</small></span></div>`;
+
+    return `<article class="meeting-card ${statusClass}">
+      <div class="meeting-icon">${escapeHtml(organization?.icone || item.icone || "🤝")}</div>
+      <div class="meeting-card-content">
+        <div class="meeting-card-top"><span class="meeting-status ${statusClass}">${statusLabel}</span><span class="meeting-gang">${escapeHtml(organization?.nome || item.gangue)}</span></div>
+        <h4>${escapeHtml(item.titulo)}</h4>
+        <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
+        ${linkedFlyer}
+        ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
+        ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
+        ${canceled ? `<small class="meeting-canceled-at">Cancelada em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
+        ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">✏️ Editar</button>${done || canceled ? "" : `<button class="meeting-cancel-btn" type="button" data-cancelar-reuniao="${escapeHtml(item.id)}">Cancelar reunião</button><button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>`}</div>` : ""}
+      </div>
+    </article>`;
+  }).join("");
+}
 
 async function loadReunioes(){
   if(!reunioesGrid) return;
   try{
     const {res, data} = await fetchJson("/api/reunioes");
     if(!res.ok){ reunioesGrid.innerHTML = `<div class="meeting-empty">${escapeHtml(data.error || "Erro ao carregar reuniões.")}</div>`; return; }
-    const items = Array.isArray(data) ? data : [];
-    reunioesCache = items;
-    const finalizadas = items.filter(item => item.status === "Finalizada").length;
-    const canceladas = items.filter(item => item.status === "Cancelada").length;
-    const agendadas = items.length - finalizadas - canceladas;
-    setText("reunioesAgendadas", integer(agendadas));
-    setText("reunioesFinalizadas", integer(finalizadas));
-    setText("reunioesCanceladas", integer(canceladas));
-    if(!items.length){ reunioesGrid.innerHTML = '<div class="meeting-empty">Nenhuma reunião agendada até o momento.</div>'; return; }
-    reunioesGrid.innerHTML = items.map(item => {
-      const done = item.status === "Finalizada";
-      const canceled = item.status === "Cancelada";
-      const pending = item.status === "Aguardando confirmação";
-      const statusClass = done ? "finished" : (canceled ? "canceled" : (pending ? "pending" : "scheduled"));
-      const statusLabel = done ? "Finalizada" : (canceled ? "Cancelada" : (pending ? "Aguardando confirmação" : "Agendada"));
-      const date = item.data ? new Date(`${item.data}T12:00:00`) : null;
-      const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("pt-BR", {weekday:"short", day:"2-digit", month:"short"}) : item.data;
-      return `<article class="meeting-card ${statusClass}">
-        <div class="meeting-icon">${escapeHtml(item.icone || "🤝")}</div>
-        <div class="meeting-card-content">
-          <div class="meeting-card-top"><span class="meeting-status ${statusClass}">${statusLabel}</span><span class="meeting-gang">${escapeHtml(item.gangue)}</span></div>
-          <h4>${escapeHtml(item.titulo)}</h4>
-          <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
-          ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
-          ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
-          ${canceled ? `<small class="meeting-canceled-at">Cancelada em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
-          ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">✏️ Editar</button>${done || canceled ? "" : `<button class="meeting-cancel-btn" type="button" data-cancelar-reuniao="${escapeHtml(item.id)}">Cancelar reunião</button><button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>`}</div>` : ""}
-        </div>
-      </article>`;
-    }).join("");
+    reunioesCache = Array.isArray(data) ? data : [];
+    renderReunioes();
   }catch(error){ reunioesGrid.innerHTML = `<div class="meeting-empty">Falha ao carregar reuniões: ${escapeHtml(error.message)}</div>`; }
 }
 
@@ -872,7 +1330,7 @@ async function loadAll(){
     refreshBtn.textContent = "Atualizando...";
   }
   try{
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadReunioes(), loadMetas()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadOrganizacoes(), loadReunioes(), loadMetas()]);
     updateLastSync();
   }finally{
     if(refreshBtn){
@@ -886,6 +1344,7 @@ refreshBtn?.addEventListener("click", loadAll);
 updatePreviewCompra();
 updatePreviewVenda();
 updatePreviewEncomenda();
+updateEncomendaPaymentField();
 renderRecipes();
 renderCraft();
 loadAll();

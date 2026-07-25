@@ -8,6 +8,7 @@ import re
 import time
 import threading
 import secrets
+import unicodedata
 from copy import deepcopy
 from datetime import datetime, timedelta, date, timezone
 from functools import wraps
@@ -130,7 +131,7 @@ DEFAULT_META_NAMES = [
 ]
 
 COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
-VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao"]
+VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao", "tipo_dinheiro", "valor_base"]
 ENCOMENDAS_HEADERS = [
     "id",
     "data",
@@ -145,9 +146,116 @@ ENCOMENDAS_HEADERS = [
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
-REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em"]
+REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em", "organizacao_id"]
+
+# Cadastro central das organizações e seus flyers. Para adicionar novos flyers depois,
+# basta copiar a imagem para static/images/flyers e incluir o arquivo nesta lista.
+ORGANIZACOES = [
+    {
+        "id": "ballas", "nome": "Ballas", "icone": "🟣",
+        "aliases": ["Ballas"],
+        "flyers": [{"id": "ballas-acessorios", "titulo": "Tabela de acessórios", "arquivo": "images/flyers/ballas.webp"}],
+    },
+    {
+        "id": "los-bandoleros", "nome": "Los Bandoleros", "icone": "🟡",
+        "aliases": ["Los Bandoleros", "Bandoleros", "Cartel"],
+        "flyers": [{"id": "bandoleros-valores", "titulo": "Tabela de valores", "arquivo": "images/flyers/los-bandoleros.webp"}],
+    },
+    {
+        "id": "distrito", "nome": "Distrito", "icone": "⚪",
+        "aliases": ["Distrito"],
+        "flyers": [{"id": "distrito-parceiros", "titulo": "Valores para parceiros", "arquivo": "images/flyers/distrito.webp"}],
+    },
+    {
+        "id": "families", "nome": "Families", "icone": "💚",
+        "aliases": ["Families", "FMLS"],
+        "flyers": [{"id": "families-valores", "titulo": "Tabela de valores", "arquivo": "images/flyers/families.webp"}],
+    },
+    {
+        "id": "hells", "nome": "Hells", "icone": "💗",
+        "aliases": ["Hells", "Sinfuriosa", "Sin Furiosa"],
+        "flyers": [{"id": "hells-produtos", "titulo": "Produtos e valores", "arquivo": "images/flyers/hells.webp"}],
+    },
+    {
+        "id": "hydra", "nome": "Hydra", "icone": "🐉",
+        "aliases": ["Hydra"],
+        "flyers": [
+            {"id": "hydra-colete", "titulo": "Colete e C4", "arquivo": "images/flyers/hydra-colete.webp"},
+            {"id": "hydra-attach", "titulo": "Acessórios", "arquivo": "images/flyers/hydra-attach.webp"},
+        ],
+    },
+    {
+        "id": "leviata", "nome": "Leviatã", "icone": "🐲",
+        "aliases": ["Leviatã", "Leviata", "Leviathan"],
+        "flyers": [{"id": "leviata-cnpj", "titulo": "Tabela CNPJ", "arquivo": "images/flyers/leviata.webp"}],
+    },
+    {
+        "id": "legacy", "nome": "Legacy", "icone": "👑",
+        "aliases": ["Legacy"],
+        "flyers": [{"id": "legacy-tec9", "titulo": "Tabela TEC-9", "arquivo": "images/flyers/legacy.webp"}],
+    },
+    {
+        "id": "la-guardia", "nome": "La Guardia", "icone": "🟪",
+        "aliases": ["La Guardia", "Laguardia", "LaGuardia"],
+        "flyers": [{"id": "la-guardia-acessorios", "titulo": "Acessórios", "arquivo": "images/flyers/la-guardia.webp"}],
+    },
+    {
+        "id": "vagos", "nome": "Vagos", "icone": "💛",
+        "aliases": ["Vagos", "Los Vagos"],
+        "flyers": [{"id": "vagos-armas", "titulo": "Tabela de armas", "arquivo": "images/flyers/vagos.webp"}],
+    },
+    {
+        "id": "vendetta", "nome": "Vendetta", "icone": "🟠",
+        "aliases": ["Vendetta"],
+        "flyers": [{"id": "vendetta-produtos", "titulo": "Tabela de produtos", "arquivo": "images/flyers/vendetta.webp"}],
+    },
+    # Organizações já presentes na agenda, mas ainda sem uma imagem enviada.
+    {"id": "blackherts", "nome": "Blackherts", "icone": "🖤", "aliases": ["Blackherts", "Blackhearts"], "flyers": []},
+    {"id": "the-lost", "nome": "The Lost", "icone": "🏍️", "aliases": ["The Lost", "Lost"], "flyers": []},
+]
+ORGANIZACOES_POR_ID = {item["id"]: item for item in ORGANIZACOES}
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
+
+
+def normalize_organization_key(value):
+    text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def find_organization(organizacao_id=None, nome=None):
+    org_id = str(organizacao_id or "").strip().lower()
+    if org_id and org_id in ORGANIZACOES_POR_ID:
+        return ORGANIZACOES_POR_ID[org_id]
+
+    key = normalize_organization_key(nome)
+    if not key:
+        return None
+
+    for organization in ORGANIZACOES:
+        candidates = [organization.get("nome", ""), *organization.get("aliases", [])]
+        if any(normalize_organization_key(candidate) == key for candidate in candidates):
+            return organization
+    return None
+
+
+def serialize_organization(organization):
+    flyers = [
+        {
+            "id": flyer["id"],
+            "titulo": flyer["titulo"],
+            "url": url_for("static", filename=flyer["arquivo"]),
+        }
+        for flyer in organization.get("flyers", [])
+    ]
+    return {
+        "id": organization["id"],
+        "nome": organization["nome"],
+        "icone": organization.get("icone", "🤝"),
+        "tem_flyer": bool(flyers),
+        "flyers": flyers,
+    }
 
 def now_local():
     """Retorna o horário local usado nas metas semanais.
@@ -861,8 +969,35 @@ def normalize_compra(row):
     return row_to_dict(row, COMPRAS_HEADERS)
 
 
+def normalize_money_type(value):
+    normalized = str(value or "").strip().lower()
+    if normalized == "limpo":
+        return "Limpo"
+    if normalized == "sujo":
+        return "Sujo"
+    return ""
+
+
+def calculate_payment_value(base_value, money_type):
+    base = round(float(base_value or 0), 2)
+    normalized_type = normalize_money_type(money_type)
+    final_value = round(base * 1.30, 2) if normalized_type == "Sujo" else base
+    return base, final_value, normalized_type
+
+
+def format_brl_value(value):
+    formatted = f"{float(value or 0):,.2f}"
+    return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
 def normalize_venda(row):
-    return row_to_dict(row, VENDAS_HEADERS)
+    item = row_to_dict(row, VENDAS_HEADERS)
+    item["tipo_dinheiro"] = normalize_money_type(item.get("tipo_dinheiro"))
+    try:
+        item["valor_base"] = round(float(item.get("valor_base") or item.get("valor_total") or 0), 2)
+    except (TypeError, ValueError):
+        item["valor_base"] = item.get("valor_total") or 0
+    return item
 
 
 def normalize_encomenda(row):
@@ -901,9 +1036,12 @@ def venda_id_from_encomenda(encomenda_id):
     return f"KKSV-ENC-{str(encomenda_id or '').strip()}"
 
 
-def build_venda_row_from_encomenda(item, entregue_em=None):
+def build_venda_row_from_encomenda(item, entregue_em=None, tipo_dinheiro="Limpo"):
     quantidade, produto = parse_encomenda_item(item.get("o_que_pediu"))
-    valor_total = round(float(item.get("valor") or 0), 2)
+    valor_base, valor_total, tipo_dinheiro = calculate_payment_value(item.get("valor"), tipo_dinheiro)
+    if not tipo_dinheiro:
+        raise ValueError("Escolha se a entrega foi paga em dinheiro limpo ou sujo.")
+
     valor_unitario = round(valor_total / quantidade, 2) if quantidade else valor_total
     encomenda_id = str(item.get("id") or "").strip()
     prazo = str(item.get("para_quando") or "").strip()
@@ -912,6 +1050,11 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
     detalhes = [f"Convertida da encomenda {encomenda_id}."]
     if prazo:
         detalhes.append(f"Prazo combinado: {prazo}.")
+    if tipo_dinheiro == "Sujo":
+        detalhes.append(f"Pagamento em dinheiro sujo (+30%). Valor base: R$ {format_brl_value(valor_base)}.")
+    else:
+        detalhes.append("Pagamento em dinheiro limpo.")
+
     observacao = " ".join(filter(None, [observacao_original, *detalhes]))
     observacao = observacao[:MAX_OBSERVATION_LENGTH]
 
@@ -925,6 +1068,8 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
         quantidade,
         valor_total,
         observacao,
+        tipo_dinheiro,
+        valor_base,
     ]
 
 
@@ -944,6 +1089,16 @@ def normalize_reuniao(row):
         item["status"] = "Aguardando confirmação"
     else:
         item["status"] = "Agendada"
+
+    organization = find_organization(item.get("organizacao_id"), item.get("gangue"))
+    if organization:
+        item["organizacao_id"] = organization["id"]
+        item["organizacao"] = serialize_organization(organization)
+        item["gangue"] = organization["nome"]
+        item["icone"] = item.get("icone") or organization.get("icone", "🤝")
+    else:
+        item["organizacao_id"] = ""
+        item["organizacao"] = None
     return item
 
 
@@ -1055,6 +1210,12 @@ def debug_config():
         "credentials_present": bool(credentials_json),
         "service_account_email": client_email,
     })
+
+
+@app.get("/api/organizacoes")
+@require_login
+def list_organizacoes():
+    return jsonify([serialize_organization(item) for item in ORGANIZACOES])
 
 
 @app.get("/api/compras")
@@ -1181,6 +1342,8 @@ def create_venda():
             quantidade,
             valor_total,
             observacao,
+            "",
+            valor_total,
         ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
         log_info(f"Venda registrada com sucesso. ID={registro_id}")
@@ -1267,6 +1430,10 @@ def create_encomenda():
         if entregue == "Nao":
             entregue = "Não"
 
+        tipo_dinheiro = normalize_money_type(data.get("tipo_dinheiro"))
+        if entregue == "Sim" and not tipo_dinheiro:
+            return error_response("Escolha se a entrega foi paga em dinheiro limpo ou sujo.", 400)
+
         try:
             quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
             o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
@@ -1294,7 +1461,7 @@ def create_encomenda():
 
         if entregue == "Sim":
             vendas_worksheet = get_vendas_worksheet()
-            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=agora)
+            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=agora, tipo_dinheiro=tipo_dinheiro)
             vendas_worksheet.append_row(venda_row, value_input_option="RAW")
             invalidate_values_cache(VENDAS_WORKSHEET_NAME)
             log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={registro_id}")
@@ -1304,7 +1471,9 @@ def create_encomenda():
                 "message": "Encomenda entregue e registrada diretamente em Vendas.",
                 "id": registro_id,
                 "venda_id": venda_row[0],
-                "valor": round(valor, 2),
+                "valor": venda_row[7],
+                "valor_base": venda_row[10],
+                "tipo_dinheiro": venda_row[9],
                 "moved_to_vendas": True,
             }), 201
 
@@ -1337,6 +1506,75 @@ def create_encomenda():
         return error_response(str(e))
 
 
+@app.put("/api/encomendas/<registro_id>")
+@require_admin
+def update_encomenda(registro_id):
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+
+        required_fields = ["quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou"]
+        missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
+        if missing:
+            return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
+
+        try:
+            valor = float(data["valor"])
+        except (ValueError, TypeError):
+            return error_response("O valor da encomenda deve ser numérico.", 400)
+        if valor < 0:
+            return error_response("O valor da encomenda não pode ser negativo.", 400)
+        if valor > MAX_MONEY_VALUE:
+            return error_response("Valor da encomenda muito alto.", 400)
+
+        try:
+            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
+            para_quando = clean_text_field(data, "para_quando", "Para quando")
+            quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
+            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        with _sheets_lock:
+            worksheet = get_encomendas_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Encomenda não encontrada.", 404)
+
+            while len(row) < len(ENCOMENDAS_HEADERS):
+                row.append("")
+            if validate_yes_no(row[7]) == "Sim":
+                return error_response("Essa encomenda já foi entregue e não pode mais ser editada aqui.", 409)
+
+            row[2] = quem_pediu
+            row[3] = o_que_pediu
+            row[4] = round(valor, 2)
+            row[5] = para_quando
+            row[6] = quem_negociou
+            row[7] = "Não"
+            row[8] = observacao
+            row[9] = ""
+
+            worksheet.update(
+                f"A{row_index}:J{row_index}",
+                [row[:len(ENCOMENDAS_HEADERS)]],
+                value_input_option="RAW",
+            )
+            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
+
+        return jsonify({
+            "ok": True,
+            "message": "Encomenda atualizada com sucesso.",
+            "item": normalize_encomenda(row),
+        })
+
+    except Exception as e:
+        log_error("Falha em /api/encomendas/<id> [PUT]", e)
+        return error_response(str(e))
+
+
 @app.post("/api/encomendas/<registro_id>/entrega")
 @require_admin
 def update_encomenda_entrega(registro_id):
@@ -1348,6 +1586,10 @@ def update_encomenda_entrega(registro_id):
         entregue = validate_yes_no(data.get("entregue"))
         if not entregue:
             return error_response("A entrega deve ser somente 'Sim' ou 'Não'.", 400)
+
+        tipo_dinheiro = normalize_money_type(data.get("tipo_dinheiro"))
+        if entregue == "Sim" and not tipo_dinheiro:
+            return error_response("Escolha se a entrega foi paga em dinheiro limpo ou sujo.", 400)
 
         with _sheets_lock:
             worksheet = get_encomendas_worksheet()
@@ -1380,12 +1622,17 @@ def update_encomenda_entrega(registro_id):
             encomenda_item["entregue_em"] = entregue_em
 
             vendas_worksheet = get_vendas_worksheet()
-            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=entregue_em)
+            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=entregue_em, tipo_dinheiro=tipo_dinheiro)
             venda_id = venda_row[0]
 
             # Se a gravação da venda tiver ocorrido e a exclusão da encomenda falhar,
-            # uma nova tentativa apenas conclui a exclusão, sem duplicar a venda.
-            if not worksheet_has_record_id(vendas_worksheet, venda_id):
+            # uma nova tentativa apenas conclui a exclusão, sem duplicar ou alterar o pagamento.
+            existing_sale_index, existing_sale_row = find_row_by_id(vendas_worksheet, venda_id)
+            if existing_sale_index:
+                while len(existing_sale_row) < len(VENDAS_HEADERS):
+                    existing_sale_row.append("")
+                venda_row = existing_sale_row[:len(VENDAS_HEADERS)]
+            else:
                 vendas_worksheet.append_row(venda_row, value_input_option="RAW")
 
             worksheet.delete_rows(row_index)
@@ -1399,6 +1646,9 @@ def update_encomenda_entrega(registro_id):
             "venda_id": venda_id,
             "entregue": "Sim",
             "entregue_em": entregue_em,
+            "tipo_dinheiro": venda_row[9],
+            "valor_base": venda_row[10],
+            "valor_total": venda_row[7],
             "moved_to_vendas": True,
         })
 
@@ -1446,8 +1696,16 @@ def create_reuniao():
 
         try:
             titulo = clean_text_field(data, "titulo", "Título")
-            gangue = clean_text_field(data, "gangue", "Gangue")
+            organizacao_id = clean_text_field(data, "organizacao_id", "Organização", max_length=60, required=False).lower()
+            gangue = clean_text_field(data, "gangue", "Gangue / grupo")
             icone = clean_text_field(data, "icone", "Ícone", max_length=12)
+            organization = find_organization(organizacao_id, gangue)
+            if organization:
+                organizacao_id = organization["id"]
+                gangue = organization["nome"]
+                icone = organization.get("icone", icone)
+            else:
+                organizacao_id = ""
             data_reuniao = clean_text_field(data, "data", "Data", max_length=10)
             horario = clean_text_field(data, "horario", "Horário", max_length=5)
             local = clean_text_field(data, "local", "Local", required=False)
@@ -1465,7 +1723,7 @@ def create_reuniao():
         worksheet = get_reunioes_worksheet()
         worksheet.append_row([
             registro_id, format_timestamp(), titulo, gangue, icone, data_reuniao, horario,
-            local, pauta, "Agendada", ""
+            local, pauta, "Agendada", "", organizacao_id
         ], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião agendada com sucesso.", "id": registro_id}), 201
@@ -1484,8 +1742,16 @@ def update_reuniao(registro_id):
 
         try:
             titulo = clean_text_field(data, "titulo", "Título")
-            gangue = clean_text_field(data, "gangue", "Gangue")
+            organizacao_id = clean_text_field(data, "organizacao_id", "Organização", max_length=60, required=False).lower()
+            gangue = clean_text_field(data, "gangue", "Gangue / grupo")
             icone = clean_text_field(data, "icone", "Ícone", max_length=12)
+            organization = find_organization(organizacao_id, gangue)
+            if organization:
+                organizacao_id = organization["id"]
+                gangue = organization["nome"]
+                icone = organization.get("icone", icone)
+            else:
+                organizacao_id = ""
             data_reuniao = clean_text_field(data, "data", "Data", max_length=10)
             horario = clean_text_field(data, "horario", "Horário", max_length=5)
             local = clean_text_field(data, "local", "Local", required=False)
@@ -1514,12 +1780,13 @@ def update_reuniao(registro_id):
         row[6] = horario
         row[7] = local
         row[8] = pauta
+        row[11] = organizacao_id
         # Ao confirmar novos dados de uma reunião pendente, ela passa a estar agendada.
         if str(row[9]).strip().lower() in {"aguardando confirmação", "aguardando confirmacao", "a confirmar"}:
             row[9] = "Agendada"
             row[10] = ""
 
-        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        worksheet.update(f"A{row_index}:L{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião atualizada com sucesso."})
     except Exception as e:
@@ -1540,7 +1807,7 @@ def finalizar_reuniao(registro_id):
             row.append("")
         row[9] = "Finalizada"
         row[10] = format_timestamp()
-        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        worksheet.update(f"A{row_index}:L{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião marcada como finalizada."})
     except Exception as e:
@@ -1563,7 +1830,7 @@ def cancelar_reuniao(registro_id):
             return error_response("Uma reunião finalizada não pode ser cancelada.", 400)
         row[9] = "Cancelada"
         row[10] = format_timestamp()
-        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        worksheet.update(f"A{row_index}:L{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião marcada como cancelada."})
     except Exception as e:

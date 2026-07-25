@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai | Compras, Vendas, Encomendas, Metas e Craft</title>
-  <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, metas e craft no GTARP." />
+  <title>Kokusai | Gestão, Organizações, Flyers e Reuniões</title>
+  <meta name="description" content="Painel operacional Kokusai para compras, vendas, encomendas, organizações, flyers, reuniões, metas e craft no GTARP." />
   <meta name="csrf-token" content="{{ csrf_token }}" />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +21,7 @@
         <div>
           <p class="brand-kicker">Kokusai</p>
           <h1>Departamento</h1>
-          <span>Compras • Vendas • Encomendas • Reuniões • Metas • Craft</span>
+          <span>Compras • Vendas • Flyers • Reuniões • Metas • Craft</span>
         </div>
       </div>
 
@@ -30,6 +30,7 @@
         <button class="nav-link" data-target="compras"><span>Compras</span></button>
         <button class="nav-link" data-target="vendas"><span>Vendas</span></button>
         <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
+        <button class="nav-link" data-target="flyers"><span>Flyers</span></button>
         <button class="nav-link" data-target="reunioes"><span>Reuniões</span></button>
         <button class="nav-link" data-target="metas"><span>Metas</span></button>
         <button class="nav-link" data-target="craft"><span>Craft</span></button>
@@ -73,9 +74,9 @@
         <div class="hero-card">
           <div class="hero-content">
             <p class="hero-tag">Gestão GTARP</p>
-            <h3>Operação centralizada para compras, vendas, encomendas, metas e craft</h3>
+            <h3>Operação centralizada para vendas, parceiros, reuniões e flyers</h3>
             <p class="hero-copy">
-              Um painel mais limpo, direto e profissional para registrar pedidos, acompanhar pagamentos de meta, calcular crafts e manter o histórico do departamento organizado.
+              Registre movimentações, consulte os materiais de cada organização e mantenha as reuniões conectadas aos parceiros certos em uma única central.
             </p>
             <div class="access-note {{ current_user.role }}">
               {{ "Você está com permissão total para registrar e consultar movimentações." if is_admin else "Você está em modo somente leitura. Os registros podem ser consultados, mas não alterados." }}
@@ -113,6 +114,16 @@
             <p>Valor encomendas</p>
             <strong id="statValorEncomendas">R$ 0,00</strong>
             <span>movimentado</span>
+          </article>
+          <article class="stat-card organization-stat-card">
+            <p>Organizações</p>
+            <strong id="statOrganizacoes">0</strong>
+            <span>parceiros cadastrados</span>
+          </article>
+          <article class="stat-card organization-stat-card">
+            <p>Flyers</p>
+            <strong id="statFlyers">0</strong>
+            <span>materiais disponíveis</span>
           </article>
           <article class="stat-card meta-card">
             <p>Metas pagas</p>
@@ -215,6 +226,7 @@
                     <th>Quem vendeu</th>
                     <th>Qtd</th>
                     <th>Total</th>
+                    <th>Detalhes</th>
                   </tr>
                 </thead>
                 <tbody id="comprasTable"></tbody>
@@ -312,6 +324,7 @@
                     <th>Quem vende</th>
                     <th>Qtd</th>
                     <th>Total</th>
+                    <th>Pagamento</th>
                   </tr>
                 </thead>
                 <tbody id="vendasTable"></tbody>
@@ -375,14 +388,25 @@
                 </select>
               </div>
 
+              <div class="field" id="e_tipo_dinheiro_wrap" hidden>
+                <label for="e_tipo_dinheiro">Forma de recebimento</label>
+                <select id="e_tipo_dinheiro">
+                  <option value="">Escolha limpo ou sujo</option>
+                  <option value="Limpo">Dinheiro limpo — valor normal</option>
+                  <option value="Sujo">Dinheiro sujo — acrescentar 30%</option>
+                </select>
+                <small class="field-helper">Essa escolha será registrada na venda.</small>
+              </div>
+
               <div class="field field-full">
                 <label for="e_observacao">Observação</label>
                 <textarea id="e_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
-              <div class="calc-box">
-                <span>Valor informado</span>
+              <div class="calc-box payment-preview-box">
+                <span>Valor limpo</span>
                 <strong id="previewEncomendaValor">R$ 0,00</strong>
+                <small id="previewEncomendaSujo">No sujo (+30%): R$ 0,00</small>
               </div>
 
               <div class="form-actions">
@@ -429,6 +453,32 @@
       </section>
 
 
+      <section class="view" id="flyers">
+        <div class="section-intro flyer-intro">
+          <div>
+            <p class="eyebrow">Central de parceiros</p>
+            <h3>Flyers por organização</h3>
+          </div>
+          <p>Consulte rapidamente os materiais recebidos e abra as reuniões relacionadas a cada organização.</p>
+        </div>
+
+        <section class="panel-card flyer-toolbar-card">
+          <div class="flyer-toolbar">
+            <div class="flyer-summary">
+              <div><strong id="flyerOrganizationCount">0</strong><span>organizações</span></div>
+              <div><strong id="flyerAssetCount">0</strong><span>flyers</span></div>
+              <div><strong id="flyerPendingCount">0</strong><span>aguardando imagem</span></div>
+            </div>
+            <label class="flyer-search-field" for="flyerSearch">
+              <span>Pesquisar organização</span>
+              <input id="flyerSearch" type="search" placeholder="Ex.: Hydra, Ballas ou Legacy" autocomplete="off" />
+            </label>
+          </div>
+        </section>
+
+        <div id="flyersGrid" class="flyers-grid" aria-live="polite"></div>
+      </section>
+
 
       <section class="view" id="reunioes">
         <div class="section-intro">
@@ -453,13 +503,27 @@
                 <label for="r_titulo">Título da reunião</label>
                 <input id="r_titulo" placeholder="Ex.: Alinhamento de parceria" required />
               </div>
-              <div class="field">
-                <label for="r_gangue">Gangue / grupo</label>
-                <input id="r_gangue" placeholder="Ex.: NKT" required />
+              <div class="field field-full">
+                <label for="r_organizacao">Organização relacionada</label>
+                <select id="r_organizacao" required>
+                  <option value="">Carregando organizações...</option>
+                </select>
+                <small class="field-helper">Ao selecionar uma organização, o nome, o ícone e o flyer ficam vinculados à reunião.</small>
+              </div>
+              <div class="field field-full custom-organization-field" id="r_gangue_wrap" hidden>
+                <label for="r_gangue">Nome da organização</label>
+                <input id="r_gangue" placeholder="Ex.: Nova organização" />
               </div>
               <div class="field">
-                <label for="r_icone">Ícone ou emoji</label>
-                <input id="r_icone" maxlength="12" placeholder="Ex.: 🐉" required />
+                <label for="r_icone">Ícone da organização</label>
+                <input id="r_icone" maxlength="12" placeholder="Ex.: 🐉" required readonly />
+              </div>
+              <div class="field organization-link-preview" id="reuniaoOrgPreview">
+                <span class="organization-link-icon" id="reuniaoOrgPreviewIcon">🤝</span>
+                <div>
+                  <strong id="reuniaoOrgPreviewName">Nenhuma organização</strong>
+                  <small id="reuniaoOrgPreviewStatus">Selecione um parceiro para relacionar.</small>
+                </div>
               </div>
               <div class="field">
                 <label for="r_data">Dia</label>
@@ -498,10 +562,16 @@
                 <p class="panel-kicker">Calendário corporativo</p>
                 <h3>Próximas reuniões</h3>
               </div>
-              <div class="meeting-counters">
-                <span><strong id="reunioesAgendadas">0</strong> agendadas</span>
+              <div class="meeting-board-tools">
+                <label for="reuniaoOrganizationFilter">Filtrar organização</label>
+                <select id="reuniaoOrganizationFilter">
+                  <option value="">Todas as organizações</option>
+                </select>
+                <div class="meeting-counters">
+                  <span><strong id="reunioesAgendadas">0</strong> agendadas</span>
                 <span><strong id="reunioesFinalizadas">0</strong> finalizadas</span>
-                <span><strong id="reunioesCanceladas">0</strong> canceladas</span>
+                  <span><strong id="reunioesCanceladas">0</strong> canceladas</span>
+                </div>
               </div>
             </div>
             <div id="reunioesGrid" class="meetings-grid"></div>
@@ -714,6 +784,122 @@
         </section>
       </section>
     </main>
+  </div>
+
+  <div class="transaction-modal" id="deliveryModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="deliveryModalTitle">
+    <button class="transaction-modal-backdrop" type="button" data-close-delivery aria-label="Fechar confirmação"></button>
+    <div class="transaction-modal-dialog">
+      <div class="transaction-modal-head">
+        <div>
+          <p class="panel-kicker">Confirmar entrega</p>
+          <h3 id="deliveryModalTitle">Escolha como o valor foi recebido</h3>
+        </div>
+        <button class="transaction-modal-close" type="button" data-close-delivery aria-label="Fechar">×</button>
+      </div>
+
+      <form id="deliveryForm" class="transaction-modal-body">
+        <div class="delivery-order-summary">
+          <span>Encomenda</span>
+          <strong id="deliveryOrderName">--</strong>
+          <small id="deliveryOrderCustomer">--</small>
+        </div>
+
+        <div class="money-choice-grid" role="radiogroup" aria-label="Tipo de dinheiro">
+          <label class="money-choice-card clean">
+            <input type="radio" name="delivery_money_type" value="Limpo" required />
+            <span>Dinheiro limpo</span>
+            <strong id="deliveryCleanValue">R$ 0,00</strong>
+            <small>Valor original da encomenda</small>
+          </label>
+          <label class="money-choice-card dirty">
+            <input type="radio" name="delivery_money_type" value="Sujo" required />
+            <span>Dinheiro sujo</span>
+            <strong id="deliveryDirtyValue">R$ 0,00</strong>
+            <small>Valor original + 30%</small>
+          </label>
+        </div>
+
+        <div class="delivery-selected-total">
+          <span>Total que entrará em Vendas</span>
+          <strong id="deliverySelectedValue">Escolha uma opção</strong>
+        </div>
+
+        <div class="feedback" id="deliveryFeedback">Selecione dinheiro limpo ou sujo.</div>
+        <div class="transaction-modal-actions">
+          <button class="ghost-btn" type="button" data-close-delivery>Cancelar</button>
+          <button class="primary-btn" type="submit" id="deliveryConfirmBtn">Confirmar e mover para Vendas</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="transaction-modal" id="encomendaEditModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="encomendaEditTitle">
+    <button class="transaction-modal-backdrop" type="button" data-close-encomenda-edit aria-label="Fechar edição"></button>
+    <div class="transaction-modal-dialog wide">
+      <div class="transaction-modal-head">
+        <div>
+          <p class="panel-kicker">Editar encomenda</p>
+          <h3 id="encomendaEditTitle">Atualizar informações do pedido</h3>
+        </div>
+        <button class="transaction-modal-close" type="button" data-close-encomenda-edit aria-label="Fechar">×</button>
+      </div>
+
+      <form id="encomendaEditForm" class="transaction-modal-body form-grid">
+        <div class="field">
+          <label for="edit_e_quem_pediu">Quem pediu</label>
+          <input id="edit_e_quem_pediu" required />
+        </div>
+        <div class="field">
+          <label for="edit_e_o_que_pediu">O que pediu</label>
+          <input id="edit_e_o_que_pediu" required />
+        </div>
+        <div class="field">
+          <label for="edit_e_valor">Valor limpo/base</label>
+          <input id="edit_e_valor" type="number" min="0" step="0.01" required />
+          <small class="field-helper" id="editEncomendaDirtyPreview">No sujo (+30%): R$ 0,00</small>
+        </div>
+        <div class="field">
+          <label for="edit_e_para_quando">Pra quando</label>
+          <input id="edit_e_para_quando" required />
+        </div>
+        <div class="field">
+          <label for="edit_e_quem_negociou">Quem negociou</label>
+          <input id="edit_e_quem_negociou" required />
+        </div>
+        <div class="field field-full">
+          <label for="edit_e_observacao">Observação</label>
+          <textarea id="edit_e_observacao" placeholder="Informações extras, se necessário"></textarea>
+        </div>
+
+        <div class="feedback field-full" id="encomendaEditFeedback">Edite os campos e salve.</div>
+        <div class="transaction-modal-actions field-full">
+          <button class="ghost-btn" type="button" data-close-encomenda-edit>Cancelar</button>
+          <button class="primary-btn" type="submit" id="encomendaEditSaveBtn">Salvar alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="flyer-modal" id="flyerModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="flyerModalTitle">
+    <button class="flyer-modal-backdrop" type="button" data-close-flyer aria-label="Fechar visualização"></button>
+    <div class="flyer-modal-dialog">
+      <div class="flyer-modal-head">
+        <div>
+          <p class="panel-kicker" id="flyerModalOrganization">Organização</p>
+          <h3 id="flyerModalTitle">Flyer</h3>
+        </div>
+        <button class="flyer-modal-close" type="button" data-close-flyer aria-label="Fechar">×</button>
+      </div>
+      <div class="flyer-modal-stage">
+        <button class="flyer-modal-nav previous" type="button" id="flyerModalPrevious" aria-label="Flyer anterior">‹</button>
+        <img id="flyerModalImage" src="" alt="" />
+        <button class="flyer-modal-nav next" type="button" id="flyerModalNext" aria-label="Próximo flyer">›</button>
+      </div>
+      <div class="flyer-modal-footer">
+        <span id="flyerModalCounter">1 de 1</span>
+        <button class="ghost-btn" type="button" id="flyerModalMeetings">Ver reuniões desta organização</button>
+      </div>
+    </div>
   </div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
