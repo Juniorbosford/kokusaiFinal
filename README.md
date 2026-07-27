@@ -82,3 +82,19 @@ Os formulários e históricos agora usam toda a largura disponível. Em telas me
 ## Segurança
 
 Consulte `SECURITY_REVIEW.md` antes de publicar alterações no GitHub/Railway.
+
+## Gestão de flyers e preços por organização
+
+A aba **Flyers** agora permite upload de imagens pelo painel. Usuários comuns enviam para aprovação e a conta Kokusai controla publicação, retirada e exclusão. A conta Kokusai também pode cadastrar duas descrições comerciais para cada organização: o preço praticado pela Kokusai para eles e o preço praticado por eles para a Kokusai.
+
+Para persistir os uploads no Railway, monte um Volume e configure:
+
+```txt
+KOKUSAI_DATA_DIR=/data/kokusai
+```
+
+Consulte `ATUALIZACAO_FLYERS_PRODUTOS.md` para detalhes.
+
+## L85 e seringa em campos separados
+
+Vendas e encomendas aceitam L85 e seringa no mesmo registro, com quantidade e valor unitário separados. O total é calculado automaticamente e as novas colunas são adicionadas às abas do Google Sheets sem apagar os registros antigos.

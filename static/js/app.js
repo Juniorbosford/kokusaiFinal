@@ -55,9 +55,19 @@ const flyerModalImage = document.getElementById("flyerModalImage");
 const flyerModalPrevious = document.getElementById("flyerModalPrevious");
 const flyerModalNext = document.getElementById("flyerModalNext");
 const flyerModalMeetings = document.getElementById("flyerModalMeetings");
+const flyerUploadModal = document.getElementById("flyerUploadModal");
+const flyerUploadForm = document.getElementById("flyerUploadForm");
+const flyerUploadFeedback = document.getElementById("flyerUploadFeedback");
+const flyerUploadSaveBtn = document.getElementById("flyerUploadSaveBtn");
+const openFlyerUploadBtn = document.getElementById("openFlyerUploadBtn");
+const organizationPriceModal = document.getElementById("organizationPriceModal");
+const organizationPriceForm = document.getElementById("organizationPriceForm");
+const organizationPriceFeedback = document.getElementById("organizationPriceFeedback");
+const organizationPriceSaveBtn = document.getElementById("organizationPriceSaveBtn");
 let organizacoesCache = [];
 let activeFlyerOrganizationId = null;
 let activeFlyerIndex = 0;
+let activePriceOrganizationId = null;
 const metasTable = document.getElementById("metasTable");
 const metaForm = document.getElementById("metaForm");
 const metasFeedback = document.getElementById("metasFeedback");
@@ -265,30 +275,75 @@ function onInput(id, handler){
   document.getElementById(id)?.addEventListener("input", handler);
 }
 
+function numericInput(id){
+  return Math.max(0, Number(inputValue(id) || 0));
+}
+
+function specializedProductTotals(prefix){
+  const quantityL85 = numericInput(`${prefix}_quantidade_l85`);
+  const unitL85 = numericInput(`${prefix}_valor_unitario_l85`);
+  const quantitySyringe = numericInput(`${prefix}_quantidade_seringa`);
+  const unitSyringe = numericInput(`${prefix}_valor_unitario_seringa`);
+  return {
+    quantityL85,
+    unitL85,
+    quantitySyringe,
+    unitSyringe,
+    quantity: quantityL85 + quantitySyringe,
+    total: quantityL85 * unitL85 + quantitySyringe * unitSyringe,
+  };
+}
+
 onInput("valor_unitario", updatePreviewCompra);
 onInput("quantidade", updatePreviewCompra);
-onInput("v_valor_unitario", updatePreviewVenda);
-onInput("v_quantidade", updatePreviewVenda);
+[
+  "v_quantidade_l85", "v_valor_unitario_l85",
+  "v_quantidade_seringa", "v_valor_unitario_seringa",
+  "v_valor_unitario", "v_quantidade",
+].forEach(id => onInput(id, updatePreviewVenda));
+[
+  "e_quantidade_l85", "e_valor_unitario_l85",
+  "e_quantidade_seringa", "e_valor_unitario_seringa",
+].forEach(id => onInput(id, () => updateEncomendaProductCalculation(true)));
 onInput("e_valor", updatePreviewEncomenda);
+[
+  "edit_e_quantidade_l85", "edit_e_valor_unitario_l85",
+  "edit_e_quantidade_seringa", "edit_e_valor_unitario_seringa",
+].forEach(id => onInput(id, () => updateEditProductCalculation(true)));
 onInput("edit_e_valor", updateEditEncomendaPreview);
 document.getElementById("e_entregue")?.addEventListener("change", updateEncomendaPaymentField);
+document.getElementById("edit_e_confirmar_entrega")?.addEventListener("change", updateEditDeliveryControls);
+document.getElementById("edit_e_tipo_dinheiro")?.addEventListener("change", updateEditDeliveryControls);
 
 function updatePreviewCompra(){
-  const valor = Number(inputValue("valor_unitario") || 0);
-  const qtd = Number(inputValue("quantidade") || 0);
-  setText("previewTotal", currency(valor * qtd));
+  const value = Number(inputValue("valor_unitario") || 0);
+  const quantity = Number(inputValue("quantidade") || 0);
+  setText("previewTotal", currency(value * quantity));
 }
 
 function updatePreviewVenda(){
-  const valor = Number(inputValue("v_valor_unitario") || 0);
-  const qtd = Number(inputValue("v_quantidade") || 0);
-  setText("previewVendaTotal", currency(valor * qtd));
+  const specialized = specializedProductTotals("v");
+  const otherQuantity = numericInput("v_quantidade");
+  const otherUnit = numericInput("v_valor_unitario");
+  const totalQuantity = specialized.quantity + otherQuantity;
+  const totalValue = specialized.total + otherQuantity * otherUnit;
+  setText("previewVendaTotal", currency(totalValue));
+  setText("previewVendaItens", `${integer(totalQuantity)} item${totalQuantity === 1 ? "" : "s"}`);
+}
+
+function updateEncomendaProductCalculation(autoFill=false){
+  const specialized = specializedProductTotals("e");
+  if(autoFill && specialized.total > 0){
+    setInputValue("e_valor", specialized.total.toFixed(2));
+  }
+  setText("previewEncomendaItens", `${integer(specialized.quantity)} item${specialized.quantity === 1 ? "" : "s"} principal${specialized.quantity === 1 ? "" : "is"}`);
+  updatePreviewEncomenda();
 }
 
 function updatePreviewEncomenda(){
-  const valor = Number(inputValue("e_valor") || 0);
-  setText("previewEncomendaValor", currency(valor));
-  setText("previewEncomendaSujo", `No sujo (+30%): ${currency(valor * 1.30)}`);
+  const value = Number(inputValue("e_valor") || 0);
+  setText("previewEncomendaValor", currency(value));
+  setText("previewEncomendaSujo", `No sujo (+30%): ${currency(value * 1.30)}`);
 }
 
 function updateEncomendaPaymentField(){
@@ -302,10 +357,45 @@ function updateEncomendaPaymentField(){
   }
 }
 
-function updateEditEncomendaPreview(){
-  const valor = Number(inputValue("edit_e_valor") || 0);
-  setText("editEncomendaDirtyPreview", `No sujo (+30%): ${currency(valor * 1.30)}`);
+function updateEditProductCalculation(autoFill=false){
+  const specialized = specializedProductTotals("edit_e");
+  if(autoFill && specialized.total > 0){
+    setInputValue("edit_e_valor", specialized.total.toFixed(2));
+  }
+  updateEditEncomendaPreview();
 }
+
+function updateEditEncomendaPreview(){
+  const value = Number(inputValue("edit_e_valor") || 0);
+  setText("editEncomendaDirtyPreview", `No sujo (+30%): ${currency(value * 1.30)}`);
+  updateEditDeliveryControls();
+}
+
+function updateEditDeliveryControls(){
+  const willDeliver = inputValue("edit_e_confirmar_entrega") === "Sim";
+  const wrap = document.getElementById("edit_e_tipo_dinheiro_wrap");
+  const select = document.getElementById("edit_e_tipo_dinheiro");
+  const preview = document.getElementById("editDeliveryPreview");
+  if(wrap) wrap.hidden = !willDeliver;
+  if(preview) preview.hidden = !willDeliver;
+  if(select){
+    select.required = willDeliver;
+    if(!willDeliver) select.value = "";
+  }
+  if(!willDeliver){
+    setText("editDeliverySelectedValue", "Escolha dinheiro limpo ou sujo");
+    return;
+  }
+  const moneyType = inputValue("edit_e_tipo_dinheiro");
+  const baseValue = Number(inputValue("edit_e_valor") || 0);
+  if(!moneyType){
+    setText("editDeliverySelectedValue", "Escolha dinheiro limpo ou sujo");
+    return;
+  }
+  const total = baseValue * (moneyType === "Sujo" ? 1.30 : 1);
+  setText("editDeliverySelectedValue", `${moneyType}: ${currency(total)}`);
+}
+
 
 async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage){
   if(!canWrite){
@@ -357,8 +447,12 @@ vendaForm?.addEventListener("submit", async (e) => {
     produto: inputValue("v_produto").trim(),
     quem_compra: inputValue("quem_compra").trim(),
     quem_vende: inputValue("quem_vende").trim(),
-    valor_unitario: Number(inputValue("v_valor_unitario")),
-    quantidade: Number(inputValue("v_quantidade")),
+    valor_unitario: inputValue("v_valor_unitario"),
+    quantidade: inputValue("v_quantidade"),
+    quantidade_l85: inputValue("v_quantidade_l85"),
+    valor_unitario_l85: inputValue("v_valor_unitario_l85"),
+    quantidade_seringa: inputValue("v_quantidade_seringa"),
+    valor_unitario_seringa: inputValue("v_valor_unitario_seringa"),
     observacao: inputValue("v_observacao").trim(),
   };
 
@@ -374,18 +468,22 @@ encomendaForm?.addEventListener("submit", async (e) => {
   const payload = {
     quem_pediu: inputValue("e_quem_pediu").trim(),
     o_que_pediu: inputValue("e_o_que_pediu").trim(),
-    valor: Number(inputValue("e_valor")),
+    valor: inputValue("e_valor"),
     para_quando: inputValue("e_para_quando").trim(),
     quem_negociou: inputValue("e_quem_negociou").trim(),
     entregue: inputValue("e_entregue"),
     tipo_dinheiro: inputValue("e_tipo_dinheiro"),
+    quantidade_l85: inputValue("e_quantidade_l85"),
+    valor_unitario_l85: inputValue("e_valor_unitario_l85"),
+    quantidade_seringa: inputValue("e_quantidade_seringa"),
+    valor_unitario_seringa: inputValue("e_valor_unitario_seringa"),
     observacao: inputValue("e_observacao").trim(),
   };
 
   const result = await sendPost("/api/encomendas", payload, encomendaFeedback, "Salvando encomenda...", "Encomenda salva com sucesso.");
   if(result){
     encomendaForm.reset();
-    updatePreviewEncomenda();
+    updateEncomendaProductCalculation(false);
     updateEncomendaPaymentField();
     if(result.moved_to_vendas){
       activateView("vendas");
@@ -456,6 +554,31 @@ function populateOrganizationControls(){
   }
 }
 
+function flyerPriceBlock(label, value, emptyMessage){
+  const normalized = String(value || "").trim();
+  const content = normalized
+    ? escapeHtml(normalized).replace(/\n/g, "<br>")
+    : `<em>${escapeHtml(emptyMessage)}</em>`;
+  return `<div class="flyer-price-item"><span>${escapeHtml(label)}</span><p>${content}</p></div>`;
+}
+
+function renderFlyerFileRows(organization, flyers, visible=true){
+  if(!flyers.length) return "";
+  return `<div class="flyer-file-list ${visible ? "visible-files" : "pending-files"}">
+    ${flyers.map((flyer,index) => `<div class="flyer-file-row">
+      <div class="flyer-file-info">
+        <strong>${escapeHtml(flyer.titulo)}</strong>
+        <small>${flyer.builtin ? "Flyer original do projeto" : `Enviado por ${escapeHtml(flyer.uploaded_by || "usuário")}${flyer.created_at ? ` • ${escapeHtml(flyer.created_at)}` : ""}`}</small>
+      </div>
+      <div class="flyer-file-actions">
+        ${visible ? `<button type="button" class="mini-action-btn" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="${index}">Abrir</button>` : ""}
+        ${canWrite ? `<button type="button" class="mini-action-btn ${visible ? "warning" : "success"}" data-toggle-flyer="${escapeHtml(flyer.id)}" data-toggle-org="${escapeHtml(organization.id)}" data-visible="${visible ? "false" : "true"}">${visible ? "Retirar" : "Colocar"}</button>` : ""}
+        ${canWrite && !flyer.builtin ? `<button type="button" class="mini-action-btn danger" data-delete-flyer="${escapeHtml(flyer.id)}" data-delete-org="${escapeHtml(organization.id)}">Excluir</button>` : ""}
+      </div>
+    </div>`).join("")}
+  </div>`;
+}
+
 function renderFlyers(){
   if(!flyersGrid) return;
   const query = String(flyerSearch?.value || "").trim().toLocaleLowerCase("pt-BR");
@@ -468,13 +591,19 @@ function renderFlyers(){
 
   flyersGrid.innerHTML = items.map(organization => {
     const flyers = Array.isArray(organization.flyers) ? organization.flyers : [];
+    const pendingFlyers = Array.isArray(organization.pending_flyers) ? organization.pending_flyers : [];
     const hasFlyer = flyers.length > 0;
     const preview = hasFlyer
       ? `<button class="flyer-preview-button" type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="0" aria-label="Abrir flyer de ${escapeHtml(organization.nome)}">
           <img src="${escapeHtml(flyers[0].url)}" alt="${escapeHtml(flyers[0].titulo)} — ${escapeHtml(organization.nome)}" loading="lazy" />
           ${flyers.length > 1 ? `<span class="flyer-stack-badge">+${flyers.length - 1}</span>` : ""}
         </button>`
-      : `<div class="flyer-missing-preview"><span>${escapeHtml(organization.icone || "🤝")}</span><strong>Flyer pendente</strong><small>A imagem ainda não foi enviada.</small></div>`;
+      : `<div class="flyer-missing-preview"><span>${escapeHtml(organization.icone || "🤝")}</span><strong>Sem flyer publicado</strong><small>${pendingFlyers.length ? `${pendingFlyers.length} aguardando aprovação.` : "Envie uma imagem para esta organização."}</small></div>`;
+
+    const pricing = `<div class="flyer-price-grid">
+      ${flyerPriceBlock("Kokusai vende para eles", organization.preco_venda_para_organizacao, "Preço ainda não descrito.")}
+      ${flyerPriceBlock("Eles vendem para a Kokusai", organization.preco_compra_da_organizacao, "Preço ainda não descrito.")}
+    </div>`;
 
     return `<article class="flyer-card ${hasFlyer ? "has-flyer" : "missing-flyer"}">
       <div class="flyer-card-media">${preview}</div>
@@ -482,11 +611,14 @@ function renderFlyers(){
         <div class="flyer-card-heading">
           <span class="flyer-organization-icon">${escapeHtml(organization.icone || "🤝")}</span>
           <div><p>Organização</p><h4>${escapeHtml(organization.nome)}</h4></div>
-          <span class="flyer-status-badge ${hasFlyer ? "available" : "pending"}">${hasFlyer ? `${flyers.length} flyer${flyers.length > 1 ? "s" : ""}` : "Pendente"}</span>
+          <span class="flyer-status-badge ${hasFlyer ? "available" : "pending"}">${hasFlyer ? `${flyers.length} publicado${flyers.length > 1 ? "s" : ""}` : "Sem flyer"}</span>
         </div>
-        ${hasFlyer ? `<div class="flyer-title-list">${flyers.map((flyer,index) => `<button type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="${index}">${escapeHtml(flyer.titulo)}</button>`).join("")}</div>` : '<p class="flyer-pending-copy">Esta organização já pode ser relacionada às reuniões. O flyer aparecerá aqui quando for adicionado.</p>'}
-        <div class="flyer-card-actions">
-          ${hasFlyer ? `<button class="primary-btn flyer-open-btn" type="button" data-open-flyer="${escapeHtml(organization.id)}" data-flyer-index="0">Abrir flyer</button>` : ""}
+        ${pricing}
+        ${renderFlyerFileRows(organization, flyers, true)}
+        ${canWrite && pendingFlyers.length ? `<div class="flyer-pending-section"><div class="flyer-section-label"><span>Aguardando / retirados</span><strong>${pendingFlyers.length}</strong></div>${renderFlyerFileRows(organization, pendingFlyers, false)}</div>` : ""}
+        <div class="flyer-card-actions flyer-management-actions">
+          <button class="primary-btn" type="button" data-upload-flyer-org="${escapeHtml(organization.id)}">Enviar flyer</button>
+          ${canWrite ? `<button class="ghost-btn" type="button" data-edit-org-prices="${escapeHtml(organization.id)}">Editar preços</button>` : ""}
           <button class="ghost-btn flyer-meetings-btn" type="button" data-org-meetings="${escapeHtml(organization.id)}">Ver reuniões</button>
         </div>
       </div>
@@ -495,13 +627,23 @@ function renderFlyers(){
 }
 
 function updateOrganizationStats(){
-  const flyerCount = organizacoesCache.reduce((total,item) => total + (Array.isArray(item.flyers) ? item.flyers.length : 0), 0);
-  const pending = organizacoesCache.filter(item => !item.tem_flyer).length;
+  const visibleCount = organizacoesCache.reduce((total,item) => total + (Array.isArray(item.flyers) ? item.flyers.length : 0), 0);
+  const pendingCount = organizacoesCache.reduce((total,item) => total + (Array.isArray(item.pending_flyers) ? item.pending_flyers.length : 0), 0);
+  const organizationsWithoutFlyer = organizacoesCache.filter(item => !item.tem_flyer).length;
   setText("statOrganizacoes", integer(organizacoesCache.length));
-  setText("statFlyers", integer(flyerCount));
+  setText("statFlyers", integer(visibleCount));
   setText("flyerOrganizationCount", integer(organizacoesCache.length));
-  setText("flyerAssetCount", integer(flyerCount));
-  setText("flyerPendingCount", integer(pending));
+  setText("flyerAssetCount", integer(visibleCount));
+  setText("flyerPendingCount", integer(canWrite ? pendingCount : organizationsWithoutFlyer));
+}
+
+function populateFlyerUploadOrganizations(){
+  const select = document.getElementById("flyer_upload_organizacao");
+  if(!select) return;
+  const previous = select.value;
+  const sorted = [...organizacoesCache].sort((a,b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  select.innerHTML = ['<option value="">Selecione uma organização</option>', ...sorted.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}</option>`)].join("");
+  if([...select.options].some(option => option.value === previous)) select.value = previous;
 }
 
 async function loadOrganizacoes(){
@@ -511,6 +653,7 @@ async function loadOrganizacoes(){
     organizacoesCache = Array.isArray(data) ? data : [];
     updateOrganizationStats();
     populateOrganizationControls();
+    populateFlyerUploadOrganizations();
     renderFlyers();
     renderReunioes();
   }catch(error){
@@ -554,6 +697,49 @@ function closeFlyerModal(){
   document.body.classList.remove("modal-open");
 }
 
+function openFlyerUploadModal(organizationId=""){
+  if(!flyerUploadModal) return;
+  flyerUploadForm?.reset();
+  populateFlyerUploadOrganizations();
+  const select = document.getElementById("flyer_upload_organizacao");
+  if(select && organizationId) select.value = organizationId;
+  setFeedback(flyerUploadFeedback, canWrite ? "O flyer será publicado assim que for enviado." : "O flyer ficará aguardando aprovação da Kokusai.");
+  flyerUploadModal.hidden = false;
+  flyerUploadModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  (organizationId ? document.getElementById("flyer_upload_titulo") : select)?.focus();
+}
+
+function closeFlyerUploadModal(){
+  if(!flyerUploadModal) return;
+  flyerUploadModal.hidden = true;
+  flyerUploadModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function openOrganizationPriceModal(organizationId){
+  if(!organizationPriceModal || !canWrite) return;
+  const organization = organizationById(organizationId);
+  if(!organization) return;
+  activePriceOrganizationId = organization.id;
+  setText("organizationPriceTitle", `Preços — ${organization.nome}`);
+  setInputValue("organization_price_sale", organization.preco_venda_para_organizacao || "");
+  setInputValue("organization_price_purchase", organization.preco_compra_da_organizacao || "");
+  setFeedback(organizationPriceFeedback, "Edite as condições comerciais e salve.");
+  organizationPriceModal.hidden = false;
+  organizationPriceModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  document.getElementById("organization_price_sale")?.focus();
+}
+
+function closeOrganizationPriceModal(){
+  if(!organizationPriceModal) return;
+  organizationPriceModal.hidden = true;
+  organizationPriceModal.setAttribute("aria-hidden", "true");
+  activePriceOrganizationId = null;
+  document.body.classList.remove("modal-open");
+}
+
 function openOrganizationMeetings(organizationId){
   closeFlyerModal();
   activateView("reunioes");
@@ -564,17 +750,135 @@ function openOrganizationMeetings(organizationId){
   document.getElementById("reunioesGrid")?.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
+async function toggleFlyerVisibility(organizationId, flyerId, visible, button){
+  if(!canWrite) return;
+  button.disabled = true;
+  try{
+    const {res, data} = await fetchJson(`/api/organizacoes/${encodeURIComponent(organizationId)}/flyers/${encodeURIComponent(flyerId)}`, {
+      method:"PATCH",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify({visible}),
+    });
+    if(!res.ok) throw new Error(data.error || "Não foi possível atualizar o flyer.");
+    await loadOrganizacoes();
+  }catch(error){
+    window.alert(error.message);
+  }finally{
+    button.disabled = false;
+  }
+}
+
+async function deleteFlyer(organizationId, flyerId, button){
+  if(!canWrite || !window.confirm("Excluir definitivamente este flyer enviado?")) return;
+  button.disabled = true;
+  try{
+    const {res, data} = await fetchJson(`/api/organizacoes/${encodeURIComponent(organizationId)}/flyers/${encodeURIComponent(flyerId)}`, {
+      method:"DELETE",
+      headers:csrfHeaders(),
+    });
+    if(!res.ok) throw new Error(data.error || "Não foi possível excluir o flyer.");
+    await loadOrganizacoes();
+  }catch(error){
+    window.alert(error.message);
+  }finally{
+    button.disabled = false;
+  }
+}
+
 reuniaoOrganizationSelect?.addEventListener("change", updateMeetingOrganizationSelection);
 document.getElementById("r_gangue")?.addEventListener("input", () => setMeetingOrganizationPreview(null, true));
 document.getElementById("r_icone")?.addEventListener("input", () => setMeetingOrganizationPreview(null, reuniaoOrganizationSelect?.value === "__custom__"));
 reuniaoOrganizationFilter?.addEventListener("change", renderReunioes);
 flyerSearch?.addEventListener("input", renderFlyers);
+openFlyerUploadBtn?.addEventListener("click", () => openFlyerUploadModal());
 flyersGrid?.addEventListener("click", event => {
   const openButton = event.target.closest("[data-open-flyer]");
   if(openButton){ openFlyerModal(openButton.dataset.openFlyer, openButton.dataset.flyerIndex); return; }
+  const uploadButton = event.target.closest("[data-upload-flyer-org]");
+  if(uploadButton){ openFlyerUploadModal(uploadButton.dataset.uploadFlyerOrg); return; }
+  const priceButton = event.target.closest("[data-edit-org-prices]");
+  if(priceButton){ openOrganizationPriceModal(priceButton.dataset.editOrgPrices); return; }
+  const toggleButton = event.target.closest("[data-toggle-flyer]");
+  if(toggleButton){
+    toggleFlyerVisibility(toggleButton.dataset.toggleOrg, toggleButton.dataset.toggleFlyer, toggleButton.dataset.visible === "true", toggleButton);
+    return;
+  }
+  const deleteButton = event.target.closest("[data-delete-flyer]");
+  if(deleteButton){
+    deleteFlyer(deleteButton.dataset.deleteOrg, deleteButton.dataset.deleteFlyer, deleteButton);
+    return;
+  }
   const meetingButton = event.target.closest("[data-org-meetings]");
   if(meetingButton) openOrganizationMeetings(meetingButton.dataset.orgMeetings);
 });
+
+flyerUploadModal?.addEventListener("click", event => {
+  if(event.target.closest("[data-close-flyer-upload]")) closeFlyerUploadModal();
+});
+flyerUploadForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const organizationId = inputValue("flyer_upload_organizacao");
+  const title = inputValue("flyer_upload_titulo").trim();
+  const file = document.getElementById("flyer_upload_arquivo")?.files?.[0];
+  if(!organizationId || !title || !file){
+    setFeedback(flyerUploadFeedback, "Preencha organização, título e imagem.", true);
+    return;
+  }
+  const payload = new FormData();
+  payload.append("titulo", title);
+  payload.append("flyer", file);
+  flyerUploadSaveBtn.disabled = true;
+  setFeedback(flyerUploadFeedback, "Enviando flyer...");
+  try{
+    const {res, data} = await fetchJson(`/api/organizacoes/${encodeURIComponent(organizationId)}/flyers`, {
+      method:"POST",
+      headers:csrfHeaders(),
+      body:payload,
+    });
+    if(!res.ok){
+      setFeedback(flyerUploadFeedback, data.error || "Erro ao enviar flyer.", true);
+      return;
+    }
+    closeFlyerUploadModal();
+    await loadOrganizacoes();
+    window.alert(data.message || "Flyer enviado com sucesso.");
+  }catch(error){
+    setFeedback(flyerUploadFeedback, `Falha ao enviar: ${error.message}`, true);
+  }finally{
+    flyerUploadSaveBtn.disabled = false;
+  }
+});
+
+organizationPriceModal?.addEventListener("click", event => {
+  if(event.target.closest("[data-close-organization-prices]")) closeOrganizationPriceModal();
+});
+organizationPriceForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  if(!activePriceOrganizationId) return;
+  organizationPriceSaveBtn.disabled = true;
+  setFeedback(organizationPriceFeedback, "Salvando descrições...");
+  try{
+    const {res, data} = await fetchJson(`/api/organizacoes/${encodeURIComponent(activePriceOrganizationId)}/precos`, {
+      method:"PATCH",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify({
+        preco_venda_para_organizacao: inputValue("organization_price_sale").trim(),
+        preco_compra_da_organizacao: inputValue("organization_price_purchase").trim(),
+      }),
+    });
+    if(!res.ok){
+      setFeedback(organizationPriceFeedback, data.error || "Erro ao salvar descrições.", true);
+      return;
+    }
+    closeOrganizationPriceModal();
+    await loadOrganizacoes();
+  }catch(error){
+    setFeedback(organizationPriceFeedback, `Falha ao salvar: ${error.message}`, true);
+  }finally{
+    organizationPriceSaveBtn.disabled = false;
+  }
+});
+
 flyerModal?.addEventListener("click", event => {
   if(event.target.closest("[data-close-flyer]")) closeFlyerModal();
 });
@@ -582,11 +886,12 @@ flyerModalPrevious?.addEventListener("click", () => { activeFlyerIndex -= 1; upd
 flyerModalNext?.addEventListener("click", () => { activeFlyerIndex += 1; updateFlyerModal(); });
 flyerModalMeetings?.addEventListener("click", () => openOrganizationMeetings(activeFlyerOrganizationId));
 document.addEventListener("keydown", event => {
-  if(flyerModal?.hidden !== false) return;
-  if(event.key === "Escape") closeFlyerModal();
-  if(event.key === "ArrowLeft"){ activeFlyerIndex -= 1; updateFlyerModal(); }
-  if(event.key === "ArrowRight"){ activeFlyerIndex += 1; updateFlyerModal(); }
+  if(event.key !== "Escape") return;
+  if(flyerModal?.hidden === false) closeFlyerModal();
+  if(flyerUploadModal?.hidden === false) closeFlyerUploadModal();
+  if(organizationPriceModal?.hidden === false) closeOrganizationPriceModal();
 });
+
 
 function resetReuniaoForm(){
   reuniaoEmEdicaoId = null;
@@ -739,18 +1044,41 @@ function updateDeliverySelectedValue(){
   setText("deliverySelectedValue", `${selected}: ${currency(total)}`);
 }
 
+function extractExtraOrderDescription(item){
+  const parts = String(item?.o_que_pediu || "").split(" + ").map(part => part.trim()).filter(Boolean);
+  const quantityL85 = Number(item?.quantidade_l85 || 0);
+  const quantitySyringe = Number(item?.quantidade_seringa || 0);
+  return parts.filter(part => {
+    if(quantityL85 && part.toLocaleLowerCase("pt-BR") === `${quantityL85}x l85`.toLocaleLowerCase("pt-BR")) return false;
+    if(quantitySyringe){
+      const singular = `${quantitySyringe}x Seringa`.toLocaleLowerCase("pt-BR");
+      const plural = `${quantitySyringe}x Seringas`.toLocaleLowerCase("pt-BR");
+      const normalized = part.toLocaleLowerCase("pt-BR");
+      if(normalized === singular || normalized === plural) return false;
+    }
+    return true;
+  }).join(" + ");
+}
+
 function openEncomendaEditModal(id){
   const item = encomendaById(id);
   if(!encomendaEditModal || !item || !canWrite) return;
   activeEditEncomendaId = item.id;
   setInputValue("edit_e_quem_pediu", item.quem_pediu);
-  setInputValue("edit_e_o_que_pediu", item.o_que_pediu);
+  setInputValue("edit_e_o_que_pediu", extractExtraOrderDescription(item));
   setInputValue("edit_e_valor", item.valor);
   setInputValue("edit_e_para_quando", item.para_quando);
   setInputValue("edit_e_quem_negociou", item.quem_negociou);
   setInputValue("edit_e_observacao", item.observacao);
+  setInputValue("edit_e_quantidade_l85", item.quantidade_l85 || "");
+  setInputValue("edit_e_valor_unitario_l85", item.valor_unitario_l85 || "");
+  setInputValue("edit_e_quantidade_seringa", item.quantidade_seringa || "");
+  setInputValue("edit_e_valor_unitario_seringa", item.valor_unitario_seringa || "");
+  setInputValue("edit_e_confirmar_entrega", "Não");
+  setInputValue("edit_e_tipo_dinheiro", "");
   updateEditEncomendaPreview();
-  setFeedback(encomendaEditFeedback, "Edite os campos e salve.");
+  updateEditDeliveryControls();
+  setFeedback(encomendaEditFeedback, "Edite os campos, mantenha pendente ou confirme a entrega.");
   encomendaEditModal.hidden = false;
   encomendaEditModal.setAttribute("aria-hidden", "false");
   document.body.classList.add("modal-open");
@@ -764,6 +1092,7 @@ function closeEncomendaEditModal(){
   activeEditEncomendaId = null;
   document.body.classList.remove("modal-open");
 }
+
 
 encomendasTable?.addEventListener("click", event => {
   if(!canWrite) return;
@@ -824,17 +1153,29 @@ encomendaEditForm?.addEventListener("submit", async event => {
   const id = activeEditEncomendaId;
   if(!id) return;
 
+  const confirmDelivery = inputValue("edit_e_confirmar_entrega") === "Sim";
   const payload = {
     quem_pediu: inputValue("edit_e_quem_pediu").trim(),
     o_que_pediu: inputValue("edit_e_o_que_pediu").trim(),
-    valor: Number(inputValue("edit_e_valor")),
+    valor: inputValue("edit_e_valor"),
     para_quando: inputValue("edit_e_para_quando").trim(),
     quem_negociou: inputValue("edit_e_quem_negociou").trim(),
+    quantidade_l85: inputValue("edit_e_quantidade_l85"),
+    valor_unitario_l85: inputValue("edit_e_valor_unitario_l85"),
+    quantidade_seringa: inputValue("edit_e_quantidade_seringa"),
+    valor_unitario_seringa: inputValue("edit_e_valor_unitario_seringa"),
+    confirmar_entrega: confirmDelivery,
+    tipo_dinheiro: inputValue("edit_e_tipo_dinheiro"),
     observacao: inputValue("edit_e_observacao").trim(),
   };
 
+  if(confirmDelivery && !payload.tipo_dinheiro){
+    setFeedback(encomendaEditFeedback, "Escolha dinheiro limpo ou sujo para confirmar a entrega.", true);
+    return;
+  }
+
   encomendaEditSaveBtn.disabled = true;
-  setFeedback(encomendaEditFeedback, "Salvando alterações...");
+  setFeedback(encomendaEditFeedback, confirmDelivery ? "Salvando e confirmando entrega..." : "Salvando alterações...");
   try{
     const {res, data} = await fetchJson(`/api/encomendas/${encodeURIComponent(id)}`, {
       method:"PUT",
@@ -847,7 +1188,8 @@ encomendaEditForm?.addEventListener("submit", async event => {
     }
     closeEncomendaEditModal();
     setFeedback(encomendaFeedback, data.message || "Encomenda atualizada com sucesso.");
-    await Promise.all([loadEncomendas(), loadResumo()]);
+    await Promise.all([loadEncomendas(), loadVendas(), loadResumo()]);
+    if(data.moved_to_vendas) activateView("vendas");
   }catch(error){
     setFeedback(encomendaEditFeedback, `Falha ao editar a encomenda: ${error.message}`, true);
   }finally{

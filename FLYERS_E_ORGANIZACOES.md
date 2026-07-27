@@ -1,21 +1,38 @@
 # Flyers e organizações
 
-A aba **Flyers** usa um cadastro central em `main.py`, na constante `ORGANIZACOES`.
+A aba **Flyers** combina os flyers originais do projeto com imagens enviadas pelo próprio painel.
 
-## Como funciona
+## Permissões
 
-- Cada organização possui um `id`, nome, ícone, aliases e uma lista de flyers.
-- As imagens ficam em `static/images/flyers/`.
-- A API `/api/organizacoes` entrega os dados para a interface.
-- A aba **Reuniões** salva também o campo `organizacao_id` na planilha `Reunioes`.
-- Reuniões antigas são associadas automaticamente pelo nome da organização, mesmo antes de serem editadas.
-- Hydra possui dois flyers e o visualizador permite avançar entre eles.
+- Qualquer usuário autenticado pode enviar um flyer em PNG, JPG/JPEG ou WEBP.
+- A conta **Kokusai** publica o próprio upload imediatamente.
+- Uploads de outros usuários ficam aguardando aprovação.
+- Somente a conta **Kokusai** pode:
+  - publicar ou retirar um flyer;
+  - excluir um flyer enviado;
+  - editar as descrições de preço de cada organização.
 
-## Adicionar um novo flyer
+## Descrições comerciais
 
-1. Coloque a imagem otimizada em `static/images/flyers/`.
-2. Abra `main.py` e encontre `ORGANIZACOES`.
-3. Adicione o arquivo na lista `flyers` da organização correspondente.
-4. Para uma organização nova, crie um novo item com `id`, `nome`, `icone`, `aliases` e `flyers`.
+Cada organização possui dois campos independentes:
 
-Organizações já existentes na agenda, mas sem imagem, aparecem como **Flyer pendente**.
+1. **Preço da Kokusai para a organização** — quanto eles pagam ao comprar da Kokusai.
+2. **Preço da organização para a Kokusai** — quanto a Kokusai paga ao comprar deles.
+
+## Onde os dados ficam
+
+- Os flyers originais continuam em `static/images/flyers/` e no cadastro `ORGANIZACOES` de `main.py`.
+- Os novos uploads ficam em `KOKUSAI_DATA_DIR/flyers/`.
+- Preços, aprovação e visibilidade ficam em `KOKUSAI_DATA_DIR/flyers_metadata.json`.
+
+No Railway, monte um Volume e configure, por exemplo:
+
+```txt
+KOKUSAI_DATA_DIR=/data/kokusai
+```
+
+Sem um Volume, uploads e descrições podem ser perdidos quando o container for recriado.
+
+## Cadastro de uma organização nova
+
+Para incluir uma organização que ainda não aparece no painel, adicione um item à constante `ORGANIZACOES` em `main.py`, informando `id`, `nome`, `icone`, `aliases` e uma lista `flyers` — que pode começar vazia.

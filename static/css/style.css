@@ -1209,3 +1209,82 @@ body.modal-open{overflow:hidden}
   .transaction-modal-actions button{width:100%}
   .encomenda-action-group{grid-template-columns:1fr}
 }
+
+/* Produtos separados: L85 + seringa */
+.product-builder{
+  display:grid;
+  gap:15px;
+  padding:16px;
+  border:1px solid rgba(139,92,246,.22);
+  border-radius:18px;
+  background:linear-gradient(145deg,rgba(139,92,246,.08),rgba(255,255,255,.018));
+}
+.product-builder-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.product-builder-head>div{display:grid;gap:4px}
+.product-builder-head span{color:var(--muted);font-size:.69rem;font-weight:900;text-transform:uppercase;letter-spacing:.1em}
+.product-builder-head strong{font-size:1rem}
+.product-builder-head small{max-width:430px;color:var(--muted);font-size:.76rem;line-height:1.45;text-align:right}
+.product-line-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.product-line-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:15px;background:rgba(5,7,11,.48)}
+.product-line-card.featured{border-color:rgba(139,92,246,.24);box-shadow:inset 0 1px rgba(255,255,255,.03)}
+.product-line-card.other-product-card{grid-column:1/-1}
+.product-line-title{display:flex;align-items:center;gap:9px}
+.product-line-title span{display:grid;place-items:center;width:31px;height:31px;border-radius:9px;background:rgba(139,92,246,.12)}
+.product-line-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.product-line-fields.three-columns{grid-template-columns:1.3fr .7fr .8fr}
+.product-line-fields label{display:grid;gap:7px;color:var(--muted-strong);font-size:.72rem;font-weight:800}
+.product-line-fields input{width:100%}
+.product-total-preview small,.payment-preview-box small{display:block;margin-top:5px;color:var(--muted);font-size:.73rem}
+.compact-product-builder{padding:13px}
+.edit-delivery-preview{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid rgba(139,92,246,.25);border-radius:14px;background:rgba(139,92,246,.09)}
+.edit-delivery-preview span{color:var(--muted);font-size:.76rem;font-weight:850;text-transform:uppercase;letter-spacing:.06em}
+.edit-delivery-preview strong{font-size:1rem}
+
+/* Gestão dos flyers e condições comerciais */
+.flyer-toolbar-actions{display:flex;align-items:flex-end;gap:10px;width:min(570px,100%)}
+.flyer-toolbar-actions .flyer-search-field{flex:1;width:auto}
+.flyer-upload-main-btn{min-height:44px;white-space:nowrap}
+.flyer-price-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.flyer-price-item{min-width:0;padding:11px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025)}
+.flyer-price-item span{display:block;margin-bottom:6px;color:#c8bcff;font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.07em}
+.flyer-price-item p{margin:0;color:var(--muted-strong);font-size:.76rem;line-height:1.45;overflow-wrap:anywhere}
+.flyer-price-item em{color:var(--muted);font-style:normal}
+.flyer-file-list{display:grid;gap:7px}
+.flyer-file-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025)}
+.flyer-file-info{min-width:0;display:grid;gap:3px}
+.flyer-file-info strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.79rem}
+.flyer-file-info small{color:var(--muted);font-size:.64rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flyer-file-actions{display:flex;gap:5px;flex:0 0 auto}
+.mini-action-btn{min-height:30px;padding:0 9px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.045);color:var(--muted-strong);font-size:.66rem;font-weight:850}
+.mini-action-btn:hover{background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.32);color:#fff}
+.mini-action-btn.warning{color:#ffe09a;background:rgba(240,184,75,.09)}
+.mini-action-btn.success{color:#baf5d2;background:rgba(54,199,120,.09)}
+.mini-action-btn.danger{color:#ffc0c0;background:rgba(235,87,87,.09)}
+.flyer-pending-section{display:grid;gap:8px;padding-top:3px}
+.flyer-section-label{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.07em}
+.flyer-section-label strong{display:grid;place-items:center;min-width:24px;height:24px;padding:0 6px;border-radius:999px;background:rgba(240,184,75,.13);color:#ffe09a}
+.flyer-management-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.flyer-management-actions .primary-btn,.flyer-management-actions .ghost-btn{min-width:0}
+
+@media (max-width: 900px){
+  .product-builder-head{flex-direction:column;gap:8px}
+  .product-builder-head small{text-align:left}
+  .product-line-grid,.flyer-price-grid{grid-template-columns:1fr}
+  .product-line-fields.three-columns{grid-template-columns:1fr 1fr}
+  .product-line-fields.three-columns label:first-child{grid-column:1/-1}
+  .flyer-toolbar-actions{width:100%}
+  .flyer-management-actions{grid-template-columns:1fr 1fr}
+  .flyer-management-actions .flyer-meetings-btn{grid-column:1/-1}
+}
+
+@media (max-width: 600px){
+  .product-line-fields,.product-line-fields.three-columns{grid-template-columns:1fr}
+  .product-line-fields.three-columns label:first-child{grid-column:auto}
+  .flyer-toolbar-actions{align-items:stretch;flex-direction:column}
+  .flyer-upload-main-btn{width:100%}
+  .flyer-file-row{align-items:stretch;flex-direction:column}
+  .flyer-file-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
+  .flyer-management-actions{grid-template-columns:1fr}
+  .flyer-management-actions .flyer-meetings-btn{grid-column:auto}
+  .edit-delivery-preview{align-items:flex-start;flex-direction:column}
+}

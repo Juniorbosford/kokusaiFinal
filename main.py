@@ -9,12 +9,14 @@ import time
 import threading
 import secrets
 import unicodedata
+from pathlib import Path
 from copy import deepcopy
 from datetime import datetime, timedelta, date, timezone
 from functools import wraps
-from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g
+from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_from_directory
 import gspread
 from google.oauth2.service_account import Credentials
+from werkzeug.utils import secure_filename
 
 try:
     from zoneinfo import ZoneInfo
@@ -36,7 +38,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.getenv(
     "SESSION_COOKIE_SECURE",
     "true" if IS_RAILWAY else "false",
 ).lower() == "true"
-app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(64 * 1024)))
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(10 * 1024 * 1024)))
 
 
 SHEET_NAME = os.getenv("SHEET_NAME", "KokusaiDB")
@@ -72,7 +74,16 @@ MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
 MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
 MAX_QUANTITY = int(os.getenv("MAX_QUANTITY", "1000000"))
 MAX_MONEY_VALUE = float(os.getenv("MAX_MONEY_VALUE", "1000000000"))
+MAX_FLYER_UPLOAD_BYTES = int(os.getenv("MAX_FLYER_UPLOAD_BYTES", str(8 * 1024 * 1024)))
+MAX_PRICE_DESCRIPTION_LENGTH = int(os.getenv("MAX_PRICE_DESCRIPTION_LENGTH", "1200"))
 SHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
+# Arquivos enviados pelo painel. No Railway, aponte KOKUSAI_DATA_DIR para um Volume
+# (ex.: /data/kokusai) para que uploads e descrições sobrevivam a novos deploys.
+KOKUSAI_DATA_DIR = Path(os.getenv("KOKUSAI_DATA_DIR", str(Path(app.root_path) / "data"))).resolve()
+FLYER_UPLOAD_DIR = KOKUSAI_DATA_DIR / "flyers"
+FLYER_METADATA_PATH = KOKUSAI_DATA_DIR / "flyers_metadata.json"
+_flyer_lock = threading.RLock()
 
 
 # Usuários do sistema. As senhas não ficam salvas em texto puro: são hashes PBKDF2-SHA256.
@@ -131,7 +142,11 @@ DEFAULT_META_NAMES = [
 ]
 
 COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
-VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao", "tipo_dinheiro", "valor_base"]
+VENDAS_HEADERS = [
+    "id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade",
+    "valor_total", "observacao", "tipo_dinheiro", "valor_base",
+    "quantidade_l85", "valor_unitario_l85", "quantidade_seringa", "valor_unitario_seringa",
+]
 ENCOMENDAS_HEADERS = [
     "id",
     "data",
@@ -143,13 +158,17 @@ ENCOMENDAS_HEADERS = [
     "entregue",
     "observacao",
     "entregue_em",
+    "quantidade_l85",
+    "valor_unitario_l85",
+    "quantidade_seringa",
+    "valor_unitario_seringa",
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
 REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em", "organizacao_id"]
 
-# Cadastro central das organizações e seus flyers. Para adicionar novos flyers depois,
-# basta copiar a imagem para static/images/flyers e incluir o arquivo nesta lista.
+# Cadastro central das organizações e dos flyers originais do projeto. Novos flyers
+# também podem ser enviados pelo painel e ficam salvos no diretório KOKUSAI_DATA_DIR.
 ORGANIZACOES = [
     {
         "id": "ballas", "nome": "Ballas", "icone": "🟣",
@@ -217,6 +236,104 @@ ORGANIZACOES_POR_ID = {item["id"]: item for item in ORGANIZACOES}
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
 
+def default_flyer_metadata():
+    return {"organizations": {}, "uploaded_flyers": [], "flyer_states": {}}
+
+
+def ensure_flyer_storage():
+    KOKUSAI_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    FLYER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_flyer_metadata():
+    ensure_flyer_storage()
+    with _flyer_lock:
+        if not FLYER_METADATA_PATH.exists():
+            return default_flyer_metadata()
+        try:
+            payload = json.loads(FLYER_METADATA_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            log_error("Falha ao ler metadados dos flyers", exc)
+            return default_flyer_metadata()
+
+        if not isinstance(payload, dict):
+            return default_flyer_metadata()
+        payload.setdefault("organizations", {})
+        payload.setdefault("uploaded_flyers", [])
+        payload.setdefault("flyer_states", {})
+        if not isinstance(payload["organizations"], dict):
+            payload["organizations"] = {}
+        if not isinstance(payload["uploaded_flyers"], list):
+            payload["uploaded_flyers"] = []
+        if not isinstance(payload["flyer_states"], dict):
+            payload["flyer_states"] = {}
+        return payload
+
+
+def save_flyer_metadata(payload):
+    ensure_flyer_storage()
+    with _flyer_lock:
+        temp_path = FLYER_METADATA_PATH.with_suffix(".tmp")
+        temp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temp_path, FLYER_METADATA_PATH)
+
+
+def detect_uploaded_image_extension(content):
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
+def builtin_flyer_by_id(organization, flyer_id):
+    for flyer in organization.get("flyers", []):
+        if str(flyer.get("id")) == str(flyer_id):
+            return flyer
+    return None
+
+
+def uploaded_flyer_by_id(metadata, organization_id, flyer_id):
+    for flyer in metadata.get("uploaded_flyers", []):
+        if flyer.get("organization_id") == organization_id and str(flyer.get("id")) == str(flyer_id):
+            return flyer
+    return None
+
+
+def serialize_flyer(organization, flyer, metadata, is_builtin=False):
+    flyer_id = str(flyer.get("id") or "")
+    if is_builtin:
+        state = metadata.get("flyer_states", {}).get(flyer_id, {})
+        visible = bool(state.get("visible", True))
+        removed = bool(state.get("removed", False))
+        return {
+            "id": flyer_id,
+            "titulo": flyer.get("titulo") or "Flyer",
+            "url": url_for("static", filename=flyer.get("arquivo")),
+            "visible": visible and not removed,
+            "removed": removed,
+            "builtin": True,
+            "uploaded_by": "Projeto",
+            "created_at": "",
+        }
+
+    filename = secure_filename(str(flyer.get("filename") or ""))
+    return {
+        "id": flyer_id,
+        "titulo": flyer.get("titulo") or "Flyer",
+        "url": url_for("uploaded_flyer_file", filename=filename),
+        "visible": bool(flyer.get("visible", False)),
+        "removed": False,
+        "builtin": False,
+        "uploaded_by": flyer.get("uploaded_by") or "Usuário",
+        "created_at": flyer.get("created_at") or "",
+    }
+
 
 def normalize_organization_key(value):
     text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
@@ -240,21 +357,39 @@ def find_organization(organizacao_id=None, nome=None):
     return None
 
 
-def serialize_organization(organization):
-    flyers = [
-        {
-            "id": flyer["id"],
-            "titulo": flyer["titulo"],
-            "url": url_for("static", filename=flyer["arquivo"]),
-        }
+def serialize_organization(organization, metadata=None, include_hidden=None):
+    metadata = metadata or load_flyer_metadata()
+    user = get_current_user()
+    is_admin = bool(user and user.get("role") == "admin")
+    if include_hidden is None:
+        include_hidden = is_admin
+
+    all_flyers = [
+        serialize_flyer(organization, flyer, metadata, is_builtin=True)
         for flyer in organization.get("flyers", [])
     ]
+    all_flyers.extend(
+        serialize_flyer(organization, flyer, metadata, is_builtin=False)
+        for flyer in metadata.get("uploaded_flyers", [])
+        if flyer.get("organization_id") == organization.get("id")
+    )
+
+    visible_flyers = [flyer for flyer in all_flyers if flyer.get("visible")]
+    hidden_flyers = [flyer for flyer in all_flyers if not flyer.get("visible")]
+    commercial = metadata.get("organizations", {}).get(organization["id"], {})
+
     return {
         "id": organization["id"],
         "nome": organization["nome"],
         "icone": organization.get("icone", "🤝"),
-        "tem_flyer": bool(flyers),
-        "flyers": flyers,
+        "tem_flyer": bool(visible_flyers),
+        "flyers": visible_flyers,
+        "pending_flyers": hidden_flyers if include_hidden else [],
+        "total_flyers": len(all_flyers),
+        "preco_venda_para_organizacao": commercial.get("preco_venda_para_organizacao", ""),
+        "preco_compra_da_organizacao": commercial.get("preco_compra_da_organizacao", ""),
+        "can_upload": bool(user),
+        "can_manage": is_admin,
     }
 
 def now_local():
@@ -448,6 +583,21 @@ def require_admin(view):
             csrf_error = csrf_error_if_invalid()
             if csrf_error:
                 return csrf_error
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def require_authenticated_write(view):
+    """Permite escrita a qualquer usuário autenticado, mantendo proteção CSRF."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return error_response("Login necessário para acessar o sistema.", 401)
+        csrf_error = csrf_error_if_invalid()
+        if csrf_error:
+            return csrf_error
         return view(*args, **kwargs)
 
     return wrapped
@@ -969,6 +1119,179 @@ def normalize_compra(row):
     return row_to_dict(row, COMPRAS_HEADERS)
 
 
+def numeric_value(value, default=0.0):
+    try:
+        if str(value or "").strip() == "":
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def integer_value(value, default=0):
+    try:
+        if str(value or "").strip() == "":
+            return default
+        number = float(value)
+        if not number.is_integer():
+            return default
+        return int(number)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_item_quantity(data, key, label):
+    raw = data.get(key, "")
+    if str(raw or "").strip() == "":
+        return 0
+    try:
+        quantity = int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} deve ser uma quantidade inteira.")
+    if quantity < 0:
+        raise ValueError(f"{label} não pode ser negativa.")
+    if quantity > MAX_QUANTITY:
+        raise ValueError(f"{label} deve ser no máximo {MAX_QUANTITY}.")
+    return quantity
+
+
+def parse_item_price(data, key, label, required=False):
+    raw = data.get(key, "")
+    if str(raw or "").strip() == "":
+        if required:
+            raise ValueError(f"{label} é obrigatório quando a quantidade é maior que zero.")
+        return 0.0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} deve ser numérico.")
+    if value < 0:
+        raise ValueError(f"{label} não pode ser negativo.")
+    if value > MAX_MONEY_VALUE:
+        raise ValueError(f"{label} está muito alto.")
+    return round(value, 2)
+
+
+def parse_special_product_lines(data):
+    quantity_l85 = parse_item_quantity(data, "quantidade_l85", "Quantidade de L85")
+    quantity_syringe = parse_item_quantity(data, "quantidade_seringa", "Quantidade de seringas")
+    price_l85 = parse_item_price(
+        data,
+        "valor_unitario_l85",
+        "Valor unitário da L85",
+        required=quantity_l85 > 0,
+    )
+    price_syringe = parse_item_price(
+        data,
+        "valor_unitario_seringa",
+        "Valor unitário da seringa",
+        required=quantity_syringe > 0,
+    )
+
+    if quantity_l85 == 0 and price_l85:
+        raise ValueError("Informe a quantidade de L85 para usar o valor unitário da L85.")
+    if quantity_syringe == 0 and price_syringe:
+        raise ValueError("Informe a quantidade de seringas para usar o valor unitário da seringa.")
+
+    return {
+        "quantidade_l85": quantity_l85,
+        "valor_unitario_l85": price_l85,
+        "quantidade_seringa": quantity_syringe,
+        "valor_unitario_seringa": price_syringe,
+        "valor_calculado": round(quantity_l85 * price_l85 + quantity_syringe * price_syringe, 2),
+    }
+
+
+def product_description(quantity_l85=0, quantity_syringe=0, extra="", extra_quantity=0):
+    parts = []
+    if quantity_l85:
+        parts.append(f"{quantity_l85}x L85")
+    if quantity_syringe:
+        label = "Seringa" if quantity_syringe == 1 else "Seringas"
+        parts.append(f"{quantity_syringe}x {label}")
+    extra = str(extra or "").strip()
+    if extra:
+        parts.append(f"{extra_quantity}x {extra}" if extra_quantity else extra)
+    return " + ".join(parts)
+
+
+def parse_venda_items(data):
+    special = parse_special_product_lines(data)
+    product = clean_text_field(data, "produto", "Outro produto", required=False)
+    generic_quantity_raw = data.get("quantidade", "")
+    generic_price_raw = data.get("valor_unitario", "")
+    has_generic_numbers = numeric_value(generic_quantity_raw, 0) > 0 or numeric_value(generic_price_raw, 0) > 0
+
+    generic_quantity = 0
+    generic_price = 0.0
+    if product or has_generic_numbers:
+        if not product:
+            raise ValueError("Informe o nome do outro produto.")
+        generic_quantity = parse_item_quantity(data, "quantidade", "Quantidade do outro produto")
+        if generic_quantity <= 0:
+            raise ValueError("A quantidade do outro produto deve ser maior que zero.")
+        generic_price = parse_item_price(data, "valor_unitario", "Valor unitário do outro produto", required=True)
+
+    total_quantity = special["quantidade_l85"] + special["quantidade_seringa"] + generic_quantity
+    if total_quantity <= 0:
+        raise ValueError("Informe ao menos uma quantidade de L85, seringa ou outro produto.")
+
+    total_value = round(
+        special["valor_calculado"] + generic_quantity * generic_price,
+        2,
+    )
+    if total_value > MAX_MONEY_VALUE:
+        raise ValueError("Valor total muito alto.")
+
+    description = product_description(
+        special["quantidade_l85"],
+        special["quantidade_seringa"],
+        product,
+        generic_quantity,
+    )
+    average_unit = round(total_value / total_quantity, 2) if total_quantity else 0
+    return {
+        **special,
+        "produto": description,
+        "quantidade": total_quantity,
+        "valor_unitario": average_unit,
+        "valor_total": total_value,
+    }
+
+
+def parse_encomenda_items(data):
+    special = parse_special_product_lines(data)
+    extra = clean_text_field(data, "o_que_pediu", "Outro item / descrição", required=False)
+    description = product_description(
+        special["quantidade_l85"],
+        special["quantidade_seringa"],
+        extra,
+    )
+    if not description:
+        raise ValueError("Informe ao menos L85, seringa ou uma descrição do pedido.")
+
+    raw_value = data.get("valor", "")
+    if str(raw_value or "").strip() == "":
+        if special["valor_calculado"] <= 0:
+            raise ValueError("Informe o valor total da encomenda.")
+        total_value = special["valor_calculado"]
+    else:
+        try:
+            total_value = round(float(raw_value), 2)
+        except (TypeError, ValueError):
+            raise ValueError("O valor da encomenda deve ser numérico.")
+    if total_value < 0:
+        raise ValueError("O valor da encomenda não pode ser negativo.")
+    if total_value > MAX_MONEY_VALUE:
+        raise ValueError("Valor da encomenda muito alto.")
+
+    return {
+        **special,
+        "o_que_pediu": description,
+        "valor": total_value,
+    }
+
+
 def normalize_money_type(value):
     normalized = str(value or "").strip().lower()
     if normalized == "limpo":
@@ -993,16 +1316,22 @@ def format_brl_value(value):
 def normalize_venda(row):
     item = row_to_dict(row, VENDAS_HEADERS)
     item["tipo_dinheiro"] = normalize_money_type(item.get("tipo_dinheiro"))
-    try:
-        item["valor_base"] = round(float(item.get("valor_base") or item.get("valor_total") or 0), 2)
-    except (TypeError, ValueError):
-        item["valor_base"] = item.get("valor_total") or 0
+    item["valor_base"] = round(numeric_value(item.get("valor_base") or item.get("valor_total"), 0), 2)
+    item["quantidade_l85"] = integer_value(item.get("quantidade_l85"), 0)
+    item["quantidade_seringa"] = integer_value(item.get("quantidade_seringa"), 0)
+    item["valor_unitario_l85"] = round(numeric_value(item.get("valor_unitario_l85"), 0), 2)
+    item["valor_unitario_seringa"] = round(numeric_value(item.get("valor_unitario_seringa"), 0), 2)
     return item
 
 
 def normalize_encomenda(row):
     item = row_to_dict(row, ENCOMENDAS_HEADERS)
     item["entregue"] = validate_yes_no(item.get("entregue")) or "Não"
+    item["valor"] = round(numeric_value(item.get("valor"), 0), 2)
+    item["quantidade_l85"] = integer_value(item.get("quantidade_l85"), 0)
+    item["quantidade_seringa"] = integer_value(item.get("quantidade_seringa"), 0)
+    item["valor_unitario_l85"] = round(numeric_value(item.get("valor_unitario_l85"), 0), 2)
+    item["valor_unitario_seringa"] = round(numeric_value(item.get("valor_unitario_seringa"), 0), 2)
     return item
 
 
@@ -1037,45 +1366,98 @@ def venda_id_from_encomenda(encomenda_id):
 
 
 def build_venda_row_from_encomenda(item, entregue_em=None, tipo_dinheiro="Limpo"):
-    quantidade, produto = parse_encomenda_item(item.get("o_que_pediu"))
-    valor_base, valor_total, tipo_dinheiro = calculate_payment_value(item.get("valor"), tipo_dinheiro)
-    if not tipo_dinheiro:
+    quantity_l85 = integer_value(item.get("quantidade_l85"), 0)
+    quantity_syringe = integer_value(item.get("quantidade_seringa"), 0)
+    specialized_quantity = quantity_l85 + quantity_syringe
+
+    if specialized_quantity > 0:
+        quantity = specialized_quantity
+        product = str(item.get("o_que_pediu") or "").strip() or product_description(quantity_l85, quantity_syringe)
+    else:
+        quantity, product = parse_encomenda_item(item.get("o_que_pediu"))
+
+    base_value, total_value, normalized_money_type = calculate_payment_value(item.get("valor"), tipo_dinheiro)
+    if not normalized_money_type:
         raise ValueError("Escolha se a entrega foi paga em dinheiro limpo ou sujo.")
 
-    valor_unitario = round(valor_total / quantidade, 2) if quantidade else valor_total
+    unit_value = round(total_value / quantity, 2) if quantity else total_value
+    money_factor = 1.30 if normalized_money_type == "Sujo" else 1.0
+    unit_l85 = round(numeric_value(item.get("valor_unitario_l85"), 0) * money_factor, 2)
+    unit_syringe = round(numeric_value(item.get("valor_unitario_seringa"), 0) * money_factor, 2)
     encomenda_id = str(item.get("id") or "").strip()
-    prazo = str(item.get("para_quando") or "").strip()
-    observacao_original = str(item.get("observacao") or "").strip()
+    deadline = str(item.get("para_quando") or "").strip()
+    original_observation = str(item.get("observacao") or "").strip()
 
-    detalhes = [f"Convertida da encomenda {encomenda_id}."]
-    if prazo:
-        detalhes.append(f"Prazo combinado: {prazo}.")
-    if tipo_dinheiro == "Sujo":
-        detalhes.append(f"Pagamento em dinheiro sujo (+30%). Valor base: R$ {format_brl_value(valor_base)}.")
+    details = [f"Convertida da encomenda {encomenda_id}."]
+    if deadline:
+        details.append(f"Prazo combinado: {deadline}.")
+    if normalized_money_type == "Sujo":
+        details.append(f"Pagamento em dinheiro sujo (+30%). Valor base: R$ {format_brl_value(base_value)}.")
     else:
-        detalhes.append("Pagamento em dinheiro limpo.")
+        details.append("Pagamento em dinheiro limpo.")
 
-    observacao = " ".join(filter(None, [observacao_original, *detalhes]))
-    observacao = observacao[:MAX_OBSERVATION_LENGTH]
+    observation = " ".join(filter(None, [original_observation, *details]))
+    observation = observation[:MAX_OBSERVATION_LENGTH]
 
     return [
         venda_id_from_encomenda(encomenda_id),
         entregue_em or format_timestamp(),
-        produto,
+        product,
         str(item.get("quem_pediu") or "").strip(),
         str(item.get("quem_negociou") or "").strip(),
-        valor_unitario,
-        quantidade,
-        valor_total,
-        observacao,
-        tipo_dinheiro,
-        valor_base,
+        unit_value,
+        quantity,
+        total_value,
+        observation,
+        normalized_money_type,
+        base_value,
+        quantity_l85,
+        unit_l85,
+        quantity_syringe,
+        unit_syringe,
     ]
 
 
 def worksheet_has_record_id(worksheet, registro_id):
     rows = cached_get_all_values(worksheet.title, worksheet, force=True)
     return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
+
+
+def move_encomenda_row_to_vendas(encomendas_worksheet, row_index, row, tipo_dinheiro):
+    while len(row) < len(ENCOMENDAS_HEADERS):
+        row.append("")
+
+    delivered_at = str(row[9] or "").strip() or format_timestamp()
+    item = normalize_encomenda(row)
+    item["entregue"] = "Sim"
+    item["entregue_em"] = delivered_at
+
+    sales_worksheet = get_vendas_worksheet()
+    sale_row = build_venda_row_from_encomenda(
+        item,
+        entregue_em=delivered_at,
+        tipo_dinheiro=tipo_dinheiro,
+    )
+    sale_id = sale_row[0]
+
+    existing_index, existing_row = find_row_by_id(sales_worksheet, sale_id)
+    if existing_index:
+        while len(existing_row) < len(VENDAS_HEADERS):
+            existing_row.append("")
+        sale_row = existing_row[:len(VENDAS_HEADERS)]
+    else:
+        sales_worksheet.append_row(sale_row, value_input_option="RAW")
+
+    encomendas_worksheet.delete_rows(row_index)
+    invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+    log_info(f"Encomenda movida para Vendas. Encomenda={item.get('id')} Venda={sale_id}")
+    return {
+        "venda_id": sale_id,
+        "entregue_em": delivered_at,
+        "tipo_dinheiro": sale_row[9],
+        "valor_base": sale_row[10],
+        "valor_total": sale_row[7],
+    }
 
 
 def normalize_reuniao(row):
@@ -1113,6 +1495,13 @@ def normalize_meta(row):
         "semana_fim": sheet_cell(row, 5),
         "confirmado": confirmado,
     }
+
+
+@app.errorhandler(413)
+def request_too_large(_error):
+    if wants_json_response():
+        return error_response("Arquivo ou requisição maior que o limite permitido.", 413)
+    return "Arquivo ou requisição maior que o limite permitido.", 413
 
 
 @app.get("/")
@@ -1215,7 +1604,208 @@ def debug_config():
 @app.get("/api/organizacoes")
 @require_login
 def list_organizacoes():
-    return jsonify([serialize_organization(item) for item in ORGANIZACOES])
+    metadata = load_flyer_metadata()
+    return jsonify([serialize_organization(item, metadata=metadata) for item in ORGANIZACOES])
+
+
+@app.get("/uploads/flyers/<path:filename>")
+@require_login
+def uploaded_flyer_file(filename):
+    safe_name = secure_filename(filename)
+    if not safe_name or safe_name != filename:
+        return error_response("Arquivo inválido.", 404)
+    return send_from_directory(str(FLYER_UPLOAD_DIR), safe_name, max_age=3600)
+
+
+@app.post("/api/organizacoes/<organizacao_id>/flyers")
+@require_authenticated_write
+def upload_organization_flyer(organizacao_id):
+    organization = find_organization(organizacao_id=organizacao_id)
+    if not organization:
+        return error_response("Organização não encontrada.", 404)
+
+    uploaded_file = request.files.get("flyer")
+    if not uploaded_file or not uploaded_file.filename:
+        return error_response("Selecione uma imagem para enviar.", 400)
+
+    try:
+        title = clean_text(
+            request.form.get("titulo", ""),
+            "Título do flyer",
+            max_length=100,
+            required=True,
+        )
+    except ValueError as validation_error:
+        return error_response(str(validation_error), 400)
+
+    content = uploaded_file.stream.read(MAX_FLYER_UPLOAD_BYTES + 1)
+    if len(content) > MAX_FLYER_UPLOAD_BYTES:
+        return error_response(
+            f"O flyer deve ter no máximo {MAX_FLYER_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            413,
+        )
+
+    extension = detect_uploaded_image_extension(content)
+    if not extension:
+        return error_response("Formato inválido. Envie PNG, JPG/JPEG ou WEBP.", 400)
+
+    user = get_current_user()
+    flyer_id = f"flyer-{secrets.token_hex(8)}"
+    filename = f"{flyer_id}{extension}"
+    ensure_flyer_storage()
+    destination = FLYER_UPLOAD_DIR / filename
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+
+    try:
+        temporary.write_bytes(content)
+        os.replace(temporary, destination)
+        metadata = load_flyer_metadata()
+        record = {
+            "id": flyer_id,
+            "organization_id": organization["id"],
+            "titulo": title,
+            "filename": filename,
+            "uploaded_by": user.get("display_name") or user.get("username"),
+            "created_at": format_timestamp(),
+            # Kokusai publica imediatamente; outros usuários enviam para aprovação.
+            "visible": user.get("role") == "admin",
+        }
+        metadata["uploaded_flyers"].append(record)
+        save_flyer_metadata(metadata)
+    except Exception:
+        try:
+            temporary.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    status_message = (
+        "Flyer enviado e publicado com sucesso."
+        if record["visible"]
+        else "Flyer enviado. Ele ficará aguardando a aprovação da Kokusai."
+    )
+    return jsonify({
+        "ok": True,
+        "message": status_message,
+        "organization": serialize_organization(organization, metadata=metadata),
+    }), 201
+
+
+@app.patch("/api/organizacoes/<organizacao_id>/precos")
+@require_admin
+def update_organization_prices(organizacao_id):
+    organization = find_organization(organizacao_id=organizacao_id)
+    if not organization:
+        return error_response("Organização não encontrada.", 404)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return error_response("JSON inválido.", 400)
+
+    try:
+        sale_description = clean_text(
+            data.get("preco_venda_para_organizacao", ""),
+            "Descrição do preço de venda para a organização",
+            max_length=MAX_PRICE_DESCRIPTION_LENGTH,
+            required=False,
+        )
+        purchase_description = clean_text(
+            data.get("preco_compra_da_organizacao", ""),
+            "Descrição do preço de compra da organização",
+            max_length=MAX_PRICE_DESCRIPTION_LENGTH,
+            required=False,
+        )
+    except ValueError as validation_error:
+        return error_response(str(validation_error), 400)
+
+    metadata = load_flyer_metadata()
+    metadata["organizations"][organization["id"]] = {
+        "preco_venda_para_organizacao": sale_description,
+        "preco_compra_da_organizacao": purchase_description,
+        "updated_at": format_timestamp(),
+        "updated_by": get_current_user().get("display_name"),
+    }
+    save_flyer_metadata(metadata)
+    return jsonify({
+        "ok": True,
+        "message": "Descrições comerciais atualizadas com sucesso.",
+        "organization": serialize_organization(organization, metadata=metadata),
+    })
+
+
+@app.patch("/api/organizacoes/<organizacao_id>/flyers/<flyer_id>")
+@require_admin
+def update_organization_flyer(organizacao_id, flyer_id):
+    organization = find_organization(organizacao_id=organizacao_id)
+    if not organization:
+        return error_response("Organização não encontrada.", 404)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or "visible" not in data:
+        return error_response("Informe se o flyer deve ficar visível.", 400)
+
+    visible = bool(data.get("visible"))
+    metadata = load_flyer_metadata()
+    builtin = builtin_flyer_by_id(organization, flyer_id)
+    uploaded = uploaded_flyer_by_id(metadata, organization["id"], flyer_id)
+    if not builtin and not uploaded:
+        return error_response("Flyer não encontrado.", 404)
+
+    if builtin:
+        state = metadata["flyer_states"].setdefault(str(flyer_id), {})
+        state["visible"] = visible
+        if visible:
+            state["removed"] = False
+    else:
+        uploaded["visible"] = visible
+        uploaded["reviewed_at"] = format_timestamp()
+        uploaded["reviewed_by"] = get_current_user().get("display_name")
+
+    save_flyer_metadata(metadata)
+    return jsonify({
+        "ok": True,
+        "message": "Flyer colocado na organização." if visible else "Flyer retirado da organização.",
+        "organization": serialize_organization(organization, metadata=metadata),
+    })
+
+
+@app.delete("/api/organizacoes/<organizacao_id>/flyers/<flyer_id>")
+@require_admin
+def delete_organization_flyer(organizacao_id, flyer_id):
+    organization = find_organization(organizacao_id=organizacao_id)
+    if not organization:
+        return error_response("Organização não encontrada.", 404)
+
+    metadata = load_flyer_metadata()
+    builtin = builtin_flyer_by_id(organization, flyer_id)
+    uploaded = uploaded_flyer_by_id(metadata, organization["id"], flyer_id)
+    if not builtin and not uploaded:
+        return error_response("Flyer não encontrado.", 404)
+
+    if builtin:
+        state = metadata["flyer_states"].setdefault(str(flyer_id), {})
+        state["visible"] = False
+        state["removed"] = True
+    else:
+        filename = secure_filename(str(uploaded.get("filename") or ""))
+        metadata["uploaded_flyers"] = [
+            flyer for flyer in metadata["uploaded_flyers"]
+            if not (
+                flyer.get("organization_id") == organization["id"]
+                and str(flyer.get("id")) == str(flyer_id)
+            )
+        ]
+        if filename:
+            try:
+                (FLYER_UPLOAD_DIR / filename).unlink(missing_ok=True)
+            except OSError as exc:
+                log_error("Não foi possível apagar o arquivo do flyer", exc)
+
+    save_flyer_metadata(metadata)
+    return jsonify({
+        "ok": True,
+        "message": "Flyer removido com sucesso.",
+        "organization": serialize_organization(organization, metadata=metadata),
+    })
 
 
 @app.get("/api/compras")
@@ -1306,53 +1896,52 @@ def list_vendas():
 def create_venda():
     try:
         data = request.get_json(silent=True)
-        ok, message = validate_numeric_fields(
-            data,
-            ["produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade"]
-        )
-
-        if not ok:
-            return error_response(message, 400)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
 
         try:
-            produto = clean_text_field(data, "produto", "Produto")
-            quem_compra = clean_text_field(data, "quem_compra", "Quem compra")
-            quem_vende = clean_text_field(data, "quem_vende", "Quem vende")
-            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+            items = parse_venda_items(data)
+            buyer = clean_text_field(data, "quem_compra", "Quem compra")
+            seller = clean_text_field(data, "quem_vende", "Quem vende")
+            observation = clean_text_field(
+                data,
+                "observacao",
+                "Observação",
+                max_length=MAX_OBSERVATION_LENGTH,
+                required=False,
+            )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
-        quantidade = int(data["quantidade"])
-        valor_unitario = float(data["valor_unitario"])
-        valor_total = round(quantidade * valor_unitario, 2)
-        if valor_total > MAX_MONEY_VALUE:
-            return error_response("Valor total muito alto.", 400)
-
-        agora = format_timestamp()
-        registro_id = generate_record_id("KKSV")
-
+        now = format_timestamp()
+        record_id = generate_record_id("KKSV")
         worksheet = get_vendas_worksheet()
         worksheet.append_row([
-            registro_id,
-            agora,
-            produto,
-            quem_compra,
-            quem_vende,
-            valor_unitario,
-            quantidade,
-            valor_total,
-            observacao,
+            record_id,
+            now,
+            items["produto"],
+            buyer,
+            seller,
+            items["valor_unitario"],
+            items["quantidade"],
+            items["valor_total"],
+            observation,
             "",
-            valor_total,
+            items["valor_total"],
+            items["quantidade_l85"],
+            items["valor_unitario_l85"],
+            items["quantidade_seringa"],
+            items["valor_unitario_seringa"],
         ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
-        log_info(f"Venda registrada com sucesso. ID={registro_id}")
+        log_info(f"Venda registrada com sucesso. ID={record_id}")
 
         return jsonify({
             "ok": True,
             "message": "Venda salva com sucesso.",
-            "id": registro_id,
-            "valor_total": valor_total,
+            "id": record_id,
+            "valor_total": items["valor_total"],
+            "quantidade_total": items["quantidade"],
         }), 201
 
     except Exception as e:
@@ -1404,100 +1993,98 @@ def list_encomendas():
 def create_encomenda():
     try:
         data = request.get_json(silent=True)
-        required_fields = ["quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue"]
-
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
+        required_fields = ["quem_pediu", "para_quando", "quem_negociou", "entregue"]
         missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
         if missing:
             return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
 
-        try:
-            valor = float(data["valor"])
-        except (ValueError, TypeError):
-            return error_response("O valor da encomenda deve ser numérico.", 400)
-
-        if valor < 0:
-            return error_response("O valor da encomenda não pode ser negativo.", 400)
-        if valor > MAX_MONEY_VALUE:
-            return error_response("Valor da encomenda muito alto.", 400)
-
-        entregue = str(data["entregue"]).strip().capitalize()
-        if entregue not in ["Sim", "Não", "Nao"]:
+        delivered = validate_yes_no(data.get("entregue"))
+        if not delivered:
             return error_response("O campo 'entregue' deve ser 'Sim' ou 'Não'.", 400)
 
-        if entregue == "Nao":
-            entregue = "Não"
-
-        tipo_dinheiro = normalize_money_type(data.get("tipo_dinheiro"))
-        if entregue == "Sim" and not tipo_dinheiro:
+        money_type = normalize_money_type(data.get("tipo_dinheiro"))
+        if delivered == "Sim" and not money_type:
             return error_response("Escolha se a entrega foi paga em dinheiro limpo ou sujo.", 400)
 
         try:
-            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
-            o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
-            para_quando = clean_text_field(data, "para_quando", "Para quando")
-            quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
-            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+            items = parse_encomenda_items(data)
+            requester = clean_text_field(data, "quem_pediu", "Quem pediu")
+            deadline = clean_text_field(data, "para_quando", "Para quando")
+            negotiator = clean_text_field(data, "quem_negociou", "Quem negociou")
+            observation = clean_text_field(
+                data,
+                "observacao",
+                "Observação",
+                max_length=MAX_OBSERVATION_LENGTH,
+                required=False,
+            )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
-        agora = format_timestamp()
-        registro_id = generate_record_id("KKSE")
-
-        encomenda_item = {
-            "id": registro_id,
-            "data": agora,
-            "quem_pediu": quem_pediu,
-            "o_que_pediu": o_que_pediu,
-            "valor": round(valor, 2),
-            "para_quando": para_quando,
-            "quem_negociou": quem_negociou,
-            "entregue": entregue,
-            "observacao": observacao,
-            "entregue_em": agora if entregue == "Sim" else "",
+        now = format_timestamp()
+        record_id = generate_record_id("KKSE")
+        item = {
+            "id": record_id,
+            "data": now,
+            "quem_pediu": requester,
+            "o_que_pediu": items["o_que_pediu"],
+            "valor": items["valor"],
+            "para_quando": deadline,
+            "quem_negociou": negotiator,
+            "entregue": delivered,
+            "observacao": observation,
+            "entregue_em": now if delivered == "Sim" else "",
+            "quantidade_l85": items["quantidade_l85"],
+            "valor_unitario_l85": items["valor_unitario_l85"],
+            "quantidade_seringa": items["quantidade_seringa"],
+            "valor_unitario_seringa": items["valor_unitario_seringa"],
         }
 
-        if entregue == "Sim":
-            vendas_worksheet = get_vendas_worksheet()
-            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=agora, tipo_dinheiro=tipo_dinheiro)
-            vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+        if delivered == "Sim":
+            sales_worksheet = get_vendas_worksheet()
+            sale_row = build_venda_row_from_encomenda(item, entregue_em=now, tipo_dinheiro=money_type)
+            sales_worksheet.append_row(sale_row, value_input_option="RAW")
             invalidate_values_cache(VENDAS_WORKSHEET_NAME)
-            log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={registro_id}")
-
+            log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={record_id}")
             return jsonify({
                 "ok": True,
                 "message": "Encomenda entregue e registrada diretamente em Vendas.",
-                "id": registro_id,
-                "venda_id": venda_row[0],
-                "valor": venda_row[7],
-                "valor_base": venda_row[10],
-                "tipo_dinheiro": venda_row[9],
+                "id": record_id,
+                "venda_id": sale_row[0],
+                "valor": sale_row[7],
+                "valor_base": sale_row[10],
+                "tipo_dinheiro": sale_row[9],
                 "moved_to_vendas": True,
             }), 201
 
         worksheet = get_encomendas_worksheet()
         worksheet.append_row([
-            registro_id,
-            agora,
-            quem_pediu,
-            o_que_pediu,
-            round(valor, 2),
-            para_quando,
-            quem_negociou,
-            entregue,
-            observacao,
+            record_id,
+            now,
+            requester,
+            items["o_que_pediu"],
+            items["valor"],
+            deadline,
+            negotiator,
+            "Não",
+            observation,
             "",
+            items["quantidade_l85"],
+            items["valor_unitario_l85"],
+            items["quantidade_seringa"],
+            items["valor_unitario_seringa"],
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
-        log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
+        log_info(f"Encomenda registrada com sucesso. ID={record_id}")
 
         return jsonify({
             "ok": True,
             "message": "Encomenda salva com sucesso.",
-            "id": registro_id,
-            "valor": round(valor, 2),
+            "id": record_id,
+            "valor": items["valor"],
             "moved_to_vendas": False,
         }), 201
 
@@ -1514,26 +2101,28 @@ def update_encomenda(registro_id):
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
-        required_fields = ["quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou"]
+        required_fields = ["quem_pediu", "para_quando", "quem_negociou"]
         missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
         if missing:
             return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
 
-        try:
-            valor = float(data["valor"])
-        except (ValueError, TypeError):
-            return error_response("O valor da encomenda deve ser numérico.", 400)
-        if valor < 0:
-            return error_response("O valor da encomenda não pode ser negativo.", 400)
-        if valor > MAX_MONEY_VALUE:
-            return error_response("Valor da encomenda muito alto.", 400)
+        confirm_delivery = bool(data.get("confirmar_entrega"))
+        money_type = normalize_money_type(data.get("tipo_dinheiro"))
+        if confirm_delivery and not money_type:
+            return error_response("Escolha dinheiro limpo ou sujo para confirmar a entrega.", 400)
 
         try:
-            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
-            o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
-            para_quando = clean_text_field(data, "para_quando", "Para quando")
-            quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
-            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+            items = parse_encomenda_items(data)
+            requester = clean_text_field(data, "quem_pediu", "Quem pediu")
+            deadline = clean_text_field(data, "para_quando", "Para quando")
+            negotiator = clean_text_field(data, "quem_negociou", "Quem negociou")
+            observation = clean_text_field(
+                data,
+                "observacao",
+                "Observação",
+                max_length=MAX_OBSERVATION_LENGTH,
+                required=False,
+            )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
@@ -1548,17 +2137,37 @@ def update_encomenda(registro_id):
             if validate_yes_no(row[7]) == "Sim":
                 return error_response("Essa encomenda já foi entregue e não pode mais ser editada aqui.", 409)
 
-            row[2] = quem_pediu
-            row[3] = o_que_pediu
-            row[4] = round(valor, 2)
-            row[5] = para_quando
-            row[6] = quem_negociou
+            row[2] = requester
+            row[3] = items["o_que_pediu"]
+            row[4] = items["valor"]
+            row[5] = deadline
+            row[6] = negotiator
             row[7] = "Não"
-            row[8] = observacao
+            row[8] = observation
             row[9] = ""
+            row[10] = items["quantidade_l85"]
+            row[11] = items["valor_unitario_l85"]
+            row[12] = items["quantidade_seringa"]
+            row[13] = items["valor_unitario_seringa"]
 
+            if confirm_delivery:
+                delivery_result = move_encomenda_row_to_vendas(
+                    worksheet,
+                    row_index,
+                    row,
+                    money_type,
+                )
+                return jsonify({
+                    "ok": True,
+                    "message": "Alterações salvas e entrega confirmada. A encomenda foi movida para Vendas.",
+                    "id": registro_id,
+                    "moved_to_vendas": True,
+                    **delivery_result,
+                })
+
+            end_col = "N"
             worksheet.update(
-                f"A{row_index}:J{row_index}",
+                f"A{row_index}:{end_col}{row_index}",
                 [row[:len(ENCOMENDAS_HEADERS)]],
                 value_input_option="RAW",
             )
@@ -1568,6 +2177,7 @@ def update_encomenda(registro_id):
             "ok": True,
             "message": "Encomenda atualizada com sucesso.",
             "item": normalize_encomenda(row),
+            "moved_to_vendas": False,
         })
 
     except Exception as e:
@@ -1583,12 +2193,12 @@ def update_encomenda_entrega(registro_id):
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
-        entregue = validate_yes_no(data.get("entregue"))
-        if not entregue:
+        delivered = validate_yes_no(data.get("entregue"))
+        if not delivered:
             return error_response("A entrega deve ser somente 'Sim' ou 'Não'.", 400)
 
-        tipo_dinheiro = normalize_money_type(data.get("tipo_dinheiro"))
-        if entregue == "Sim" and not tipo_dinheiro:
+        money_type = normalize_money_type(data.get("tipo_dinheiro"))
+        if delivered == "Sim" and not money_type:
             return error_response("Escolha se a entrega foi paga em dinheiro limpo ou sujo.", 400)
 
         with _sheets_lock:
@@ -1600,7 +2210,7 @@ def update_encomenda_entrega(registro_id):
             while len(row) < len(ENCOMENDAS_HEADERS):
                 row.append("")
 
-            if entregue == "Não":
+            if delivered == "Não":
                 worksheet.update(
                     f"H{row_index}:J{row_index}",
                     [["Não", row[8] if len(row) > 8 else "", ""]],
@@ -1616,40 +2226,20 @@ def update_encomenda_entrega(registro_id):
                     "moved_to_vendas": False,
                 })
 
-            entregue_em = str(row[9] or "").strip() or format_timestamp()
-            encomenda_item = normalize_encomenda(row)
-            encomenda_item["entregue"] = "Sim"
-            encomenda_item["entregue_em"] = entregue_em
-
-            vendas_worksheet = get_vendas_worksheet()
-            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=entregue_em, tipo_dinheiro=tipo_dinheiro)
-            venda_id = venda_row[0]
-
-            # Se a gravação da venda tiver ocorrido e a exclusão da encomenda falhar,
-            # uma nova tentativa apenas conclui a exclusão, sem duplicar ou alterar o pagamento.
-            existing_sale_index, existing_sale_row = find_row_by_id(vendas_worksheet, venda_id)
-            if existing_sale_index:
-                while len(existing_sale_row) < len(VENDAS_HEADERS):
-                    existing_sale_row.append("")
-                venda_row = existing_sale_row[:len(VENDAS_HEADERS)]
-            else:
-                vendas_worksheet.append_row(venda_row, value_input_option="RAW")
-
-            worksheet.delete_rows(row_index)
-            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
-            log_info(f"Encomenda movida para Vendas. Encomenda={registro_id} Venda={venda_id}")
+            delivery_result = move_encomenda_row_to_vendas(
+                worksheet,
+                row_index,
+                row,
+                money_type,
+            )
 
         return jsonify({
             "ok": True,
             "message": "Entrega confirmada. A encomenda foi movida para Vendas.",
             "id": registro_id,
-            "venda_id": venda_id,
             "entregue": "Sim",
-            "entregue_em": entregue_em,
-            "tipo_dinheiro": venda_row[9],
-            "valor_base": venda_row[10],
-            "valor_total": venda_row[7],
             "moved_to_vendas": True,
+            **delivery_result,
         })
 
     except Exception as e:
