@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai | Gestão, Organizações, Flyers e Reuniões</title>
-  <meta name="description" content="Painel operacional Kokusai para compras, vendas, encomendas, organizações, flyers, reuniões, metas e craft no GTARP." />
+  <title>Kokusai | Compras, Vendas, Encomendas, Famílias, Metas e Craft</title>
+  <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, famílias, metas e craft no GTARP." />
   <meta name="csrf-token" content="{{ csrf_token }}" />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +21,7 @@
         <div>
           <p class="brand-kicker">Kokusai</p>
           <h1>Departamento</h1>
-          <span>Compras • Vendas • Flyers • Reuniões • Metas • Craft</span>
+          <span>Compras • Vendas • Encomendas • Reuniões • Famílias • Metas • Craft</span>
         </div>
       </div>
 
@@ -30,8 +30,8 @@
         <button class="nav-link" data-target="compras"><span>Compras</span></button>
         <button class="nav-link" data-target="vendas"><span>Vendas</span></button>
         <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
-        <button class="nav-link" data-target="flyers"><span>Flyers</span></button>
         <button class="nav-link" data-target="reunioes"><span>Reuniões</span></button>
+        <button class="nav-link" data-target="familias"><span>Famílias</span></button>
         <button class="nav-link" data-target="metas"><span>Metas</span></button>
         <button class="nav-link" data-target="craft"><span>Craft</span></button>
       </nav>
@@ -74,9 +74,9 @@
         <div class="hero-card">
           <div class="hero-content">
             <p class="hero-tag">Gestão GTARP</p>
-            <h3>Operação centralizada para vendas, parceiros, reuniões e flyers</h3>
+            <h3>Operação centralizada para compras, vendas, encomendas, famílias, metas e craft</h3>
             <p class="hero-copy">
-              Registre movimentações, consulte os materiais de cada organização e mantenha as reuniões conectadas aos parceiros certos em uma única central.
+              Um painel mais limpo, direto e profissional para registrar pedidos, consultar famílias parceiras, acompanhar pagamentos de meta, calcular crafts e manter o histórico do departamento organizado.
             </p>
             <div class="access-note {{ current_user.role }}">
               {{ "Você está com permissão total para registrar e consultar movimentações." if is_admin else "Você está em modo somente leitura. Os registros podem ser consultados, mas não alterados." }}
@@ -114,16 +114,6 @@
             <p>Valor encomendas</p>
             <strong id="statValorEncomendas">R$ 0,00</strong>
             <span>movimentado</span>
-          </article>
-          <article class="stat-card organization-stat-card">
-            <p>Organizações</p>
-            <strong id="statOrganizacoes">0</strong>
-            <span>parceiros cadastrados</span>
-          </article>
-          <article class="stat-card organization-stat-card">
-            <p>Flyers</p>
-            <strong id="statFlyers">0</strong>
-            <span>materiais disponíveis</span>
           </article>
           <article class="stat-card meta-card">
             <p>Metas pagas</p>
@@ -165,7 +155,7 @@
 
               <div class="field">
                 <label for="quem_pediu">Quem pediu</label>
-                <input id="quem_pediu" placeholder="Nome ou facção" required />
+                <input id="quem_pediu" list="familiasDatalist" placeholder="Nome ou facção" required />
               </div>
 
               <div class="field">
@@ -226,7 +216,6 @@
                     <th>Quem vendeu</th>
                     <th>Qtd</th>
                     <th>Total</th>
-                    <th>Detalhes</th>
                   </tr>
                 </thead>
                 <tbody id="comprasTable"></tbody>
@@ -256,46 +245,14 @@
             {% if is_admin %}
 
             <form id="vendaForm" class="form-grid">
-              <div class="product-builder field-full">
-                <div class="product-builder-head">
-                  <div>
-                    <span>Itens da venda</span>
-                    <strong>L85 e seringa em campos separados</strong>
-                  </div>
-                  <small>Preencha um ou os dois produtos. O total soma tudo automaticamente.</small>
-                </div>
-
-                <div class="product-line-grid">
-                  <article class="product-line-card featured">
-                    <div class="product-line-title"><span>🔫</span><strong>L85</strong></div>
-                    <div class="product-line-fields">
-                      <label>Quantidade<input id="v_quantidade_l85" type="number" min="0" step="1" placeholder="0" /></label>
-                      <label>Valor unitário<input id="v_valor_unitario_l85" type="number" min="0" step="0.01" placeholder="0,00" /></label>
-                    </div>
-                  </article>
-
-                  <article class="product-line-card featured">
-                    <div class="product-line-title"><span>💉</span><strong>Seringa</strong></div>
-                    <div class="product-line-fields">
-                      <label>Quantidade<input id="v_quantidade_seringa" type="number" min="0" step="1" placeholder="0" /></label>
-                      <label>Valor unitário<input id="v_valor_unitario_seringa" type="number" min="0" step="0.01" placeholder="0,00" /></label>
-                    </div>
-                  </article>
-
-                  <article class="product-line-card other-product-card">
-                    <div class="product-line-title"><span>＋</span><strong>Outro produto (opcional)</strong></div>
-                    <div class="product-line-fields three-columns">
-                      <label>Produto<input id="v_produto" placeholder="Ex.: Munição" /></label>
-                      <label>Quantidade<input id="v_quantidade" type="number" min="0" step="1" placeholder="0" /></label>
-                      <label>Valor unitário<input id="v_valor_unitario" type="number" min="0" step="0.01" placeholder="0,00" /></label>
-                    </div>
-                  </article>
-                </div>
+              <div class="field">
+                <label for="v_produto">Produto</label>
+                <input id="v_produto" placeholder="Ex.: Munição" required />
               </div>
 
               <div class="field">
                 <label for="quem_compra">Quem compra</label>
-                <input id="quem_compra" placeholder="Comprador" required />
+                <input id="quem_compra" list="familiasDatalist" placeholder="Comprador" required />
               </div>
 
               <div class="field">
@@ -303,15 +260,24 @@
                 <input id="quem_vende" placeholder="Vendedor" required />
               </div>
 
+              <div class="field">
+                <label for="v_valor_unitario">Valor unitário</label>
+                <input id="v_valor_unitario" type="number" min="0" step="0.01" placeholder="0,00" required />
+              </div>
+
+              <div class="field">
+                <label for="v_quantidade">Quantidade</label>
+                <input id="v_quantidade" type="number" min="1" placeholder="1" required />
+              </div>
+
               <div class="field field-full">
                 <label for="v_observacao">Observação</label>
                 <textarea id="v_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
-              <div class="calc-box product-total-preview">
+              <div class="calc-box">
                 <span>Total calculado</span>
                 <strong id="previewVendaTotal">R$ 0,00</strong>
-                <small id="previewVendaItens">0 itens</small>
               </div>
 
               <div class="form-actions">
@@ -347,7 +313,6 @@
                     <th>Quem vende</th>
                     <th>Qtd</th>
                     <th>Total</th>
-                    <th>Pagamento</th>
                   </tr>
                 </thead>
                 <tbody id="vendasTable"></tbody>
@@ -379,56 +344,27 @@
             <form id="encomendaForm" class="form-grid">
               <div class="field">
                 <label for="e_quem_pediu">Quem pediu</label>
-                <input id="e_quem_pediu" placeholder="Ex.: Nome (fac)" required />
+                <input id="e_quem_pediu" list="familiasDatalist" placeholder="Ex.: Nome (fac)" required />
               </div>
 
               <div class="field">
-                <label for="e_quem_negociou">Quem negociou</label>
-                <input id="e_quem_negociou" placeholder="Ex.: Dulce e Theo" required />
-              </div>
-
-              <div class="product-builder field-full">
-                <div class="product-builder-head">
-                  <div>
-                    <span>Itens da encomenda</span>
-                    <strong>Informe L85 e seringa separadamente</strong>
-                  </div>
-                  <small>Quando os valores unitários forem preenchidos, o valor base é calculado automaticamente.</small>
-                </div>
-
-                <div class="product-line-grid">
-                  <article class="product-line-card featured">
-                    <div class="product-line-title"><span>🔫</span><strong>L85</strong></div>
-                    <div class="product-line-fields">
-                      <label>Quantidade<input id="e_quantidade_l85" type="number" min="0" step="1" placeholder="0" /></label>
-                      <label>Valor unitário<input id="e_valor_unitario_l85" type="number" min="0" step="0.01" placeholder="0,00" /></label>
-                    </div>
-                  </article>
-
-                  <article class="product-line-card featured">
-                    <div class="product-line-title"><span>💉</span><strong>Seringa</strong></div>
-                    <div class="product-line-fields">
-                      <label>Quantidade<input id="e_quantidade_seringa" type="number" min="0" step="1" placeholder="0" /></label>
-                      <label>Valor unitário<input id="e_valor_unitario_seringa" type="number" min="0" step="0.01" placeholder="0,00" /></label>
-                    </div>
-                  </article>
-                </div>
-              </div>
-
-              <div class="field field-full">
-                <label for="e_o_que_pediu">Outro item ou detalhe do pedido (opcional)</label>
-                <input id="e_o_que_pediu" placeholder="Ex.: acessórios, munição ou condição especial" />
+                <label for="e_o_que_pediu">O que pediu</label>
+                <input id="e_o_que_pediu" placeholder="Ex.: 15 L85" required />
               </div>
 
               <div class="field">
-                <label for="e_valor">Valor total/base</label>
+                <label for="e_valor">Valor</label>
                 <input id="e_valor" type="number" min="0" step="0.01" placeholder="0,00" required />
-                <small class="field-helper">Você pode ajustar o total negociado depois do cálculo automático.</small>
               </div>
 
               <div class="field">
                 <label for="e_para_quando">Pra quando foi combinado</label>
                 <input id="e_para_quando" placeholder="Ex.: 09/04 - 21h" required />
+              </div>
+
+              <div class="field">
+                <label for="e_quem_negociou">Quem negociou</label>
+                <input id="e_quem_negociou" placeholder="Ex.: Dulce e Theo" required />
               </div>
 
               <div class="field">
@@ -440,26 +376,14 @@
                 </select>
               </div>
 
-              <div class="field" id="e_tipo_dinheiro_wrap" hidden>
-                <label for="e_tipo_dinheiro">Forma de recebimento</label>
-                <select id="e_tipo_dinheiro">
-                  <option value="">Escolha limpo ou sujo</option>
-                  <option value="Limpo">Dinheiro limpo — valor normal</option>
-                  <option value="Sujo">Dinheiro sujo — acrescentar 30%</option>
-                </select>
-                <small class="field-helper">Essa escolha será registrada na venda.</small>
-              </div>
-
               <div class="field field-full">
                 <label for="e_observacao">Observação</label>
                 <textarea id="e_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
-              <div class="calc-box payment-preview-box">
-                <span>Valor limpo</span>
+              <div class="calc-box">
+                <span>Valor informado</span>
                 <strong id="previewEncomendaValor">R$ 0,00</strong>
-                <small id="previewEncomendaItens">0 itens principais</small>
-                <small id="previewEncomendaSujo">No sujo (+30%): R$ 0,00</small>
               </div>
 
               <div class="form-actions">
@@ -506,35 +430,6 @@
       </section>
 
 
-      <section class="view" id="flyers">
-        <div class="section-intro flyer-intro">
-          <div>
-            <p class="eyebrow">Central de parceiros</p>
-            <h3>Flyers por organização</h3>
-          </div>
-          <p>Consulte rapidamente os materiais recebidos e abra as reuniões relacionadas a cada organização.</p>
-        </div>
-
-        <section class="panel-card flyer-toolbar-card">
-          <div class="flyer-toolbar">
-            <div class="flyer-summary">
-              <div><strong id="flyerOrganizationCount">0</strong><span>organizações</span></div>
-              <div><strong id="flyerAssetCount">0</strong><span>flyers</span></div>
-              <div><strong id="flyerPendingCount">0</strong><span>aguardando imagem</span></div>
-            </div>
-            <div class="flyer-toolbar-actions">
-              <label class="flyer-search-field" for="flyerSearch">
-                <span>Pesquisar organização</span>
-                <input id="flyerSearch" type="search" placeholder="Ex.: Hydra, Ballas ou Legacy" autocomplete="off" />
-              </label>
-              <button class="primary-btn flyer-upload-main-btn" type="button" id="openFlyerUploadBtn">Enviar flyer</button>
-            </div>
-          </div>
-        </section>
-
-        <div id="flyersGrid" class="flyers-grid" aria-live="polite"></div>
-      </section>
-
 
       <section class="view" id="reunioes">
         <div class="section-intro">
@@ -559,27 +454,13 @@
                 <label for="r_titulo">Título da reunião</label>
                 <input id="r_titulo" placeholder="Ex.: Alinhamento de parceria" required />
               </div>
-              <div class="field field-full">
-                <label for="r_organizacao">Organização relacionada</label>
-                <select id="r_organizacao" required>
-                  <option value="">Carregando organizações...</option>
-                </select>
-                <small class="field-helper">Ao selecionar uma organização, o nome, o ícone e o flyer ficam vinculados à reunião.</small>
-              </div>
-              <div class="field field-full custom-organization-field" id="r_gangue_wrap" hidden>
-                <label for="r_gangue">Nome da organização</label>
-                <input id="r_gangue" placeholder="Ex.: Nova organização" />
+              <div class="field">
+                <label for="r_gangue">Gangue / grupo</label>
+                <input id="r_gangue" list="familiasDatalist" placeholder="Ex.: NKT" required />
               </div>
               <div class="field">
-                <label for="r_icone">Ícone da organização</label>
-                <input id="r_icone" maxlength="12" placeholder="Ex.: 🐉" required readonly />
-              </div>
-              <div class="field organization-link-preview" id="reuniaoOrgPreview">
-                <span class="organization-link-icon" id="reuniaoOrgPreviewIcon">🤝</span>
-                <div>
-                  <strong id="reuniaoOrgPreviewName">Nenhuma organização</strong>
-                  <small id="reuniaoOrgPreviewStatus">Selecione um parceiro para relacionar.</small>
-                </div>
+                <label for="r_icone">Ícone ou emoji</label>
+                <input id="r_icone" maxlength="12" placeholder="Ex.: 🐉" required />
               </div>
               <div class="field">
                 <label for="r_data">Dia</label>
@@ -618,19 +499,96 @@
                 <p class="panel-kicker">Calendário corporativo</p>
                 <h3>Próximas reuniões</h3>
               </div>
-              <div class="meeting-board-tools">
-                <label for="reuniaoOrganizationFilter">Filtrar organização</label>
-                <select id="reuniaoOrganizationFilter">
-                  <option value="">Todas as organizações</option>
-                </select>
-                <div class="meeting-counters">
-                  <span><strong id="reunioesAgendadas">0</strong> agendadas</span>
+              <div class="meeting-counters">
+                <span><strong id="reunioesAgendadas">0</strong> agendadas</span>
                 <span><strong id="reunioesFinalizadas">0</strong> finalizadas</span>
-                  <span><strong id="reunioesCanceladas">0</strong> canceladas</span>
-                </div>
+                <span><strong id="reunioesCanceladas">0</strong> canceladas</span>
               </div>
             </div>
             <div id="reunioesGrid" class="meetings-grid"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="familias">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Relacionamento externo</p>
+            <h3>Famílias e gangues</h3>
+          </div>
+          <p>Consulte todas as famílias, os valores negociados, o flyer vinculado e se o mercado está aberto ou fechado para cada uma.</p>
+        </div>
+
+        <div class="families-layout">
+          <section class="panel-card family-form-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker" id="familiaFormKicker">Novo cadastro</p>
+                <h3 id="familiaFormTitle">Adicionar Família/Gangue</h3>
+              </div>
+              <span class="family-header-icon">🤝</span>
+            </div>
+            {% if is_admin %}
+            <form id="familiaForm" class="form-grid">
+              <div class="field field-full">
+                <label for="f_nome">Nome da família/gangue</label>
+                <input id="f_nome" placeholder="Ex.: Aura" required />
+              </div>
+              <div class="field">
+                <label for="f_icone">Ícone ou emoji</label>
+                <input id="f_icone" maxlength="12" placeholder="Ex.: ✨" />
+              </div>
+              <div class="field">
+                <label for="f_mercado">Situação do mercado</label>
+                <select id="f_mercado" required>
+                  <option value="Aberto">Mercado aberto</option>
+                  <option value="Fechado">Mercado fechado</option>
+                </select>
+              </div>
+              <div class="field field-full">
+                <label for="f_preco_venda">Preço de venda para eles</label>
+                <textarea id="f_preco_venda" placeholder="Ex.: L85 por R$ 45.000 para esta família"></textarea>
+              </div>
+              <div class="field field-full">
+                <label for="f_preco_compra">Preço deles de venda para a Kokusai</label>
+                <textarea id="f_preco_compra" placeholder="Ex.: Materiais, produtos e valores comprados desta família"></textarea>
+              </div>
+              <div class="field field-full">
+                <label for="f_flyer_url">Vincular imagem do flyer (opcional)</label>
+                <input id="f_flyer_url" type="url" placeholder="https://.../flyer.png" />
+              </div>
+              <div class="field field-full">
+                <label for="f_observacao">Observações</label>
+                <textarea id="f_observacao" placeholder="Contatos, regras, restrições ou informações importantes"></textarea>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn" id="familiaSubmitBtn">Adicionar Família/Gangue</button>
+                <button type="button" class="secondary-btn family-cancel-edit" id="familiaCancelEditBtn" hidden>Cancelar edição</button>
+              </div>
+            </form>
+            <div class="feedback" id="familiaFeedback">Cadastre uma família ou edite as informações existentes.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Famílias em modo leitura</h4>
+              <p>Você pode consultar todas as famílias, os flyers e os valores, mas apenas administradores podem alterar os cadastros.</p>
+            </div>
+            {% endif %}
+          </section>
+
+          <section class="panel-card family-board-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Relações comerciais</p>
+                <h3>Famílias cadastradas</h3>
+              </div>
+              <div class="family-counters">
+                <span><strong id="familiasTotal">0</strong> cadastradas</span>
+                <span><strong id="familiasAbertas">0</strong> abertas</span>
+                <span><strong id="familiasFechadas">0</strong> fechadas</span>
+              </div>
+            </div>
+            <div id="familiasGrid" class="families-grid"></div>
           </section>
         </div>
       </section>
@@ -842,231 +800,7 @@
     </main>
   </div>
 
-  <div class="transaction-modal" id="deliveryModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="deliveryModalTitle">
-    <button class="transaction-modal-backdrop" type="button" data-close-delivery aria-label="Fechar confirmação"></button>
-    <div class="transaction-modal-dialog">
-      <div class="transaction-modal-head">
-        <div>
-          <p class="panel-kicker">Confirmar entrega</p>
-          <h3 id="deliveryModalTitle">Escolha como o valor foi recebido</h3>
-        </div>
-        <button class="transaction-modal-close" type="button" data-close-delivery aria-label="Fechar">×</button>
-      </div>
-
-      <form id="deliveryForm" class="transaction-modal-body">
-        <div class="delivery-order-summary">
-          <span>Encomenda</span>
-          <strong id="deliveryOrderName">--</strong>
-          <small id="deliveryOrderCustomer">--</small>
-        </div>
-
-        <div class="money-choice-grid" role="radiogroup" aria-label="Tipo de dinheiro">
-          <label class="money-choice-card clean">
-            <input type="radio" name="delivery_money_type" value="Limpo" required />
-            <span>Dinheiro limpo</span>
-            <strong id="deliveryCleanValue">R$ 0,00</strong>
-            <small>Valor original da encomenda</small>
-          </label>
-          <label class="money-choice-card dirty">
-            <input type="radio" name="delivery_money_type" value="Sujo" required />
-            <span>Dinheiro sujo</span>
-            <strong id="deliveryDirtyValue">R$ 0,00</strong>
-            <small>Valor original + 30%</small>
-          </label>
-        </div>
-
-        <div class="delivery-selected-total">
-          <span>Total que entrará em Vendas</span>
-          <strong id="deliverySelectedValue">Escolha uma opção</strong>
-        </div>
-
-        <div class="feedback" id="deliveryFeedback">Selecione dinheiro limpo ou sujo.</div>
-        <div class="transaction-modal-actions">
-          <button class="ghost-btn" type="button" data-close-delivery>Cancelar</button>
-          <button class="primary-btn" type="submit" id="deliveryConfirmBtn">Confirmar e mover para Vendas</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div class="transaction-modal" id="encomendaEditModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="encomendaEditTitle">
-    <button class="transaction-modal-backdrop" type="button" data-close-encomenda-edit aria-label="Fechar edição"></button>
-    <div class="transaction-modal-dialog wide">
-      <div class="transaction-modal-head">
-        <div>
-          <p class="panel-kicker">Editar encomenda</p>
-          <h3 id="encomendaEditTitle">Atualizar pedido ou confirmar entrega</h3>
-        </div>
-        <button class="transaction-modal-close" type="button" data-close-encomenda-edit aria-label="Fechar">×</button>
-      </div>
-
-      <form id="encomendaEditForm" class="transaction-modal-body form-grid">
-        <div class="field">
-          <label for="edit_e_quem_pediu">Quem pediu</label>
-          <input id="edit_e_quem_pediu" required />
-        </div>
-        <div class="field">
-          <label for="edit_e_quem_negociou">Quem negociou</label>
-          <input id="edit_e_quem_negociou" required />
-        </div>
-
-        <div class="product-builder field-full compact-product-builder">
-          <div class="product-builder-head">
-            <div><span>Itens principais</span><strong>L85 e seringa</strong></div>
-            <small>Altere as quantidades e valores antes de salvar ou entregar.</small>
-          </div>
-          <div class="product-line-grid">
-            <article class="product-line-card featured">
-              <div class="product-line-title"><span>🔫</span><strong>L85</strong></div>
-              <div class="product-line-fields">
-                <label>Quantidade<input id="edit_e_quantidade_l85" type="number" min="0" step="1" /></label>
-                <label>Valor unitário<input id="edit_e_valor_unitario_l85" type="number" min="0" step="0.01" /></label>
-              </div>
-            </article>
-            <article class="product-line-card featured">
-              <div class="product-line-title"><span>💉</span><strong>Seringa</strong></div>
-              <div class="product-line-fields">
-                <label>Quantidade<input id="edit_e_quantidade_seringa" type="number" min="0" step="1" /></label>
-                <label>Valor unitário<input id="edit_e_valor_unitario_seringa" type="number" min="0" step="0.01" /></label>
-              </div>
-            </article>
-          </div>
-        </div>
-
-        <div class="field field-full">
-          <label for="edit_e_o_que_pediu">Outro item ou detalhe do pedido (opcional)</label>
-          <input id="edit_e_o_que_pediu" />
-        </div>
-        <div class="field">
-          <label for="edit_e_valor">Valor limpo/base</label>
-          <input id="edit_e_valor" type="number" min="0" step="0.01" required />
-          <small class="field-helper" id="editEncomendaDirtyPreview">No sujo (+30%): R$ 0,00</small>
-        </div>
-        <div class="field">
-          <label for="edit_e_para_quando">Pra quando</label>
-          <input id="edit_e_para_quando" required />
-        </div>
-        <div class="field">
-          <label for="edit_e_confirmar_entrega">Depois de salvar</label>
-          <select id="edit_e_confirmar_entrega">
-            <option value="Não">Manter pendente em Encomendas</option>
-            <option value="Sim">Confirmar entrega e mover para Vendas</option>
-          </select>
-        </div>
-        <div class="field" id="edit_e_tipo_dinheiro_wrap" hidden>
-          <label for="edit_e_tipo_dinheiro">Forma de recebimento</label>
-          <select id="edit_e_tipo_dinheiro">
-            <option value="">Escolha limpo ou sujo</option>
-            <option value="Limpo">Dinheiro limpo — valor normal</option>
-            <option value="Sujo">Dinheiro sujo — acrescentar 30%</option>
-          </select>
-        </div>
-        <div class="field field-full">
-          <label for="edit_e_observacao">Observação</label>
-          <textarea id="edit_e_observacao" placeholder="Informações extras, se necessário"></textarea>
-        </div>
-
-        <div class="edit-delivery-preview field-full" id="editDeliveryPreview" hidden>
-          <span>Total da entrega</span>
-          <strong id="editDeliverySelectedValue">Escolha dinheiro limpo ou sujo</strong>
-        </div>
-
-        <div class="feedback field-full" id="encomendaEditFeedback">Edite os campos e salve.</div>
-        <div class="transaction-modal-actions field-full">
-          <button class="ghost-btn" type="button" data-close-encomenda-edit>Cancelar</button>
-          <button class="primary-btn" type="submit" id="encomendaEditSaveBtn">Salvar alterações</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div class="transaction-modal" id="flyerUploadModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="flyerUploadTitle">
-    <button class="transaction-modal-backdrop" type="button" data-close-flyer-upload aria-label="Fechar envio"></button>
-    <div class="transaction-modal-dialog">
-      <div class="transaction-modal-head">
-        <div>
-          <p class="panel-kicker">Novo material</p>
-          <h3 id="flyerUploadTitle">Enviar flyer</h3>
-        </div>
-        <button class="transaction-modal-close" type="button" data-close-flyer-upload aria-label="Fechar">×</button>
-      </div>
-      <form id="flyerUploadForm" class="transaction-modal-body form-grid" enctype="multipart/form-data">
-        <div class="field field-full">
-          <label for="flyer_upload_organizacao">Organização</label>
-          <select id="flyer_upload_organizacao" required></select>
-        </div>
-        <div class="field field-full">
-          <label for="flyer_upload_titulo">Título do flyer</label>
-          <input id="flyer_upload_titulo" maxlength="100" placeholder="Ex.: Tabela de preços atualizada" required />
-        </div>
-        <div class="field field-full">
-          <label for="flyer_upload_arquivo">Imagem</label>
-          <input id="flyer_upload_arquivo" type="file" accept="image/png,image/jpeg,image/webp" required />
-          <small class="field-helper">PNG, JPG/JPEG ou WEBP, até 8 MB. Uploads de usuários comuns aguardam aprovação da Kokusai.</small>
-        </div>
-        <div class="feedback field-full" id="flyerUploadFeedback">Selecione a organização e a imagem.</div>
-        <div class="transaction-modal-actions field-full">
-          <button class="ghost-btn" type="button" data-close-flyer-upload>Cancelar</button>
-          <button class="primary-btn" type="submit" id="flyerUploadSaveBtn">Enviar flyer</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  {% if is_admin %}
-  <div class="transaction-modal" id="organizationPriceModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="organizationPriceTitle">
-    <button class="transaction-modal-backdrop" type="button" data-close-organization-prices aria-label="Fechar preços"></button>
-    <div class="transaction-modal-dialog wide">
-      <div class="transaction-modal-head">
-        <div>
-          <p class="panel-kicker">Condição comercial</p>
-          <h3 id="organizationPriceTitle">Editar descrições de preço</h3>
-        </div>
-        <button class="transaction-modal-close" type="button" data-close-organization-prices aria-label="Fechar">×</button>
-      </div>
-      <form id="organizationPriceForm" class="transaction-modal-body form-grid">
-        <div class="field field-full">
-          <label for="organization_price_sale">Preço da Kokusai para a organização</label>
-          <textarea id="organization_price_sale" maxlength="1200" placeholder="Ex.: L85 por R$ ... para parceiros; seringa por R$ ..."></textarea>
-          <small class="field-helper">Descreva quanto a organização paga ao comprar da Kokusai.</small>
-        </div>
-        <div class="field field-full">
-          <label for="organization_price_purchase">Preço da organização para a Kokusai</label>
-          <textarea id="organization_price_purchase" maxlength="1200" placeholder="Ex.: A organização vende materiais para a Kokusai por ..."></textarea>
-          <small class="field-helper">Descreva quanto a Kokusai paga ao comprar deles.</small>
-        </div>
-        <div class="feedback field-full" id="organizationPriceFeedback">Preencha uma ou as duas descrições.</div>
-        <div class="transaction-modal-actions field-full">
-          <button class="ghost-btn" type="button" data-close-organization-prices>Cancelar</button>
-          <button class="primary-btn" type="submit" id="organizationPriceSaveBtn">Salvar descrições</button>
-        </div>
-      </form>
-    </div>
-  </div>
-  {% endif %}
-
-  <div class="flyer-modal" id="flyerModal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="flyerModalTitle">
-    <button class="flyer-modal-backdrop" type="button" data-close-flyer aria-label="Fechar visualização"></button>
-    <div class="flyer-modal-dialog">
-      <div class="flyer-modal-head">
-        <div>
-          <p class="panel-kicker" id="flyerModalOrganization">Organização</p>
-          <h3 id="flyerModalTitle">Flyer</h3>
-        </div>
-        <button class="flyer-modal-close" type="button" data-close-flyer aria-label="Fechar">×</button>
-      </div>
-      <div class="flyer-modal-stage">
-        <button class="flyer-modal-nav previous" type="button" id="flyerModalPrevious" aria-label="Flyer anterior">‹</button>
-        <img id="flyerModalImage" src="" alt="" />
-        <button class="flyer-modal-nav next" type="button" id="flyerModalNext" aria-label="Próximo flyer">›</button>
-      </div>
-      <div class="flyer-modal-footer">
-        <span id="flyerModalCounter">1 de 1</span>
-        <button class="ghost-btn" type="button" id="flyerModalMeetings">Ver reuniões desta organização</button>
-      </div>
-    </div>
-  </div>
-
+  <datalist id="familiasDatalist"></datalist>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

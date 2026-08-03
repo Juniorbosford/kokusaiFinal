@@ -8,15 +8,14 @@ import re
 import time
 import threading
 import secrets
-import unicodedata
-from pathlib import Path
 from copy import deepcopy
 from datetime import datetime, timedelta, date, timezone
 from functools import wraps
-from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_from_directory
+import unicodedata
+from urllib.parse import urlparse
+from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g
 import gspread
 from google.oauth2.service_account import Credentials
-from werkzeug.utils import secure_filename
 
 try:
     from zoneinfo import ZoneInfo
@@ -38,7 +37,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.getenv(
     "SESSION_COOKIE_SECURE",
     "true" if IS_RAILWAY else "false",
 ).lower() == "true"
-app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(10 * 1024 * 1024)))
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(64 * 1024)))
 
 
 SHEET_NAME = os.getenv("SHEET_NAME", "KokusaiDB")
@@ -49,6 +48,8 @@ ENCOMENDAS_WORKSHEET_NAME = os.getenv("ENCOMENDAS_WORKSHEET_NAME", "Encomendas")
 METAS_WORKSHEET_NAME = os.getenv("METAS_WORKSHEET_NAME", "Pagamento de Metas")
 HISTORICO_METAS_WORKSHEET_NAME = os.getenv("HISTORICO_METAS_WORKSHEET_NAME", "Historico Metas")
 REUNIOES_WORKSHEET_NAME = os.getenv("REUNIOES_WORKSHEET_NAME", "Reunioes")
+FAMILIAS_WORKSHEET_NAME = os.getenv("FAMILIAS_WORKSHEET_NAME", "Familias")
+LEGACY_FLYERS_WORKSHEET_NAME = os.getenv("FLYERS_WORKSHEET_NAME", "Flyers")
 META_RESET_WEEKDAY = int(os.getenv("META_RESET_WEEKDAY", "2"))  # 0=segunda, 2=quarta
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 APP_UTC_OFFSET_HOURS = int(os.getenv("APP_UTC_OFFSET_HOURS", "-3"))
@@ -64,6 +65,7 @@ _spreadsheet_cache = {"spreadsheet": None}
 _worksheet_cache = {}
 _values_cache = {}
 _meta_maintenance_cache = {"checked_at": 0}
+_familias_maintenance_cache = {"checked_at": 0}
 
 # Proteções simples contra abuso. Como o app roda em poucos usuários,
 # limites curtos já reduzem bastante risco de força bruta e payload gigante.
@@ -74,16 +76,7 @@ MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
 MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
 MAX_QUANTITY = int(os.getenv("MAX_QUANTITY", "1000000"))
 MAX_MONEY_VALUE = float(os.getenv("MAX_MONEY_VALUE", "1000000000"))
-MAX_FLYER_UPLOAD_BYTES = int(os.getenv("MAX_FLYER_UPLOAD_BYTES", str(8 * 1024 * 1024)))
-MAX_PRICE_DESCRIPTION_LENGTH = int(os.getenv("MAX_PRICE_DESCRIPTION_LENGTH", "1200"))
 SHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
-
-# Arquivos enviados pelo painel. No Railway, aponte KOKUSAI_DATA_DIR para um Volume
-# (ex.: /data/kokusai) para que uploads e descrições sobrevivam a novos deploys.
-KOKUSAI_DATA_DIR = Path(os.getenv("KOKUSAI_DATA_DIR", str(Path(app.root_path) / "data"))).resolve()
-FLYER_UPLOAD_DIR = KOKUSAI_DATA_DIR / "flyers"
-FLYER_METADATA_PATH = KOKUSAI_DATA_DIR / "flyers_metadata.json"
-_flyer_lock = threading.RLock()
 
 
 # Usuários do sistema. As senhas não ficam salvas em texto puro: são hashes PBKDF2-SHA256.
@@ -142,11 +135,7 @@ DEFAULT_META_NAMES = [
 ]
 
 COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
-VENDAS_HEADERS = [
-    "id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade",
-    "valor_total", "observacao", "tipo_dinheiro", "valor_base",
-    "quantidade_l85", "valor_unitario_l85", "quantidade_seringa", "valor_unitario_seringa",
-]
+VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao"]
 ENCOMENDAS_HEADERS = [
     "id",
     "data",
@@ -158,239 +147,44 @@ ENCOMENDAS_HEADERS = [
     "entregue",
     "observacao",
     "entregue_em",
-    "quantidade_l85",
-    "valor_unitario_l85",
-    "quantidade_seringa",
-    "valor_unitario_seringa",
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
-REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em", "organizacao_id"]
-
-# Cadastro central das organizações e dos flyers originais do projeto. Novos flyers
-# também podem ser enviados pelo painel e ficam salvos no diretório KOKUSAI_DATA_DIR.
-ORGANIZACOES = [
-    {
-        "id": "ballas", "nome": "Ballas", "icone": "🟣",
-        "aliases": ["Ballas"],
-        "flyers": [{"id": "ballas-acessorios", "titulo": "Tabela de acessórios", "arquivo": "images/flyers/ballas.webp"}],
-    },
-    {
-        "id": "los-bandoleros", "nome": "Los Bandoleros", "icone": "🟡",
-        "aliases": ["Los Bandoleros", "Bandoleros", "Cartel"],
-        "flyers": [{"id": "bandoleros-valores", "titulo": "Tabela de valores", "arquivo": "images/flyers/los-bandoleros.webp"}],
-    },
-    {
-        "id": "distrito", "nome": "Distrito", "icone": "⚪",
-        "aliases": ["Distrito"],
-        "flyers": [{"id": "distrito-parceiros", "titulo": "Valores para parceiros", "arquivo": "images/flyers/distrito.webp"}],
-    },
-    {
-        "id": "families", "nome": "Families", "icone": "💚",
-        "aliases": ["Families", "FMLS"],
-        "flyers": [{"id": "families-valores", "titulo": "Tabela de valores", "arquivo": "images/flyers/families.webp"}],
-    },
-    {
-        "id": "hells", "nome": "Hells", "icone": "💗",
-        "aliases": ["Hells", "Sinfuriosa", "Sin Furiosa"],
-        "flyers": [{"id": "hells-produtos", "titulo": "Produtos e valores", "arquivo": "images/flyers/hells.webp"}],
-    },
-    {
-        "id": "hydra", "nome": "Hydra", "icone": "🐉",
-        "aliases": ["Hydra"],
-        "flyers": [
-            {"id": "hydra-colete", "titulo": "Colete e C4", "arquivo": "images/flyers/hydra-colete.webp"},
-            {"id": "hydra-attach", "titulo": "Acessórios", "arquivo": "images/flyers/hydra-attach.webp"},
-        ],
-    },
-    {
-        "id": "leviata", "nome": "Leviatã", "icone": "🐲",
-        "aliases": ["Leviatã", "Leviata", "Leviathan"],
-        "flyers": [{"id": "leviata-cnpj", "titulo": "Tabela CNPJ", "arquivo": "images/flyers/leviata.webp"}],
-    },
-    {
-        "id": "legacy", "nome": "Legacy", "icone": "👑",
-        "aliases": ["Legacy"],
-        "flyers": [{"id": "legacy-tec9", "titulo": "Tabela TEC-9", "arquivo": "images/flyers/legacy.webp"}],
-    },
-    {
-        "id": "la-guardia", "nome": "La Guardia", "icone": "🟪",
-        "aliases": ["La Guardia", "Laguardia", "LaGuardia"],
-        "flyers": [{"id": "la-guardia-acessorios", "titulo": "Acessórios", "arquivo": "images/flyers/la-guardia.webp"}],
-    },
-    {
-        "id": "vagos", "nome": "Vagos", "icone": "💛",
-        "aliases": ["Vagos", "Los Vagos"],
-        "flyers": [{"id": "vagos-armas", "titulo": "Tabela de armas", "arquivo": "images/flyers/vagos.webp"}],
-    },
-    {
-        "id": "vendetta", "nome": "Vendetta", "icone": "🟠",
-        "aliases": ["Vendetta"],
-        "flyers": [{"id": "vendetta-produtos", "titulo": "Tabela de produtos", "arquivo": "images/flyers/vendetta.webp"}],
-    },
-    # Organizações já presentes na agenda, mas ainda sem uma imagem enviada.
-    {"id": "blackherts", "nome": "Blackherts", "icone": "🖤", "aliases": ["Blackherts", "Blackhearts"], "flyers": []},
-    {"id": "the-lost", "nome": "The Lost", "icone": "🏍️", "aliases": ["The Lost", "Lost"], "flyers": []},
+REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em"]
+FAMILIAS_HEADERS = [
+    "id",
+    "criado_em",
+    "nome",
+    "icone",
+    "mercado",
+    "preco_venda_para_familia",
+    "preco_compra_da_familia",
+    "flyer_url",
+    "observacao",
+    "atualizado_em",
 ]
-ORGANIZACOES_POR_ID = {item["id"]: item for item in ORGANIZACOES}
+DEFAULT_FAMILIAS = [
+    {
+        "nome": "Aura",
+        "icone": "✨",
+        "mercado": "Aberto",
+        "preco_venda_para_familia": "",
+        "preco_compra_da_familia": "",
+        "flyer_url": "",
+        "observacao": "Cadastro padrão para garantir que a Aura apareça nas opções de facções.",
+    },
+    {
+        "nome": "Cartel",
+        "icone": "🦂",
+        "mercado": "Aberto",
+        "preco_venda_para_familia": "",
+        "preco_compra_da_familia": "",
+        "flyer_url": "",
+        "observacao": "Nome corrigido de Bandoleros para Cartel.",
+    },
+]
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
-
-def default_flyer_metadata():
-    return {"organizations": {}, "uploaded_flyers": [], "flyer_states": {}}
-
-
-def ensure_flyer_storage():
-    KOKUSAI_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    FLYER_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def load_flyer_metadata():
-    ensure_flyer_storage()
-    with _flyer_lock:
-        if not FLYER_METADATA_PATH.exists():
-            return default_flyer_metadata()
-        try:
-            payload = json.loads(FLYER_METADATA_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            log_error("Falha ao ler metadados dos flyers", exc)
-            return default_flyer_metadata()
-
-        if not isinstance(payload, dict):
-            return default_flyer_metadata()
-        payload.setdefault("organizations", {})
-        payload.setdefault("uploaded_flyers", [])
-        payload.setdefault("flyer_states", {})
-        if not isinstance(payload["organizations"], dict):
-            payload["organizations"] = {}
-        if not isinstance(payload["uploaded_flyers"], list):
-            payload["uploaded_flyers"] = []
-        if not isinstance(payload["flyer_states"], dict):
-            payload["flyer_states"] = {}
-        return payload
-
-
-def save_flyer_metadata(payload):
-    ensure_flyer_storage()
-    with _flyer_lock:
-        temp_path = FLYER_METADATA_PATH.with_suffix(".tmp")
-        temp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        os.replace(temp_path, FLYER_METADATA_PATH)
-
-
-def detect_uploaded_image_extension(content):
-    if content.startswith(b"\x89PNG\r\n\x1a\n"):
-        return ".png"
-    if content.startswith(b"\xff\xd8\xff"):
-        return ".jpg"
-    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
-        return ".webp"
-    return ""
-
-
-def builtin_flyer_by_id(organization, flyer_id):
-    for flyer in organization.get("flyers", []):
-        if str(flyer.get("id")) == str(flyer_id):
-            return flyer
-    return None
-
-
-def uploaded_flyer_by_id(metadata, organization_id, flyer_id):
-    for flyer in metadata.get("uploaded_flyers", []):
-        if flyer.get("organization_id") == organization_id and str(flyer.get("id")) == str(flyer_id):
-            return flyer
-    return None
-
-
-def serialize_flyer(organization, flyer, metadata, is_builtin=False):
-    flyer_id = str(flyer.get("id") or "")
-    if is_builtin:
-        state = metadata.get("flyer_states", {}).get(flyer_id, {})
-        visible = bool(state.get("visible", True))
-        removed = bool(state.get("removed", False))
-        return {
-            "id": flyer_id,
-            "titulo": flyer.get("titulo") or "Flyer",
-            "url": url_for("static", filename=flyer.get("arquivo")),
-            "visible": visible and not removed,
-            "removed": removed,
-            "builtin": True,
-            "uploaded_by": "Projeto",
-            "created_at": "",
-        }
-
-    filename = secure_filename(str(flyer.get("filename") or ""))
-    return {
-        "id": flyer_id,
-        "titulo": flyer.get("titulo") or "Flyer",
-        "url": url_for("uploaded_flyer_file", filename=filename),
-        "visible": bool(flyer.get("visible", False)),
-        "removed": False,
-        "builtin": False,
-        "uploaded_by": flyer.get("uploaded_by") or "Usuário",
-        "created_at": flyer.get("created_at") or "",
-    }
-
-
-def normalize_organization_key(value):
-    text = unicodedata.normalize("NFKD", str(value or "").strip().lower())
-    text = "".join(char for char in text if not unicodedata.combining(char))
-    return re.sub(r"[^a-z0-9]+", "", text)
-
-
-def find_organization(organizacao_id=None, nome=None):
-    org_id = str(organizacao_id or "").strip().lower()
-    if org_id and org_id in ORGANIZACOES_POR_ID:
-        return ORGANIZACOES_POR_ID[org_id]
-
-    key = normalize_organization_key(nome)
-    if not key:
-        return None
-
-    for organization in ORGANIZACOES:
-        candidates = [organization.get("nome", ""), *organization.get("aliases", [])]
-        if any(normalize_organization_key(candidate) == key for candidate in candidates):
-            return organization
-    return None
-
-
-def serialize_organization(organization, metadata=None, include_hidden=None):
-    metadata = metadata or load_flyer_metadata()
-    user = get_current_user()
-    is_admin = bool(user and user.get("role") == "admin")
-    if include_hidden is None:
-        include_hidden = is_admin
-
-    all_flyers = [
-        serialize_flyer(organization, flyer, metadata, is_builtin=True)
-        for flyer in organization.get("flyers", [])
-    ]
-    all_flyers.extend(
-        serialize_flyer(organization, flyer, metadata, is_builtin=False)
-        for flyer in metadata.get("uploaded_flyers", [])
-        if flyer.get("organization_id") == organization.get("id")
-    )
-
-    visible_flyers = [flyer for flyer in all_flyers if flyer.get("visible")]
-    hidden_flyers = [flyer for flyer in all_flyers if not flyer.get("visible")]
-    commercial = metadata.get("organizations", {}).get(organization["id"], {})
-
-    return {
-        "id": organization["id"],
-        "nome": organization["nome"],
-        "icone": organization.get("icone", "🤝"),
-        "tem_flyer": bool(visible_flyers),
-        "flyers": visible_flyers,
-        "pending_flyers": hidden_flyers if include_hidden else [],
-        "total_flyers": len(all_flyers),
-        "preco_venda_para_organizacao": commercial.get("preco_venda_para_organizacao", ""),
-        "preco_compra_da_organizacao": commercial.get("preco_compra_da_organizacao", ""),
-        "can_upload": bool(user),
-        "can_manage": is_admin,
-    }
 
 def now_local():
     """Retorna o horário local usado nas metas semanais.
@@ -588,21 +382,6 @@ def require_admin(view):
     return wrapped
 
 
-def require_authenticated_write(view):
-    """Permite escrita a qualquer usuário autenticado, mantendo proteção CSRF."""
-    @wraps(view)
-    def wrapped(*args, **kwargs):
-        user = get_current_user()
-        if not user:
-            return error_response("Login necessário para acessar o sistema.", 401)
-        csrf_error = csrf_error_if_invalid()
-        if csrf_error:
-            return csrf_error
-        return view(*args, **kwargs)
-
-    return wrapped
-
-
 @app.before_request
 def load_logged_user():
     g.current_user = get_current_user()
@@ -633,7 +412,7 @@ def add_security_headers(response):
         "script-src 'self'; "
         "style-src 'self' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: https: http:; "
         "connect-src 'self'; "
         "base-uri 'self'; "
         "frame-ancestors 'none'; "
@@ -822,6 +601,48 @@ def get_encomendas_worksheet():
     return get_or_create_worksheet(ENCOMENDAS_WORKSHEET_NAME, ENCOMENDAS_HEADERS)
 
 
+def normalized_lookup_key(value):
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(character for character in text if not unicodedata.combining(character))
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def canonical_family_name(value):
+    name = str(value or "").strip()
+    if normalized_lookup_key(name) in {"bandoleros", "bandolero"}:
+        return "Cartel"
+    return name
+
+
+def normalize_market_status(value):
+    normalized = normalized_lookup_key(value)
+    if normalized in {"fechado", "fechada", "mercado fechado", "nao", "n"}:
+        return "Fechado"
+    return "Aberto"
+
+
+def family_id_from_name(name):
+    digest = hashlib.sha1(normalized_lookup_key(name).encode("utf-8")).hexdigest()[:12].upper()
+    return f"KKSF-{digest}"
+
+
+def clean_optional_http_url(value, field_name="Link do flyer"):
+    url = clean_text(value, field_name, max_length=1000, required=False)
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{field_name} deve ser um link http ou https válido.")
+    return url
+
+
+def get_familias_worksheet(ensure_ready=True):
+    worksheet = get_or_create_worksheet(FAMILIAS_WORKSHEET_NAME, FAMILIAS_HEADERS)
+    if ensure_ready:
+        ensure_familias_ready(worksheet)
+    return worksheet
+
+
 DEFAULT_REUNIOES = [
     ["KKSR-REUNIAO-BALLAS-20260714", "13/07/2026 20:00:00", "Apresentar produtos", "Ballas", "🟣", "2026-07-14", "21:00", "", "Trocou 01", "Agendada", ""],
     ["KKSR-REUNIAO-LEGACY-20260713", "13/07/2026 19:00:00", "Apresentar produtos", "Legacy", "👑", "2026-07-13", "20:30", "", "Família Nova", "Finalizada", "13/07/2026 20:30:00"],
@@ -848,6 +669,195 @@ def get_reunioes_worksheet():
     worksheet = get_or_create_worksheet(REUNIOES_WORKSHEET_NAME, REUNIOES_HEADERS)
     seed_default_reunioes(worksheet)
     return worksheet
+
+
+def legacy_flyers_payloads():
+    """Lê uma aba antiga chamada Flyers, quando existir, sem exigir um esquema rígido."""
+    if normalized_lookup_key(FAMILIAS_WORKSHEET_NAME) == normalized_lookup_key(LEGACY_FLYERS_WORKSHEET_NAME):
+        return []
+
+    try:
+        spreadsheet = get_or_create_spreadsheet()
+        worksheet = spreadsheet.worksheet(LEGACY_FLYERS_WORKSHEET_NAME)
+    except gspread.WorksheetNotFound:
+        return []
+    except Exception as error:
+        log_info(f"Não foi possível verificar a aba antiga de Flyers: {error}")
+        return []
+
+    rows = cached_get_all_values(LEGACY_FLYERS_WORKSHEET_NAME, worksheet)
+    if len(rows) <= 1:
+        return []
+
+    normalized_headers = [normalized_lookup_key(header) for header in rows[0]]
+
+    def find_column(*aliases):
+        alias_keys = {normalized_lookup_key(alias) for alias in aliases}
+        for index, header in enumerate(normalized_headers):
+            if header in alias_keys:
+                return index
+        return None
+
+    name_index = find_column("nome", "organização", "organizacao", "facção", "faccao", "família", "familia", "gangue", "fac")
+    if name_index is None:
+        return []
+
+    icon_index = find_column("icone", "ícone", "emoji")
+    market_index = find_column("mercado", "status", "situação", "situacao")
+    sale_index = find_column("preco_venda_para_familia", "preço de venda", "preco de venda", "valor venda", "venda para eles")
+    purchase_index = find_column("preco_compra_da_familia", "preço de compra", "preco de compra", "valor compra", "compra deles")
+    flyer_index = find_column("flyer_url", "flyer", "imagem", "imagem_url", "url")
+    observation_index = find_column("observacao", "observação", "descricao", "descrição")
+
+    payloads = []
+    for row in rows[1:]:
+        name = canonical_family_name(sheet_cell(row, name_index))
+        if not normalized_lookup_key(name):
+            continue
+        payloads.append({
+            "nome": name,
+            "icone": sheet_cell(row, icon_index) if icon_index is not None else "",
+            "mercado": sheet_cell(row, market_index) if market_index is not None else "Aberto",
+            "preco_venda_para_familia": sheet_cell(row, sale_index) if sale_index is not None else "",
+            "preco_compra_da_familia": sheet_cell(row, purchase_index) if purchase_index is not None else "",
+            "flyer_url": sheet_cell(row, flyer_index) if flyer_index is not None else "",
+            "observacao": sheet_cell(row, observation_index) if observation_index is not None else "Importada da antiga aba Flyers.",
+        })
+    return payloads
+
+
+def build_family_row(data, registro_id=None, criado_em=None):
+    now = format_timestamp()
+    name = canonical_family_name(data.get("nome"))
+    return [
+        registro_id or family_id_from_name(name),
+        criado_em or now,
+        name,
+        str(data.get("icone") or "").strip(),
+        normalize_market_status(data.get("mercado")),
+        str(data.get("preco_venda_para_familia") or "").strip(),
+        str(data.get("preco_compra_da_familia") or "").strip(),
+        str(data.get("flyer_url") or "").strip(),
+        str(data.get("observacao") or "").strip(),
+        now,
+    ]
+
+
+def ensure_familias_ready(worksheet, force=False):
+    # Serializa a manutenção para impedir cadastros duplicados em acessos simultâneos.
+    with _sheets_lock:
+        return _ensure_familias_ready_locked(worksheet, force=force)
+
+
+def _ensure_familias_ready_locked(worksheet, force=False):
+    now = time.time()
+    with _sheets_lock:
+        if not force and now - _familias_maintenance_cache.get("checked_at", 0) < SHEETS_META_MAINTENANCE_SECONDS:
+            return
+
+    rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
+    existing = {}
+    duplicate_indexes = []
+    changed = False
+
+    for row_index, row in enumerate(rows[1:], start=2):
+        name = canonical_family_name(sheet_cell(row, 2))
+        key = normalized_lookup_key(name)
+        if not key:
+            continue
+        if key in existing:
+            duplicate_indexes.append(row_index)
+            continue
+        existing[key] = (row_index, row)
+        if name != sheet_cell(row, 2):
+            worksheet.update_cell(row_index, 3, name)
+            changed = True
+
+    # Remove duplicatas antigas, como Bandoleros + Cartel, preservando o primeiro cadastro.
+    for row_index in reversed(duplicate_indexes):
+        worksheet.delete_rows(row_index)
+        changed = True
+
+    additions = []
+
+    # Importa cadastros da antiga aba Flyers quando ela existir.
+    for legacy in legacy_flyers_payloads():
+        key = normalized_lookup_key(legacy.get("nome"))
+        if not key or key in existing:
+            continue
+        additions.append(build_family_row(legacy))
+        existing[key] = (None, additions[-1])
+
+    for default in DEFAULT_FAMILIAS:
+        key = normalized_lookup_key(default["nome"])
+        if key not in existing:
+            additions.append(build_family_row(default))
+            existing[key] = (None, additions[-1])
+
+    # Toda reunião já finalizada também deve aparecer em Famílias.
+    reunioes_worksheet = get_reunioes_worksheet()
+    reunioes_rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, reunioes_worksheet)
+    for reuniao_row in reunioes_rows[1:]:
+        if str(sheet_cell(reuniao_row, 9)).strip().lower() != "finalizada":
+            continue
+        name = canonical_family_name(sheet_cell(reuniao_row, 3))
+        key = normalized_lookup_key(name)
+        if not key or key in existing:
+            continue
+        additions.append(build_family_row({
+            "nome": name,
+            "icone": sheet_cell(reuniao_row, 4),
+            "mercado": "Aberto",
+            "observacao": "Incluída automaticamente após a finalização de uma reunião.",
+        }))
+        existing[key] = (None, additions[-1])
+
+    if additions:
+        worksheet.append_rows(additions, value_input_option="RAW")
+        changed = True
+
+    if changed:
+        invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+
+    with _sheets_lock:
+        _familias_maintenance_cache["checked_at"] = time.time()
+
+
+def upsert_family_from_meeting(name, icon=""):
+    canonical_name = canonical_family_name(name)
+    key = normalized_lookup_key(canonical_name)
+    if not key:
+        return None, False
+
+    with _sheets_lock:
+        worksheet = get_familias_worksheet(ensure_ready=False)
+        rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
+        for row_index, row in enumerate(rows[1:], start=2):
+            if normalized_lookup_key(canonical_family_name(sheet_cell(row, 2))) != key:
+                continue
+            padded = list(row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(row))
+            changed = False
+            if padded[2] != canonical_name:
+                padded[2] = canonical_name
+                changed = True
+            if icon and not str(padded[3]).strip():
+                padded[3] = str(icon).strip()
+                changed = True
+            if changed:
+                padded[9] = format_timestamp()
+                worksheet.update(f"A{row_index}:J{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
+                invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+            return padded[0] or family_id_from_name(canonical_name), False
+
+        row = build_family_row({
+            "nome": canonical_name,
+            "icone": icon,
+            "mercado": "Aberto",
+            "observacao": "Incluída automaticamente após a finalização de uma reunião.",
+        })
+        worksheet.append_row(row, value_input_option="RAW")
+        invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+        return row[0], True
 
 
 def get_metas_worksheet():
@@ -1119,219 +1129,13 @@ def normalize_compra(row):
     return row_to_dict(row, COMPRAS_HEADERS)
 
 
-def numeric_value(value, default=0.0):
-    try:
-        if str(value or "").strip() == "":
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def integer_value(value, default=0):
-    try:
-        if str(value or "").strip() == "":
-            return default
-        number = float(value)
-        if not number.is_integer():
-            return default
-        return int(number)
-    except (TypeError, ValueError):
-        return default
-
-
-def parse_item_quantity(data, key, label):
-    raw = data.get(key, "")
-    if str(raw or "").strip() == "":
-        return 0
-    try:
-        quantity = int(raw)
-    except (TypeError, ValueError):
-        raise ValueError(f"{label} deve ser uma quantidade inteira.")
-    if quantity < 0:
-        raise ValueError(f"{label} não pode ser negativa.")
-    if quantity > MAX_QUANTITY:
-        raise ValueError(f"{label} deve ser no máximo {MAX_QUANTITY}.")
-    return quantity
-
-
-def parse_item_price(data, key, label, required=False):
-    raw = data.get(key, "")
-    if str(raw or "").strip() == "":
-        if required:
-            raise ValueError(f"{label} é obrigatório quando a quantidade é maior que zero.")
-        return 0.0
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        raise ValueError(f"{label} deve ser numérico.")
-    if value < 0:
-        raise ValueError(f"{label} não pode ser negativo.")
-    if value > MAX_MONEY_VALUE:
-        raise ValueError(f"{label} está muito alto.")
-    return round(value, 2)
-
-
-def parse_special_product_lines(data):
-    quantity_l85 = parse_item_quantity(data, "quantidade_l85", "Quantidade de L85")
-    quantity_syringe = parse_item_quantity(data, "quantidade_seringa", "Quantidade de seringas")
-    price_l85 = parse_item_price(
-        data,
-        "valor_unitario_l85",
-        "Valor unitário da L85",
-        required=quantity_l85 > 0,
-    )
-    price_syringe = parse_item_price(
-        data,
-        "valor_unitario_seringa",
-        "Valor unitário da seringa",
-        required=quantity_syringe > 0,
-    )
-
-    if quantity_l85 == 0 and price_l85:
-        raise ValueError("Informe a quantidade de L85 para usar o valor unitário da L85.")
-    if quantity_syringe == 0 and price_syringe:
-        raise ValueError("Informe a quantidade de seringas para usar o valor unitário da seringa.")
-
-    return {
-        "quantidade_l85": quantity_l85,
-        "valor_unitario_l85": price_l85,
-        "quantidade_seringa": quantity_syringe,
-        "valor_unitario_seringa": price_syringe,
-        "valor_calculado": round(quantity_l85 * price_l85 + quantity_syringe * price_syringe, 2),
-    }
-
-
-def product_description(quantity_l85=0, quantity_syringe=0, extra="", extra_quantity=0):
-    parts = []
-    if quantity_l85:
-        parts.append(f"{quantity_l85}x L85")
-    if quantity_syringe:
-        label = "Seringa" if quantity_syringe == 1 else "Seringas"
-        parts.append(f"{quantity_syringe}x {label}")
-    extra = str(extra or "").strip()
-    if extra:
-        parts.append(f"{extra_quantity}x {extra}" if extra_quantity else extra)
-    return " + ".join(parts)
-
-
-def parse_venda_items(data):
-    special = parse_special_product_lines(data)
-    product = clean_text_field(data, "produto", "Outro produto", required=False)
-    generic_quantity_raw = data.get("quantidade", "")
-    generic_price_raw = data.get("valor_unitario", "")
-    has_generic_numbers = numeric_value(generic_quantity_raw, 0) > 0 or numeric_value(generic_price_raw, 0) > 0
-
-    generic_quantity = 0
-    generic_price = 0.0
-    if product or has_generic_numbers:
-        if not product:
-            raise ValueError("Informe o nome do outro produto.")
-        generic_quantity = parse_item_quantity(data, "quantidade", "Quantidade do outro produto")
-        if generic_quantity <= 0:
-            raise ValueError("A quantidade do outro produto deve ser maior que zero.")
-        generic_price = parse_item_price(data, "valor_unitario", "Valor unitário do outro produto", required=True)
-
-    total_quantity = special["quantidade_l85"] + special["quantidade_seringa"] + generic_quantity
-    if total_quantity <= 0:
-        raise ValueError("Informe ao menos uma quantidade de L85, seringa ou outro produto.")
-
-    total_value = round(
-        special["valor_calculado"] + generic_quantity * generic_price,
-        2,
-    )
-    if total_value > MAX_MONEY_VALUE:
-        raise ValueError("Valor total muito alto.")
-
-    description = product_description(
-        special["quantidade_l85"],
-        special["quantidade_seringa"],
-        product,
-        generic_quantity,
-    )
-    average_unit = round(total_value / total_quantity, 2) if total_quantity else 0
-    return {
-        **special,
-        "produto": description,
-        "quantidade": total_quantity,
-        "valor_unitario": average_unit,
-        "valor_total": total_value,
-    }
-
-
-def parse_encomenda_items(data):
-    special = parse_special_product_lines(data)
-    extra = clean_text_field(data, "o_que_pediu", "Outro item / descrição", required=False)
-    description = product_description(
-        special["quantidade_l85"],
-        special["quantidade_seringa"],
-        extra,
-    )
-    if not description:
-        raise ValueError("Informe ao menos L85, seringa ou uma descrição do pedido.")
-
-    raw_value = data.get("valor", "")
-    if str(raw_value or "").strip() == "":
-        if special["valor_calculado"] <= 0:
-            raise ValueError("Informe o valor total da encomenda.")
-        total_value = special["valor_calculado"]
-    else:
-        try:
-            total_value = round(float(raw_value), 2)
-        except (TypeError, ValueError):
-            raise ValueError("O valor da encomenda deve ser numérico.")
-    if total_value < 0:
-        raise ValueError("O valor da encomenda não pode ser negativo.")
-    if total_value > MAX_MONEY_VALUE:
-        raise ValueError("Valor da encomenda muito alto.")
-
-    return {
-        **special,
-        "o_que_pediu": description,
-        "valor": total_value,
-    }
-
-
-def normalize_money_type(value):
-    normalized = str(value or "").strip().lower()
-    if normalized == "limpo":
-        return "Limpo"
-    if normalized == "sujo":
-        return "Sujo"
-    return ""
-
-
-def calculate_payment_value(base_value, money_type):
-    base = round(float(base_value or 0), 2)
-    normalized_type = normalize_money_type(money_type)
-    final_value = round(base * 1.30, 2) if normalized_type == "Sujo" else base
-    return base, final_value, normalized_type
-
-
-def format_brl_value(value):
-    formatted = f"{float(value or 0):,.2f}"
-    return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
-
-
 def normalize_venda(row):
-    item = row_to_dict(row, VENDAS_HEADERS)
-    item["tipo_dinheiro"] = normalize_money_type(item.get("tipo_dinheiro"))
-    item["valor_base"] = round(numeric_value(item.get("valor_base") or item.get("valor_total"), 0), 2)
-    item["quantidade_l85"] = integer_value(item.get("quantidade_l85"), 0)
-    item["quantidade_seringa"] = integer_value(item.get("quantidade_seringa"), 0)
-    item["valor_unitario_l85"] = round(numeric_value(item.get("valor_unitario_l85"), 0), 2)
-    item["valor_unitario_seringa"] = round(numeric_value(item.get("valor_unitario_seringa"), 0), 2)
-    return item
+    return row_to_dict(row, VENDAS_HEADERS)
 
 
 def normalize_encomenda(row):
     item = row_to_dict(row, ENCOMENDAS_HEADERS)
     item["entregue"] = validate_yes_no(item.get("entregue")) or "Não"
-    item["valor"] = round(numeric_value(item.get("valor"), 0), 2)
-    item["quantidade_l85"] = integer_value(item.get("quantidade_l85"), 0)
-    item["quantidade_seringa"] = integer_value(item.get("quantidade_seringa"), 0)
-    item["valor_unitario_l85"] = round(numeric_value(item.get("valor_unitario_l85"), 0), 2)
-    item["valor_unitario_seringa"] = round(numeric_value(item.get("valor_unitario_seringa"), 0), 2)
     return item
 
 
@@ -1365,56 +1169,30 @@ def venda_id_from_encomenda(encomenda_id):
     return f"KKSV-ENC-{str(encomenda_id or '').strip()}"
 
 
-def build_venda_row_from_encomenda(item, entregue_em=None, tipo_dinheiro="Limpo"):
-    quantity_l85 = integer_value(item.get("quantidade_l85"), 0)
-    quantity_syringe = integer_value(item.get("quantidade_seringa"), 0)
-    specialized_quantity = quantity_l85 + quantity_syringe
-
-    if specialized_quantity > 0:
-        quantity = specialized_quantity
-        product = str(item.get("o_que_pediu") or "").strip() or product_description(quantity_l85, quantity_syringe)
-    else:
-        quantity, product = parse_encomenda_item(item.get("o_que_pediu"))
-
-    base_value, total_value, normalized_money_type = calculate_payment_value(item.get("valor"), tipo_dinheiro)
-    if not normalized_money_type:
-        raise ValueError("Escolha se a entrega foi paga em dinheiro limpo ou sujo.")
-
-    unit_value = round(total_value / quantity, 2) if quantity else total_value
-    money_factor = 1.30 if normalized_money_type == "Sujo" else 1.0
-    unit_l85 = round(numeric_value(item.get("valor_unitario_l85"), 0) * money_factor, 2)
-    unit_syringe = round(numeric_value(item.get("valor_unitario_seringa"), 0) * money_factor, 2)
+def build_venda_row_from_encomenda(item, entregue_em=None):
+    quantidade, produto = parse_encomenda_item(item.get("o_que_pediu"))
+    valor_total = round(float(item.get("valor") or 0), 2)
+    valor_unitario = round(valor_total / quantidade, 2) if quantidade else valor_total
     encomenda_id = str(item.get("id") or "").strip()
-    deadline = str(item.get("para_quando") or "").strip()
-    original_observation = str(item.get("observacao") or "").strip()
+    prazo = str(item.get("para_quando") or "").strip()
+    observacao_original = str(item.get("observacao") or "").strip()
 
-    details = [f"Convertida da encomenda {encomenda_id}."]
-    if deadline:
-        details.append(f"Prazo combinado: {deadline}.")
-    if normalized_money_type == "Sujo":
-        details.append(f"Pagamento em dinheiro sujo (+30%). Valor base: R$ {format_brl_value(base_value)}.")
-    else:
-        details.append("Pagamento em dinheiro limpo.")
-
-    observation = " ".join(filter(None, [original_observation, *details]))
-    observation = observation[:MAX_OBSERVATION_LENGTH]
+    detalhes = [f"Convertida da encomenda {encomenda_id}."]
+    if prazo:
+        detalhes.append(f"Prazo combinado: {prazo}.")
+    observacao = " ".join(filter(None, [observacao_original, *detalhes]))
+    observacao = observacao[:MAX_OBSERVATION_LENGTH]
 
     return [
         venda_id_from_encomenda(encomenda_id),
         entregue_em or format_timestamp(),
-        product,
+        produto,
         str(item.get("quem_pediu") or "").strip(),
         str(item.get("quem_negociou") or "").strip(),
-        unit_value,
-        quantity,
-        total_value,
-        observation,
-        normalized_money_type,
-        base_value,
-        quantity_l85,
-        unit_l85,
-        quantity_syringe,
-        unit_syringe,
+        valor_unitario,
+        quantidade,
+        valor_total,
+        observacao,
     ]
 
 
@@ -1423,45 +1201,16 @@ def worksheet_has_record_id(worksheet, registro_id):
     return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
 
 
-def move_encomenda_row_to_vendas(encomendas_worksheet, row_index, row, tipo_dinheiro):
-    while len(row) < len(ENCOMENDAS_HEADERS):
-        row.append("")
-
-    delivered_at = str(row[9] or "").strip() or format_timestamp()
-    item = normalize_encomenda(row)
-    item["entregue"] = "Sim"
-    item["entregue_em"] = delivered_at
-
-    sales_worksheet = get_vendas_worksheet()
-    sale_row = build_venda_row_from_encomenda(
-        item,
-        entregue_em=delivered_at,
-        tipo_dinheiro=tipo_dinheiro,
-    )
-    sale_id = sale_row[0]
-
-    existing_index, existing_row = find_row_by_id(sales_worksheet, sale_id)
-    if existing_index:
-        while len(existing_row) < len(VENDAS_HEADERS):
-            existing_row.append("")
-        sale_row = existing_row[:len(VENDAS_HEADERS)]
-    else:
-        sales_worksheet.append_row(sale_row, value_input_option="RAW")
-
-    encomendas_worksheet.delete_rows(row_index)
-    invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
-    log_info(f"Encomenda movida para Vendas. Encomenda={item.get('id')} Venda={sale_id}")
-    return {
-        "venda_id": sale_id,
-        "entregue_em": delivered_at,
-        "tipo_dinheiro": sale_row[9],
-        "valor_base": sale_row[10],
-        "valor_total": sale_row[7],
-    }
+def normalize_family(row):
+    item = row_to_dict(row, FAMILIAS_HEADERS)
+    item["nome"] = canonical_family_name(item.get("nome"))
+    item["mercado"] = normalize_market_status(item.get("mercado"))
+    return item
 
 
 def normalize_reuniao(row):
     item = row_to_dict(row, REUNIOES_HEADERS)
+    item["gangue"] = canonical_family_name(item.get("gangue"))
     raw_status = str(item.get("status", "")).strip().lower()
     if raw_status == "finalizada":
         item["status"] = "Finalizada"
@@ -1471,16 +1220,6 @@ def normalize_reuniao(row):
         item["status"] = "Aguardando confirmação"
     else:
         item["status"] = "Agendada"
-
-    organization = find_organization(item.get("organizacao_id"), item.get("gangue"))
-    if organization:
-        item["organizacao_id"] = organization["id"]
-        item["organizacao"] = serialize_organization(organization)
-        item["gangue"] = organization["nome"]
-        item["icone"] = item.get("icone") or organization.get("icone", "🤝")
-    else:
-        item["organizacao_id"] = ""
-        item["organizacao"] = None
     return item
 
 
@@ -1495,13 +1234,6 @@ def normalize_meta(row):
         "semana_fim": sheet_cell(row, 5),
         "confirmado": confirmado,
     }
-
-
-@app.errorhandler(413)
-def request_too_large(_error):
-    if wants_json_response():
-        return error_response("Arquivo ou requisição maior que o limite permitido.", 413)
-    return "Arquivo ou requisição maior que o limite permitido.", 413
 
 
 @app.get("/")
@@ -1601,213 +1333,6 @@ def debug_config():
     })
 
 
-@app.get("/api/organizacoes")
-@require_login
-def list_organizacoes():
-    metadata = load_flyer_metadata()
-    return jsonify([serialize_organization(item, metadata=metadata) for item in ORGANIZACOES])
-
-
-@app.get("/uploads/flyers/<path:filename>")
-@require_login
-def uploaded_flyer_file(filename):
-    safe_name = secure_filename(filename)
-    if not safe_name or safe_name != filename:
-        return error_response("Arquivo inválido.", 404)
-    return send_from_directory(str(FLYER_UPLOAD_DIR), safe_name, max_age=3600)
-
-
-@app.post("/api/organizacoes/<organizacao_id>/flyers")
-@require_authenticated_write
-def upload_organization_flyer(organizacao_id):
-    organization = find_organization(organizacao_id=organizacao_id)
-    if not organization:
-        return error_response("Organização não encontrada.", 404)
-
-    uploaded_file = request.files.get("flyer")
-    if not uploaded_file or not uploaded_file.filename:
-        return error_response("Selecione uma imagem para enviar.", 400)
-
-    try:
-        title = clean_text(
-            request.form.get("titulo", ""),
-            "Título do flyer",
-            max_length=100,
-            required=True,
-        )
-    except ValueError as validation_error:
-        return error_response(str(validation_error), 400)
-
-    content = uploaded_file.stream.read(MAX_FLYER_UPLOAD_BYTES + 1)
-    if len(content) > MAX_FLYER_UPLOAD_BYTES:
-        return error_response(
-            f"O flyer deve ter no máximo {MAX_FLYER_UPLOAD_BYTES // (1024 * 1024)} MB.",
-            413,
-        )
-
-    extension = detect_uploaded_image_extension(content)
-    if not extension:
-        return error_response("Formato inválido. Envie PNG, JPG/JPEG ou WEBP.", 400)
-
-    user = get_current_user()
-    flyer_id = f"flyer-{secrets.token_hex(8)}"
-    filename = f"{flyer_id}{extension}"
-    ensure_flyer_storage()
-    destination = FLYER_UPLOAD_DIR / filename
-    temporary = destination.with_suffix(destination.suffix + ".tmp")
-
-    try:
-        temporary.write_bytes(content)
-        os.replace(temporary, destination)
-        metadata = load_flyer_metadata()
-        record = {
-            "id": flyer_id,
-            "organization_id": organization["id"],
-            "titulo": title,
-            "filename": filename,
-            "uploaded_by": user.get("display_name") or user.get("username"),
-            "created_at": format_timestamp(),
-            # Kokusai publica imediatamente; outros usuários enviam para aprovação.
-            "visible": user.get("role") == "admin",
-        }
-        metadata["uploaded_flyers"].append(record)
-        save_flyer_metadata(metadata)
-    except Exception:
-        try:
-            temporary.unlink(missing_ok=True)
-            destination.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
-
-    status_message = (
-        "Flyer enviado e publicado com sucesso."
-        if record["visible"]
-        else "Flyer enviado. Ele ficará aguardando a aprovação da Kokusai."
-    )
-    return jsonify({
-        "ok": True,
-        "message": status_message,
-        "organization": serialize_organization(organization, metadata=metadata),
-    }), 201
-
-
-@app.patch("/api/organizacoes/<organizacao_id>/precos")
-@require_admin
-def update_organization_prices(organizacao_id):
-    organization = find_organization(organizacao_id=organizacao_id)
-    if not organization:
-        return error_response("Organização não encontrada.", 404)
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return error_response("JSON inválido.", 400)
-
-    try:
-        sale_description = clean_text(
-            data.get("preco_venda_para_organizacao", ""),
-            "Descrição do preço de venda para a organização",
-            max_length=MAX_PRICE_DESCRIPTION_LENGTH,
-            required=False,
-        )
-        purchase_description = clean_text(
-            data.get("preco_compra_da_organizacao", ""),
-            "Descrição do preço de compra da organização",
-            max_length=MAX_PRICE_DESCRIPTION_LENGTH,
-            required=False,
-        )
-    except ValueError as validation_error:
-        return error_response(str(validation_error), 400)
-
-    metadata = load_flyer_metadata()
-    metadata["organizations"][organization["id"]] = {
-        "preco_venda_para_organizacao": sale_description,
-        "preco_compra_da_organizacao": purchase_description,
-        "updated_at": format_timestamp(),
-        "updated_by": get_current_user().get("display_name"),
-    }
-    save_flyer_metadata(metadata)
-    return jsonify({
-        "ok": True,
-        "message": "Descrições comerciais atualizadas com sucesso.",
-        "organization": serialize_organization(organization, metadata=metadata),
-    })
-
-
-@app.patch("/api/organizacoes/<organizacao_id>/flyers/<flyer_id>")
-@require_admin
-def update_organization_flyer(organizacao_id, flyer_id):
-    organization = find_organization(organizacao_id=organizacao_id)
-    if not organization:
-        return error_response("Organização não encontrada.", 404)
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict) or "visible" not in data:
-        return error_response("Informe se o flyer deve ficar visível.", 400)
-
-    visible = bool(data.get("visible"))
-    metadata = load_flyer_metadata()
-    builtin = builtin_flyer_by_id(organization, flyer_id)
-    uploaded = uploaded_flyer_by_id(metadata, organization["id"], flyer_id)
-    if not builtin and not uploaded:
-        return error_response("Flyer não encontrado.", 404)
-
-    if builtin:
-        state = metadata["flyer_states"].setdefault(str(flyer_id), {})
-        state["visible"] = visible
-        if visible:
-            state["removed"] = False
-    else:
-        uploaded["visible"] = visible
-        uploaded["reviewed_at"] = format_timestamp()
-        uploaded["reviewed_by"] = get_current_user().get("display_name")
-
-    save_flyer_metadata(metadata)
-    return jsonify({
-        "ok": True,
-        "message": "Flyer colocado na organização." if visible else "Flyer retirado da organização.",
-        "organization": serialize_organization(organization, metadata=metadata),
-    })
-
-
-@app.delete("/api/organizacoes/<organizacao_id>/flyers/<flyer_id>")
-@require_admin
-def delete_organization_flyer(organizacao_id, flyer_id):
-    organization = find_organization(organizacao_id=organizacao_id)
-    if not organization:
-        return error_response("Organização não encontrada.", 404)
-
-    metadata = load_flyer_metadata()
-    builtin = builtin_flyer_by_id(organization, flyer_id)
-    uploaded = uploaded_flyer_by_id(metadata, organization["id"], flyer_id)
-    if not builtin and not uploaded:
-        return error_response("Flyer não encontrado.", 404)
-
-    if builtin:
-        state = metadata["flyer_states"].setdefault(str(flyer_id), {})
-        state["visible"] = False
-        state["removed"] = True
-    else:
-        filename = secure_filename(str(uploaded.get("filename") or ""))
-        metadata["uploaded_flyers"] = [
-            flyer for flyer in metadata["uploaded_flyers"]
-            if not (
-                flyer.get("organization_id") == organization["id"]
-                and str(flyer.get("id")) == str(flyer_id)
-            )
-        ]
-        if filename:
-            try:
-                (FLYER_UPLOAD_DIR / filename).unlink(missing_ok=True)
-            except OSError as exc:
-                log_error("Não foi possível apagar o arquivo do flyer", exc)
-
-    save_flyer_metadata(metadata)
-    return jsonify({
-        "ok": True,
-        "message": "Flyer removido com sucesso.",
-        "organization": serialize_organization(organization, metadata=metadata),
-    })
-
-
 @app.get("/api/compras")
 @require_login
 def list_compras():
@@ -1896,52 +1421,51 @@ def list_vendas():
 def create_venda():
     try:
         data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return error_response("JSON inválido.", 400)
+        ok, message = validate_numeric_fields(
+            data,
+            ["produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade"]
+        )
+
+        if not ok:
+            return error_response(message, 400)
 
         try:
-            items = parse_venda_items(data)
-            buyer = clean_text_field(data, "quem_compra", "Quem compra")
-            seller = clean_text_field(data, "quem_vende", "Quem vende")
-            observation = clean_text_field(
-                data,
-                "observacao",
-                "Observação",
-                max_length=MAX_OBSERVATION_LENGTH,
-                required=False,
-            )
+            produto = clean_text_field(data, "produto", "Produto")
+            quem_compra = clean_text_field(data, "quem_compra", "Quem compra")
+            quem_vende = clean_text_field(data, "quem_vende", "Quem vende")
+            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
-        now = format_timestamp()
-        record_id = generate_record_id("KKSV")
+        quantidade = int(data["quantidade"])
+        valor_unitario = float(data["valor_unitario"])
+        valor_total = round(quantidade * valor_unitario, 2)
+        if valor_total > MAX_MONEY_VALUE:
+            return error_response("Valor total muito alto.", 400)
+
+        agora = format_timestamp()
+        registro_id = generate_record_id("KKSV")
+
         worksheet = get_vendas_worksheet()
         worksheet.append_row([
-            record_id,
-            now,
-            items["produto"],
-            buyer,
-            seller,
-            items["valor_unitario"],
-            items["quantidade"],
-            items["valor_total"],
-            observation,
-            "",
-            items["valor_total"],
-            items["quantidade_l85"],
-            items["valor_unitario_l85"],
-            items["quantidade_seringa"],
-            items["valor_unitario_seringa"],
+            registro_id,
+            agora,
+            produto,
+            quem_compra,
+            quem_vende,
+            valor_unitario,
+            quantidade,
+            valor_total,
+            observacao,
         ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
-        log_info(f"Venda registrada com sucesso. ID={record_id}")
+        log_info(f"Venda registrada com sucesso. ID={registro_id}")
 
         return jsonify({
             "ok": True,
             "message": "Venda salva com sucesso.",
-            "id": record_id,
-            "valor_total": items["valor_total"],
-            "quantidade_total": items["quantidade"],
+            "id": registro_id,
+            "valor_total": valor_total,
         }), 201
 
     except Exception as e:
@@ -1993,195 +1517,99 @@ def list_encomendas():
 def create_encomenda():
     try:
         data = request.get_json(silent=True)
+        required_fields = ["quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue"]
+
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
-        required_fields = ["quem_pediu", "para_quando", "quem_negociou", "entregue"]
         missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
         if missing:
             return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
 
-        delivered = validate_yes_no(data.get("entregue"))
-        if not delivered:
+        try:
+            valor = float(data["valor"])
+        except (ValueError, TypeError):
+            return error_response("O valor da encomenda deve ser numérico.", 400)
+
+        if valor < 0:
+            return error_response("O valor da encomenda não pode ser negativo.", 400)
+        if valor > MAX_MONEY_VALUE:
+            return error_response("Valor da encomenda muito alto.", 400)
+
+        entregue = str(data["entregue"]).strip().capitalize()
+        if entregue not in ["Sim", "Não", "Nao"]:
             return error_response("O campo 'entregue' deve ser 'Sim' ou 'Não'.", 400)
 
-        money_type = normalize_money_type(data.get("tipo_dinheiro"))
-        if delivered == "Sim" and not money_type:
-            return error_response("Escolha se a entrega foi paga em dinheiro limpo ou sujo.", 400)
+        if entregue == "Nao":
+            entregue = "Não"
 
         try:
-            items = parse_encomenda_items(data)
-            requester = clean_text_field(data, "quem_pediu", "Quem pediu")
-            deadline = clean_text_field(data, "para_quando", "Para quando")
-            negotiator = clean_text_field(data, "quem_negociou", "Quem negociou")
-            observation = clean_text_field(
-                data,
-                "observacao",
-                "Observação",
-                max_length=MAX_OBSERVATION_LENGTH,
-                required=False,
-            )
+            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
+            para_quando = clean_text_field(data, "para_quando", "Para quando")
+            quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
+            observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
-        now = format_timestamp()
-        record_id = generate_record_id("KKSE")
-        item = {
-            "id": record_id,
-            "data": now,
-            "quem_pediu": requester,
-            "o_que_pediu": items["o_que_pediu"],
-            "valor": items["valor"],
-            "para_quando": deadline,
-            "quem_negociou": negotiator,
-            "entregue": delivered,
-            "observacao": observation,
-            "entregue_em": now if delivered == "Sim" else "",
-            "quantidade_l85": items["quantidade_l85"],
-            "valor_unitario_l85": items["valor_unitario_l85"],
-            "quantidade_seringa": items["quantidade_seringa"],
-            "valor_unitario_seringa": items["valor_unitario_seringa"],
+        agora = format_timestamp()
+        registro_id = generate_record_id("KKSE")
+
+        encomenda_item = {
+            "id": registro_id,
+            "data": agora,
+            "quem_pediu": quem_pediu,
+            "o_que_pediu": o_que_pediu,
+            "valor": round(valor, 2),
+            "para_quando": para_quando,
+            "quem_negociou": quem_negociou,
+            "entregue": entregue,
+            "observacao": observacao,
+            "entregue_em": agora if entregue == "Sim" else "",
         }
 
-        if delivered == "Sim":
-            sales_worksheet = get_vendas_worksheet()
-            sale_row = build_venda_row_from_encomenda(item, entregue_em=now, tipo_dinheiro=money_type)
-            sales_worksheet.append_row(sale_row, value_input_option="RAW")
+        if entregue == "Sim":
+            vendas_worksheet = get_vendas_worksheet()
+            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=agora)
+            vendas_worksheet.append_row(venda_row, value_input_option="RAW")
             invalidate_values_cache(VENDAS_WORKSHEET_NAME)
-            log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={record_id}")
+            log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={registro_id}")
+
             return jsonify({
                 "ok": True,
                 "message": "Encomenda entregue e registrada diretamente em Vendas.",
-                "id": record_id,
-                "venda_id": sale_row[0],
-                "valor": sale_row[7],
-                "valor_base": sale_row[10],
-                "tipo_dinheiro": sale_row[9],
+                "id": registro_id,
+                "venda_id": venda_row[0],
+                "valor": round(valor, 2),
                 "moved_to_vendas": True,
             }), 201
 
         worksheet = get_encomendas_worksheet()
         worksheet.append_row([
-            record_id,
-            now,
-            requester,
-            items["o_que_pediu"],
-            items["valor"],
-            deadline,
-            negotiator,
-            "Não",
-            observation,
+            registro_id,
+            agora,
+            quem_pediu,
+            o_que_pediu,
+            round(valor, 2),
+            para_quando,
+            quem_negociou,
+            entregue,
+            observacao,
             "",
-            items["quantidade_l85"],
-            items["valor_unitario_l85"],
-            items["quantidade_seringa"],
-            items["valor_unitario_seringa"],
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
-        log_info(f"Encomenda registrada com sucesso. ID={record_id}")
+        log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
 
         return jsonify({
             "ok": True,
             "message": "Encomenda salva com sucesso.",
-            "id": record_id,
-            "valor": items["valor"],
+            "id": registro_id,
+            "valor": round(valor, 2),
             "moved_to_vendas": False,
         }), 201
 
     except Exception as e:
         log_error("Falha em /api/encomendas [POST]", e)
-        return error_response(str(e))
-
-
-@app.put("/api/encomendas/<registro_id>")
-@require_admin
-def update_encomenda(registro_id):
-    try:
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return error_response("JSON inválido.", 400)
-
-        required_fields = ["quem_pediu", "para_quando", "quem_negociou"]
-        missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
-        if missing:
-            return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
-
-        confirm_delivery = bool(data.get("confirmar_entrega"))
-        money_type = normalize_money_type(data.get("tipo_dinheiro"))
-        if confirm_delivery and not money_type:
-            return error_response("Escolha dinheiro limpo ou sujo para confirmar a entrega.", 400)
-
-        try:
-            items = parse_encomenda_items(data)
-            requester = clean_text_field(data, "quem_pediu", "Quem pediu")
-            deadline = clean_text_field(data, "para_quando", "Para quando")
-            negotiator = clean_text_field(data, "quem_negociou", "Quem negociou")
-            observation = clean_text_field(
-                data,
-                "observacao",
-                "Observação",
-                max_length=MAX_OBSERVATION_LENGTH,
-                required=False,
-            )
-        except ValueError as validation_error:
-            return error_response(str(validation_error), 400)
-
-        with _sheets_lock:
-            worksheet = get_encomendas_worksheet()
-            row_index, row = find_row_by_id(worksheet, registro_id)
-            if not row_index:
-                return error_response("Encomenda não encontrada.", 404)
-
-            while len(row) < len(ENCOMENDAS_HEADERS):
-                row.append("")
-            if validate_yes_no(row[7]) == "Sim":
-                return error_response("Essa encomenda já foi entregue e não pode mais ser editada aqui.", 409)
-
-            row[2] = requester
-            row[3] = items["o_que_pediu"]
-            row[4] = items["valor"]
-            row[5] = deadline
-            row[6] = negotiator
-            row[7] = "Não"
-            row[8] = observation
-            row[9] = ""
-            row[10] = items["quantidade_l85"]
-            row[11] = items["valor_unitario_l85"]
-            row[12] = items["quantidade_seringa"]
-            row[13] = items["valor_unitario_seringa"]
-
-            if confirm_delivery:
-                delivery_result = move_encomenda_row_to_vendas(
-                    worksheet,
-                    row_index,
-                    row,
-                    money_type,
-                )
-                return jsonify({
-                    "ok": True,
-                    "message": "Alterações salvas e entrega confirmada. A encomenda foi movida para Vendas.",
-                    "id": registro_id,
-                    "moved_to_vendas": True,
-                    **delivery_result,
-                })
-
-            end_col = "N"
-            worksheet.update(
-                f"A{row_index}:{end_col}{row_index}",
-                [row[:len(ENCOMENDAS_HEADERS)]],
-                value_input_option="RAW",
-            )
-            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
-
-        return jsonify({
-            "ok": True,
-            "message": "Encomenda atualizada com sucesso.",
-            "item": normalize_encomenda(row),
-            "moved_to_vendas": False,
-        })
-
-    except Exception as e:
-        log_error("Falha em /api/encomendas/<id> [PUT]", e)
         return error_response(str(e))
 
 
@@ -2193,13 +1621,9 @@ def update_encomenda_entrega(registro_id):
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
-        delivered = validate_yes_no(data.get("entregue"))
-        if not delivered:
+        entregue = validate_yes_no(data.get("entregue"))
+        if not entregue:
             return error_response("A entrega deve ser somente 'Sim' ou 'Não'.", 400)
-
-        money_type = normalize_money_type(data.get("tipo_dinheiro"))
-        if delivered == "Sim" and not money_type:
-            return error_response("Escolha se a entrega foi paga em dinheiro limpo ou sujo.", 400)
 
         with _sheets_lock:
             worksheet = get_encomendas_worksheet()
@@ -2210,7 +1634,7 @@ def update_encomenda_entrega(registro_id):
             while len(row) < len(ENCOMENDAS_HEADERS):
                 row.append("")
 
-            if delivered == "Não":
+            if entregue == "Não":
                 worksheet.update(
                     f"H{row_index}:J{row_index}",
                     [["Não", row[8] if len(row) > 8 else "", ""]],
@@ -2226,24 +1650,57 @@ def update_encomenda_entrega(registro_id):
                     "moved_to_vendas": False,
                 })
 
-            delivery_result = move_encomenda_row_to_vendas(
-                worksheet,
-                row_index,
-                row,
-                money_type,
-            )
+            entregue_em = str(row[9] or "").strip() or format_timestamp()
+            encomenda_item = normalize_encomenda(row)
+            encomenda_item["entregue"] = "Sim"
+            encomenda_item["entregue_em"] = entregue_em
+
+            vendas_worksheet = get_vendas_worksheet()
+            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=entregue_em)
+            venda_id = venda_row[0]
+
+            # Se a gravação da venda tiver ocorrido e a exclusão da encomenda falhar,
+            # uma nova tentativa apenas conclui a exclusão, sem duplicar a venda.
+            if not worksheet_has_record_id(vendas_worksheet, venda_id):
+                vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+
+            worksheet.delete_rows(row_index)
+            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+            log_info(f"Encomenda movida para Vendas. Encomenda={registro_id} Venda={venda_id}")
 
         return jsonify({
             "ok": True,
             "message": "Entrega confirmada. A encomenda foi movida para Vendas.",
             "id": registro_id,
+            "venda_id": venda_id,
             "entregue": "Sim",
+            "entregue_em": entregue_em,
             "moved_to_vendas": True,
-            **delivery_result,
         })
 
     except Exception as e:
         log_error("Falha em /api/encomendas/<id>/entrega [POST]", e)
+        return error_response(str(e))
+
+
+@app.delete("/api/encomendas/<registro_id>")
+@require_admin
+def cancel_encomenda(registro_id):
+    try:
+        with _sheets_lock:
+            worksheet = get_encomendas_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Encomenda não encontrada.", 404)
+            worksheet.delete_rows(row_index)
+            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
+        return jsonify({
+            "ok": True,
+            "message": "Encomenda cancelada e apagada com sucesso.",
+            "id": registro_id,
+        })
+    except Exception as e:
+        log_error("Falha em /api/encomendas/<id> [DELETE]", e)
         return error_response(str(e))
 
 
@@ -2286,16 +1743,8 @@ def create_reuniao():
 
         try:
             titulo = clean_text_field(data, "titulo", "Título")
-            organizacao_id = clean_text_field(data, "organizacao_id", "Organização", max_length=60, required=False).lower()
-            gangue = clean_text_field(data, "gangue", "Gangue / grupo")
+            gangue = canonical_family_name(clean_text_field(data, "gangue", "Gangue"))
             icone = clean_text_field(data, "icone", "Ícone", max_length=12)
-            organization = find_organization(organizacao_id, gangue)
-            if organization:
-                organizacao_id = organization["id"]
-                gangue = organization["nome"]
-                icone = organization.get("icone", icone)
-            else:
-                organizacao_id = ""
             data_reuniao = clean_text_field(data, "data", "Data", max_length=10)
             horario = clean_text_field(data, "horario", "Horário", max_length=5)
             local = clean_text_field(data, "local", "Local", required=False)
@@ -2313,7 +1762,7 @@ def create_reuniao():
         worksheet = get_reunioes_worksheet()
         worksheet.append_row([
             registro_id, format_timestamp(), titulo, gangue, icone, data_reuniao, horario,
-            local, pauta, "Agendada", "", organizacao_id
+            local, pauta, "Agendada", ""
         ], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião agendada com sucesso.", "id": registro_id}), 201
@@ -2332,16 +1781,8 @@ def update_reuniao(registro_id):
 
         try:
             titulo = clean_text_field(data, "titulo", "Título")
-            organizacao_id = clean_text_field(data, "organizacao_id", "Organização", max_length=60, required=False).lower()
-            gangue = clean_text_field(data, "gangue", "Gangue / grupo")
+            gangue = canonical_family_name(clean_text_field(data, "gangue", "Gangue"))
             icone = clean_text_field(data, "icone", "Ícone", max_length=12)
-            organization = find_organization(organizacao_id, gangue)
-            if organization:
-                organizacao_id = organization["id"]
-                gangue = organization["nome"]
-                icone = organization.get("icone", icone)
-            else:
-                organizacao_id = ""
             data_reuniao = clean_text_field(data, "data", "Data", max_length=10)
             horario = clean_text_field(data, "horario", "Horário", max_length=5)
             local = clean_text_field(data, "local", "Local", required=False)
@@ -2370,13 +1811,12 @@ def update_reuniao(registro_id):
         row[6] = horario
         row[7] = local
         row[8] = pauta
-        row[11] = organizacao_id
         # Ao confirmar novos dados de uma reunião pendente, ela passa a estar agendada.
         if str(row[9]).strip().lower() in {"aguardando confirmação", "aguardando confirmacao", "a confirmar"}:
             row[9] = "Agendada"
             row[10] = ""
 
-        worksheet.update(f"A{row_index}:L{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião atualizada com sucesso."})
     except Exception as e:
@@ -2395,11 +1835,23 @@ def finalizar_reuniao(registro_id):
 
         while len(row) < len(REUNIOES_HEADERS):
             row.append("")
+        if str(row[9]).strip().lower() == "cancelada":
+            return error_response("Uma reunião cancelada não pode ser finalizada.", 400)
+
+        row[3] = canonical_family_name(row[3])
         row[9] = "Finalizada"
         row[10] = format_timestamp()
-        worksheet.update(f"A{row_index}:L{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
-        return jsonify({"ok": True, "message": "Reunião marcada como finalizada."})
+
+        familia_id, created = upsert_family_from_meeting(row[3], row[4])
+        message = "Reunião finalizada e família incluída na aba Famílias." if created else "Reunião finalizada. A família já estava cadastrada."
+        return jsonify({
+            "ok": True,
+            "message": message,
+            "familia_id": familia_id,
+            "family_created": created,
+        })
     except Exception as e:
         log_error("Falha em /api/reunioes/<id>/finalizar [POST]", e)
         return error_response(str(e))
@@ -2420,11 +1872,140 @@ def cancelar_reuniao(registro_id):
             return error_response("Uma reunião finalizada não pode ser cancelada.", 400)
         row[9] = "Cancelada"
         row[10] = format_timestamp()
-        worksheet.update(f"A{row_index}:L{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
+        worksheet.update(f"A{row_index}:K{row_index}", [row[:len(REUNIOES_HEADERS)]], value_input_option="RAW")
         invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": "Reunião marcada como cancelada."})
     except Exception as e:
         log_error("Falha em /api/reunioes/<id>/cancelar [POST]", e)
+        return error_response(str(e))
+
+
+@app.get("/api/familias")
+@require_login
+def list_familias():
+    try:
+        worksheet = get_familias_worksheet()
+        rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet)
+        familias = [normalize_family(row) for row in rows[1:] if str(sheet_cell(row, 2)).strip()]
+        familias.sort(key=lambda item: normalized_lookup_key(item.get("nome")))
+        return jsonify(familias)
+    except Exception as e:
+        log_error("Falha em /api/familias [GET]", e)
+        return error_response(str(e))
+
+
+def validate_family_payload(data):
+    if not isinstance(data, dict):
+        raise ValueError("JSON inválido.")
+
+    name = canonical_family_name(clean_text_field(data, "nome", "Nome da família/gangue"))
+    if not normalized_lookup_key(name):
+        raise ValueError("Nome da família/gangue é obrigatório.")
+
+    market = normalize_market_status(data.get("mercado"))
+    icon = clean_text_field(data, "icone", "Ícone", max_length=12, required=False)
+    sale_price = clean_text_field(
+        data, "preco_venda_para_familia", "Preço de venda para a família",
+        max_length=MAX_OBSERVATION_LENGTH, required=False,
+    )
+    purchase_price = clean_text_field(
+        data, "preco_compra_da_familia", "Preço de compra da família",
+        max_length=MAX_OBSERVATION_LENGTH, required=False,
+    )
+    flyer_url = clean_optional_http_url(data.get("flyer_url"), "Link do flyer")
+    observation = clean_text_field(
+        data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False,
+    )
+    return {
+        "nome": name,
+        "icone": icon,
+        "mercado": market,
+        "preco_venda_para_familia": sale_price,
+        "preco_compra_da_familia": purchase_price,
+        "flyer_url": flyer_url,
+        "observacao": observation,
+    }
+
+
+@app.post("/api/familias")
+@require_admin
+def create_familia():
+    try:
+        try:
+            payload = validate_family_payload(request.get_json(silent=True))
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        with _sheets_lock:
+            worksheet = get_familias_worksheet()
+            rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
+            key = normalized_lookup_key(payload["nome"])
+            if any(normalized_lookup_key(canonical_family_name(sheet_cell(row, 2))) == key for row in rows[1:]):
+                return error_response("Essa família/gangue já está cadastrada.", 409)
+
+            row = build_family_row(payload)
+            worksheet.append_row(row, value_input_option="RAW")
+            invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+
+        return jsonify({
+            "ok": True,
+            "message": "Família/gangue adicionada com sucesso.",
+            "id": row[0],
+        }), 201
+    except Exception as e:
+        log_error("Falha em /api/familias [POST]", e)
+        return error_response(str(e))
+
+
+@app.put("/api/familias/<registro_id>")
+@require_admin
+def update_familia(registro_id):
+    try:
+        try:
+            payload = validate_family_payload(request.get_json(silent=True))
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        with _sheets_lock:
+            worksheet = get_familias_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Família/gangue não encontrada.", 404)
+
+            rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
+            key = normalized_lookup_key(payload["nome"])
+            for other_index, other_row in enumerate(rows[1:], start=2):
+                if other_index == row_index:
+                    continue
+                if normalized_lookup_key(canonical_family_name(sheet_cell(other_row, 2))) == key:
+                    return error_response("Já existe outra família/gangue com esse nome.", 409)
+
+            padded = list(row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(row))
+            updated = build_family_row(payload, registro_id=padded[0], criado_em=padded[1])
+            worksheet.update(f"A{row_index}:J{row_index}", [updated], value_input_option="RAW")
+            invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+
+        return jsonify({"ok": True, "message": "Família/gangue atualizada com sucesso."})
+    except Exception as e:
+        log_error("Falha em /api/familias/<id> [PUT]", e)
+        return error_response(str(e))
+
+
+@app.delete("/api/familias/<registro_id>")
+@require_admin
+def delete_familia(registro_id):
+    try:
+        with _sheets_lock:
+            worksheet = get_familias_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Família/gangue não encontrada.", 404)
+            name = canonical_family_name(sheet_cell(row, 2))
+            worksheet.delete_rows(row_index)
+            invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+        return jsonify({"ok": True, "message": f"{name} foi removida da aba Famílias."})
+    except Exception as e:
+        log_error("Falha em /api/familias/<id> [DELETE]", e)
         return error_response(str(e))
 
 

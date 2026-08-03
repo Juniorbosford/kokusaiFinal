@@ -823,468 +823,120 @@ table.craft-result-table{min-width:650px}
 .meeting-cancel-edit[hidden]{display:none}
 @media(max-width:520px){.meeting-actions{grid-template-columns:1fr}}
 
-/* Organizações e flyers */
-.organization-stat-card{
-  background:linear-gradient(180deg,rgba(139,92,246,.105),rgba(255,255,255,.022));
-  border-color:rgba(139,92,246,.22);
+/* Famílias e gangues */
+.families-layout{
+  display:grid;
+  grid-template-columns:minmax(330px,.48fr) minmax(0,1.52fr);
+  gap:18px;
+  align-items:start;
 }
-.flyer-toolbar-card{padding:18px 20px}
-.flyer-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:20px}
-.flyer-summary{display:flex;gap:10px;flex-wrap:wrap}
-.flyer-summary div{
-  min-width:126px;
-  padding:13px 15px;
-  border:1px solid var(--line);
+.family-form-card{position:sticky;top:30px}
+.family-header-icon{
+  display:grid;
+  place-items:center;
+  width:46px;
+  height:46px;
   border-radius:15px;
-  background:rgba(6,8,12,.44);
+  background:rgba(229,49,72,.12);
+  border:1px solid rgba(229,49,72,.24);
+  font-size:1.35rem;
 }
-.flyer-summary strong{display:block;font-size:1.45rem;line-height:1;margin-bottom:6px}
-.flyer-summary span{color:var(--muted);font-size:.73rem;font-weight:850;text-transform:uppercase;letter-spacing:.08em}
-.flyer-search-field{width:min(390px,100%);display:grid;gap:8px}
-.flyer-search-field span{color:var(--muted-strong);font-size:.82rem;font-weight:800}
-.flyers-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;align-items:start}
-.flyer-card{
-  min-width:0;
-  overflow:hidden;
-  border:1px solid var(--line);
-  border-radius:22px;
-  background:linear-gradient(180deg,rgba(255,255,255,.058),rgba(255,255,255,.02));
-  box-shadow:var(--shadow);
-}
-.flyer-card.has-flyer{border-color:rgba(139,92,246,.24)}
-.flyer-card-media{
-  position:relative;
-  min-height:360px;
-  display:grid;
-  place-items:center;
-  overflow:hidden;
-  background:
-    radial-gradient(circle at 50% 18%,rgba(139,92,246,.18),transparent 42%),
-    #07090e;
-  border-bottom:1px solid var(--line);
-}
-.flyer-preview-button{position:relative;width:100%;height:360px;padding:0;border:0;background:transparent;overflow:hidden}
-.flyer-preview-button::after{
-  content:"Abrir visualização";
-  position:absolute;
-  left:50%;
-  bottom:17px;
-  translate:-50% 8px;
-  opacity:0;
-  padding:8px 12px;
+.family-counters{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.family-counters span{
+  padding:8px 11px;
   border-radius:999px;
-  background:rgba(5,7,11,.88);
-  border:1px solid rgba(255,255,255,.16);
-  color:#fff;
-  font-size:.75rem;
-  font-weight:850;
-  transition:opacity .2s ease,translate .2s ease;
-}
-.flyer-preview-button:hover::after{opacity:1;translate:-50% 0}
-.flyer-preview-button img{width:100%;height:100%;object-fit:contain;transition:transform .28s ease,filter .28s ease}
-.flyer-preview-button:hover img{transform:scale(1.025);filter:brightness(1.06)}
-.flyer-stack-badge{
-  position:absolute;
-  right:14px;
-  top:14px;
-  display:grid;
-  place-items:center;
-  min-width:38px;
-  height:38px;
-  padding:0 10px;
-  border-radius:999px;
-  background:rgba(5,7,11,.9);
-  border:1px solid rgba(255,255,255,.18);
-  color:#fff;
-  font-weight:900;
-}
-.flyer-missing-preview{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px;text-align:center}
-.flyer-missing-preview>span{display:grid;place-items:center;width:82px;height:82px;border-radius:24px;background:rgba(255,255,255,.055);border:1px dashed var(--line-strong);font-size:2.2rem}
-.flyer-missing-preview strong{font-size:1.05rem}
-.flyer-missing-preview small{color:var(--muted)}
-.flyer-card-content{display:grid;gap:15px;padding:18px}
-.flyer-card-heading{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px}
-.flyer-organization-icon{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:rgba(139,92,246,.13);border:1px solid rgba(139,92,246,.24);font-size:1.3rem}
-.flyer-card-heading p{margin:0 0 3px;color:var(--muted);font-size:.65rem;font-weight:900;text-transform:uppercase;letter-spacing:.11em}
-.flyer-card-heading h4{margin:0;font-size:1.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.flyer-status-badge{padding:6px 8px;border-radius:999px;font-size:.65rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
-.flyer-status-badge.available{color:#dcd2ff;background:rgba(139,92,246,.15)}
-.flyer-status-badge.pending{color:#ffe09a;background:rgba(240,184,75,.13)}
-.flyer-title-list{display:flex;gap:7px;flex-wrap:wrap}
-.flyer-title-list button{padding:7px 9px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted-strong);font-size:.73rem;font-weight:800}
-.flyer-title-list button:hover{border-color:rgba(139,92,246,.35);background:rgba(139,92,246,.1);color:#fff}
-.flyer-pending-copy{margin:0;color:var(--muted);font-size:.82rem;line-height:1.55}
-.flyer-card-actions{display:flex;gap:9px}
-.flyer-card-actions .primary-btn,.flyer-card-actions .ghost-btn{flex:1;min-height:40px;padding:0 12px;font-size:.8rem}
-.flyer-empty{grid-column:1/-1;padding:44px;text-align:center;border:1px dashed var(--line);border-radius:20px;background:rgba(255,255,255,.02);color:var(--muted)}
-
-/* Vínculo organização x reunião */
-.field-helper{color:var(--muted);font-size:.75rem;line-height:1.45}
-.organization-link-preview{
-  min-height:76px;
-  flex-direction:row;
-  align-items:center;
-  gap:12px;
-  padding:12px;
-  border:1px solid var(--line);
-  border-radius:14px;
-  background:rgba(6,8,12,.46);
-}
-.organization-link-icon{display:grid;place-items:center;flex:0 0 46px;width:46px;height:46px;border-radius:14px;background:rgba(139,92,246,.13);border:1px solid rgba(139,92,246,.24);font-size:1.3rem}
-.organization-link-preview strong,.organization-link-preview small{display:block}
-.organization-link-preview small{margin-top:4px;color:var(--muted);font-size:.72rem;line-height:1.35}
-.custom-organization-field[hidden]{display:none}
-#r_icone[readonly]{color:#ded6ff;background:rgba(139,92,246,.07)}
-.meeting-board-tools{display:grid;gap:9px;justify-items:end;min-width:min(100%,420px)}
-.meeting-board-tools>label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-.meeting-board-tools>select{min-height:38px;padding:8px 11px;max-width:290px}
-.meeting-flyer-link{
-  width:100%;
-  min-height:58px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  margin-top:11px;
-  padding:8px;
-  border-radius:12px;
-  border:1px solid rgba(139,92,246,.22);
-  background:rgba(139,92,246,.07);
-  color:var(--text);
-  text-align:left;
-}
-button.meeting-flyer-link:hover{background:rgba(139,92,246,.13);border-color:rgba(139,92,246,.36)}
-.meeting-flyer-link img{width:42px;height:42px;flex:0 0 42px;object-fit:cover;object-position:top;border-radius:9px;border:1px solid var(--line)}
-.meeting-flyer-link span{min-width:0}
-.meeting-flyer-link strong,.meeting-flyer-link small{display:block}
-.meeting-flyer-link small{margin-top:3px;color:var(--muted);font-size:.68rem}
-.meeting-flyer-link.unavailable{border-style:dashed;background:rgba(255,255,255,.025);color:var(--muted-strong)}
-.meeting-no-flyer-icon{display:grid!important;place-items:center;flex:0 0 42px;width:42px;height:42px;border-radius:9px;background:rgba(255,255,255,.05);font-size:1.15rem}
-
-/* Modal de visualização dos flyers */
-body.modal-open{overflow:hidden}
-.flyer-modal[hidden]{display:none}
-.flyer-modal{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px}
-.flyer-modal-backdrop{position:absolute;inset:0;border:0;background:rgba(0,0,0,.82);backdrop-filter:blur(9px)}
-.flyer-modal-dialog{position:relative;z-index:1;width:min(960px,100%);max-height:calc(100vh - 48px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:22px;background:#0a0c12;box-shadow:0 40px 110px rgba(0,0,0,.65)}
-.flyer-modal-head,.flyer-modal-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 18px;background:rgba(255,255,255,.035)}
-.flyer-modal-head{border-bottom:1px solid var(--line)}
-.flyer-modal-head h3{margin:4px 0 0}
-.flyer-modal-close{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;border:1px solid var(--line);background:rgba(255,255,255,.05);color:#fff;font-size:1.6rem;line-height:1}
-.flyer-modal-stage{position:relative;min-height:0;display:grid;place-items:center;padding:18px;background:#050609;overflow:auto}
-.flyer-modal-stage img{max-width:100%;max-height:calc(100vh - 210px);width:auto;height:auto;object-fit:contain;border-radius:10px;box-shadow:0 18px 65px rgba(0,0,0,.48)}
-.flyer-modal-nav{position:absolute;z-index:2;top:50%;translate:0 -50%;display:grid;place-items:center;width:44px;height:58px;border-radius:14px;border:1px solid rgba(255,255,255,.18);background:rgba(7,9,13,.82);color:#fff;font-size:2rem}
-.flyer-modal-nav:hover{background:rgba(35,39,50,.92)}
-.flyer-modal-nav.previous{left:14px}.flyer-modal-nav.next{right:14px}
-.flyer-modal-footer{border-top:1px solid var(--line);color:var(--muted);font-weight:800}
-.flyer-modal-footer .ghost-btn{min-height:40px}
-
-@media(max-width:1180px){
-  .nav{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .flyers-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .meeting-board-tools{justify-items:start;min-width:0}
-  .meeting-board-card .panel-head{align-items:flex-start}
-}
-@media(max-width:760px){
-  .nav{grid-template-columns:1fr 1fr}
-  .flyer-toolbar{align-items:stretch;flex-direction:column}
-  .flyer-search-field{width:100%}
-  .flyers-grid{grid-template-columns:1fr}
-  .flyer-card-media,.flyer-preview-button,.flyer-missing-preview{min-height:320px;height:320px}
-  .meeting-board-card .panel-head{flex-direction:column;align-items:stretch}
-  .meeting-board-tools,.meeting-board-tools>select{width:100%;max-width:none;justify-items:stretch}
-  .meeting-counters{justify-content:flex-start}
-  .flyer-modal{padding:0}
-  .flyer-modal-dialog{width:100%;height:100%;max-height:none;border-radius:0}
-  .flyer-modal-stage img{max-height:calc(100vh - 190px)}
-  .flyer-modal-footer{align-items:stretch;flex-direction:column}
-  .flyer-modal-footer .ghost-btn{width:100%}
-}
-@media(max-width:520px){
-  .flyer-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
-  .flyer-summary div{min-width:0;padding:11px 9px;text-align:center}
-  .flyer-summary strong{font-size:1.15rem}
-  .flyer-summary span{font-size:.58rem}
-  .flyer-card-heading{grid-template-columns:auto minmax(0,1fr)}
-  .flyer-status-badge{grid-column:1/-1;justify-self:start}
-  .flyer-card-actions{flex-direction:column}
-  .flyer-modal-nav{width:38px;height:50px}
-}
-
-/* Entregas: dinheiro limpo/sujo, edição e detalhes das compras */
-.field-helper{
-  display:block;
-  margin-top:7px;
-  color:var(--muted);
-  font-size:.72rem;
-  line-height:1.45;
-  font-weight:700;
-}
-.payment-preview-box{
-  align-items:flex-start;
-}
-.payment-preview-box small{
-  display:block;
-  margin-top:5px;
-  color:#ffcf91;
-  font-size:.72rem;
-  font-weight:850;
-}
-.encomenda-action-group{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto;
-  gap:7px;
-  min-width:230px;
-}
-.encomenda-edit-btn{
-  min-height:38px;
-  padding:8px 12px;
-  border-radius:11px;
-  border:1px solid rgba(139,92,246,.32);
-  background:rgba(139,92,246,.10);
-  color:#ded2ff;
-  font-weight:900;
-  transition:transform .18s ease,background .18s ease,border-color .18s ease;
-}
-.encomenda-edit-btn:hover{
-  transform:translateY(-1px);
-  background:rgba(139,92,246,.17);
-  border-color:rgba(139,92,246,.45);
-}
-.money-type-badge{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  min-height:28px;
-  padding:5px 9px;
-  border-radius:999px;
-  font-size:.66rem;
-  font-weight:950;
-  letter-spacing:.06em;
-  white-space:nowrap;
-}
-.money-type-badge.clean{color:#c8ffe0;background:rgba(49,208,131,.13);border:1px solid rgba(49,208,131,.24)}
-.money-type-badge.dirty{color:#ffd8a8;background:rgba(245,158,11,.13);border:1px solid rgba(245,158,11,.28)}
-.money-type-badge.neutral{color:var(--muted-strong);background:rgba(255,255,255,.045);border:1px solid var(--line)}
-.purchase-details-btn{
-  min-height:34px;
-  padding:7px 10px;
-  border-radius:10px;
-  border:1px solid rgba(139,92,246,.28);
-  background:rgba(139,92,246,.09);
-  color:#ded2ff;
-  font-weight:850;
-  white-space:nowrap;
-}
-.purchase-details-btn:hover{background:rgba(139,92,246,.16);border-color:rgba(139,92,246,.42)}
-.purchase-no-details{color:var(--muted);font-size:.74rem;font-weight:750;white-space:nowrap}
-.purchase-detail-row[hidden]{display:none!important}
-.purchase-detail-row td{padding:0!important;background:rgba(139,92,246,.035)}
-.purchase-detail-content{
-  padding:16px 18px;
-  border-left:3px solid rgba(139,92,246,.65);
-  text-align:left;
-}
-.purchase-detail-content strong{display:block;margin-bottom:6px;color:#ded2ff;font-size:.76rem;text-transform:uppercase;letter-spacing:.08em}
-.purchase-detail-content p{margin:0;color:var(--muted-strong);line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
-
-.transaction-modal[hidden]{display:none}
-.transaction-modal{
-  position:fixed;
-  inset:0;
-  z-index:1120;
-  display:grid;
-  place-items:center;
-  padding:22px;
-}
-.transaction-modal-backdrop{
-  position:absolute;
-  inset:0;
-  border:0;
-  background:rgba(0,0,0,.82);
-  backdrop-filter:blur(9px);
-}
-.transaction-modal-dialog{
-  position:relative;
-  z-index:1;
-  width:min(620px,100%);
-  max-height:calc(100vh - 44px);
-  overflow:auto;
-  border:1px solid rgba(255,255,255,.14);
-  border-radius:22px;
-  background:#0a0c12;
-  box-shadow:0 40px 110px rgba(0,0,0,.68);
-}
-.transaction-modal-dialog.wide{width:min(820px,100%)}
-.transaction-modal-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:16px;
-  padding:17px 19px;
-  border-bottom:1px solid var(--line);
-  background:rgba(255,255,255,.035);
-}
-.transaction-modal-head h3{margin:4px 0 0}
-.transaction-modal-close{
-  display:grid;
-  place-items:center;
-  flex:0 0 42px;
-  width:42px;
-  height:42px;
-  border-radius:13px;
-  border:1px solid var(--line);
-  background:rgba(255,255,255,.05);
-  color:#fff;
-  font-size:1.6rem;
-  line-height:1;
-}
-.transaction-modal-body{padding:20px}
-.delivery-order-summary{
-  display:grid;
-  gap:4px;
-  margin-bottom:16px;
-  padding:14px 15px;
-  border:1px solid var(--line);
-  border-radius:14px;
-  background:rgba(255,255,255,.028);
-}
-.delivery-order-summary span{color:var(--muted);font-size:.68rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
-.delivery-order-summary strong{font-size:1.05rem}
-.delivery-order-summary small{color:var(--muted-strong);font-weight:700}
-.money-choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.money-choice-card{
-  position:relative;
-  display:grid;
-  gap:6px;
-  min-height:155px;
-  padding:18px;
-  border:1px solid var(--line);
-  border-radius:17px;
-  background:rgba(255,255,255,.028);
-  cursor:pointer;
-  transition:transform .18s ease,border-color .18s ease,background .18s ease;
-}
-.money-choice-card:hover{transform:translateY(-2px)}
-.money-choice-card input{position:absolute;top:14px;right:14px;width:18px;height:18px;accent-color:#31d083}
-.money-choice-card span{margin-top:25px;color:var(--muted-strong);font-size:.76rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em}
-.money-choice-card strong{font-size:1.45rem}
-.money-choice-card small{color:var(--muted);font-weight:700}
-.money-choice-card.clean:has(input:checked){border-color:rgba(49,208,131,.55);background:rgba(49,208,131,.10);box-shadow:0 0 0 3px rgba(49,208,131,.08)}
-.money-choice-card.dirty:has(input:checked){border-color:rgba(245,158,11,.55);background:rgba(245,158,11,.10);box-shadow:0 0 0 3px rgba(245,158,11,.08)}
-.delivery-selected-total{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:14px;
-  margin-top:14px;
-  padding:14px 15px;
-  border-radius:14px;
   background:rgba(255,255,255,.045);
   border:1px solid var(--line);
+  color:var(--muted);
+  font-size:.76rem;
+  font-weight:800;
 }
-.delivery-selected-total span{color:var(--muted);font-size:.74rem;font-weight:850}
-.delivery-selected-total strong{font-size:1rem;text-align:right}
-.transaction-modal-actions{
-  display:flex;
-  justify-content:flex-end;
-  gap:10px;
-  margin-top:16px;
+.family-counters strong{color:var(--text);margin-right:3px}
+.families-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.family-card{
+  min-width:0;
+  overflow:hidden;
+  border-radius:19px;
+  border:1px solid var(--line);
+  background:linear-gradient(145deg,rgba(255,255,255,.055),rgba(255,255,255,.018));
+  box-shadow:0 14px 35px rgba(0,0,0,.16);
 }
-.transaction-modal-actions .ghost-btn,.transaction-modal-actions .primary-btn{min-height:42px}
+.family-card.open{border-color:rgba(49,208,131,.18)}
+.family-card.closed{border-color:rgba(239,68,68,.25);background:linear-gradient(145deg,rgba(239,68,68,.055),rgba(255,255,255,.014))}
+.family-flyer{
+  position:relative;
+  aspect-ratio:16/9;
+  overflow:hidden;
+  background:rgba(0,0,0,.24);
+  border-bottom:1px solid var(--line);
+}
+.family-flyer img{display:block;width:100%;height:100%;object-fit:cover}
+.family-flyer-empty{display:grid;place-items:center;align-content:center;gap:7px;color:var(--muted)}
+.family-flyer-empty span{font-size:2rem}
+.family-flyer-empty small{font-size:.75rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em}
+.family-card-content{padding:17px}
+.family-card-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.family-card-top>div{display:flex;align-items:center;gap:9px;min-width:0}
+.family-icon{display:grid;place-items:center;width:34px;height:34px;flex:0 0 34px;border-radius:11px;background:rgba(255,255,255,.06);border:1px solid var(--line)}
+.family-card h4{margin:0;font-size:1.08rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.market-status{
+  flex:0 0 auto;
+  padding:6px 8px;
+  border-radius:999px;
+  font-size:.64rem;
+  font-weight:950;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  border:1px solid transparent;
+}
+.market-status.open{color:#c9ffe4;background:rgba(49,208,131,.10);border-color:rgba(49,208,131,.22)}
+.market-status.closed{color:#ffc4c4;background:rgba(239,68,68,.11);border-color:rgba(239,68,68,.25)}
+.family-price-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:15px}
+.family-price-grid>div{padding:11px;border-radius:13px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.055)}
+.family-price-grid span{display:block;color:var(--muted);font-size:.69rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.family-price-grid p{margin:0;color:var(--muted-strong);font-size:.82rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.family-note{margin:11px 0 0;padding:10px 11px;border-radius:12px;background:rgba(255,255,255,.035);color:var(--muted);font-size:.8rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.family-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
+.family-edit-btn,.family-delete-btn{
+  min-height:38px;
+  border-radius:11px;
+  font-weight:900;
+  cursor:pointer;
+}
+.family-edit-btn{border:1px solid rgba(139,92,246,.32);background:rgba(139,92,246,.11);color:#e1d7ff}
+.family-edit-btn:hover{background:rgba(139,92,246,.19)}
+.family-delete-btn{border:1px solid rgba(239,68,68,.30);background:rgba(239,68,68,.09);color:#ffc4c4}
+.family-delete-btn:hover{background:rgba(239,68,68,.16)}
+.family-edit-btn:disabled,.family-delete-btn:disabled{opacity:.55;cursor:not-allowed}
+.family-cancel-edit[hidden]{display:none}
+.family-empty{grid-column:1/-1;padding:36px;text-align:center;border:1px dashed var(--line);border-radius:17px;color:var(--muted);background:rgba(255,255,255,.02)}
 
-@media(max-width:900px){
-  .purchase-detail-row{border-radius:15px!important}
-  .purchase-detail-row td{display:block!important;text-align:left!important}
-  .purchase-detail-row td::before{display:none!important}
-  .encomenda-action-group{min-width:0;grid-template-columns:1fr 1fr}
+.delivery-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.delivery-cancel-btn{
+  min-height:38px;
+  padding:0 12px;
+  border-radius:11px;
+  border:1px solid rgba(239,68,68,.30);
+  background:rgba(239,68,68,.09);
+  color:#ffc4c4;
+  font-weight:900;
+  cursor:pointer;
 }
-@media(max-width:620px){
-  .transaction-modal{padding:0}
-  .transaction-modal-dialog,.transaction-modal-dialog.wide{width:100%;height:100%;max-height:none;border-radius:0}
-  .transaction-modal-body{padding:16px}
-  .money-choice-grid{grid-template-columns:1fr}
-  .money-choice-card{min-height:125px}
-  .delivery-selected-total{align-items:flex-start;flex-direction:column}
-  .transaction-modal-actions{flex-direction:column-reverse}
-  .transaction-modal-actions button{width:100%}
-  .encomenda-action-group{grid-template-columns:1fr}
+.delivery-cancel-btn:hover{background:rgba(239,68,68,.16)}
+.delivery-cancel-btn:disabled{opacity:.55;cursor:not-allowed}
+
+@media(max-width:1180px){
+  .families-layout{grid-template-columns:1fr}
+  .family-form-card{position:relative;top:auto}
 }
-
-/* Produtos separados: L85 + seringa */
-.product-builder{
-  display:grid;
-  gap:15px;
-  padding:16px;
-  border:1px solid rgba(139,92,246,.22);
-  border-radius:18px;
-  background:linear-gradient(145deg,rgba(139,92,246,.08),rgba(255,255,255,.018));
+@media(max-width:850px){
+  .families-grid{grid-template-columns:1fr}
 }
-.product-builder-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
-.product-builder-head>div{display:grid;gap:4px}
-.product-builder-head span{color:var(--muted);font-size:.69rem;font-weight:900;text-transform:uppercase;letter-spacing:.1em}
-.product-builder-head strong{font-size:1rem}
-.product-builder-head small{max-width:430px;color:var(--muted);font-size:.76rem;line-height:1.45;text-align:right}
-.product-line-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.product-line-card{display:grid;gap:12px;padding:14px;border:1px solid var(--line);border-radius:15px;background:rgba(5,7,11,.48)}
-.product-line-card.featured{border-color:rgba(139,92,246,.24);box-shadow:inset 0 1px rgba(255,255,255,.03)}
-.product-line-card.other-product-card{grid-column:1/-1}
-.product-line-title{display:flex;align-items:center;gap:9px}
-.product-line-title span{display:grid;place-items:center;width:31px;height:31px;border-radius:9px;background:rgba(139,92,246,.12)}
-.product-line-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.product-line-fields.three-columns{grid-template-columns:1.3fr .7fr .8fr}
-.product-line-fields label{display:grid;gap:7px;color:var(--muted-strong);font-size:.72rem;font-weight:800}
-.product-line-fields input{width:100%}
-.product-total-preview small,.payment-preview-box small{display:block;margin-top:5px;color:var(--muted);font-size:.73rem}
-.compact-product-builder{padding:13px}
-.edit-delivery-preview{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border:1px solid rgba(139,92,246,.25);border-radius:14px;background:rgba(139,92,246,.09)}
-.edit-delivery-preview span{color:var(--muted);font-size:.76rem;font-weight:850;text-transform:uppercase;letter-spacing:.06em}
-.edit-delivery-preview strong{font-size:1rem}
-
-/* Gestão dos flyers e condições comerciais */
-.flyer-toolbar-actions{display:flex;align-items:flex-end;gap:10px;width:min(570px,100%)}
-.flyer-toolbar-actions .flyer-search-field{flex:1;width:auto}
-.flyer-upload-main-btn{min-height:44px;white-space:nowrap}
-.flyer-price-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-.flyer-price-item{min-width:0;padding:11px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025)}
-.flyer-price-item span{display:block;margin-bottom:6px;color:#c8bcff;font-size:.66rem;font-weight:900;text-transform:uppercase;letter-spacing:.07em}
-.flyer-price-item p{margin:0;color:var(--muted-strong);font-size:.76rem;line-height:1.45;overflow-wrap:anywhere}
-.flyer-price-item em{color:var(--muted);font-style:normal}
-.flyer-file-list{display:grid;gap:7px}
-.flyer-file-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025)}
-.flyer-file-info{min-width:0;display:grid;gap:3px}
-.flyer-file-info strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.79rem}
-.flyer-file-info small{color:var(--muted);font-size:.64rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.flyer-file-actions{display:flex;gap:5px;flex:0 0 auto}
-.mini-action-btn{min-height:30px;padding:0 9px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.045);color:var(--muted-strong);font-size:.66rem;font-weight:850}
-.mini-action-btn:hover{background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.32);color:#fff}
-.mini-action-btn.warning{color:#ffe09a;background:rgba(240,184,75,.09)}
-.mini-action-btn.success{color:#baf5d2;background:rgba(54,199,120,.09)}
-.mini-action-btn.danger{color:#ffc0c0;background:rgba(235,87,87,.09)}
-.flyer-pending-section{display:grid;gap:8px;padding-top:3px}
-.flyer-section-label{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:.68rem;font-weight:900;text-transform:uppercase;letter-spacing:.07em}
-.flyer-section-label strong{display:grid;place-items:center;min-width:24px;height:24px;padding:0 6px;border-radius:999px;background:rgba(240,184,75,.13);color:#ffe09a}
-.flyer-management-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
-.flyer-management-actions .primary-btn,.flyer-management-actions .ghost-btn{min-width:0}
-
-@media (max-width: 900px){
-  .product-builder-head{flex-direction:column;gap:8px}
-  .product-builder-head small{text-align:left}
-  .product-line-grid,.flyer-price-grid{grid-template-columns:1fr}
-  .product-line-fields.three-columns{grid-template-columns:1fr 1fr}
-  .product-line-fields.three-columns label:first-child{grid-column:1/-1}
-  .flyer-toolbar-actions{width:100%}
-  .flyer-management-actions{grid-template-columns:1fr 1fr}
-  .flyer-management-actions .flyer-meetings-btn{grid-column:1/-1}
-}
-
-@media (max-width: 600px){
-  .product-line-fields,.product-line-fields.three-columns{grid-template-columns:1fr}
-  .product-line-fields.three-columns label:first-child{grid-column:auto}
-  .flyer-toolbar-actions{align-items:stretch;flex-direction:column}
-  .flyer-upload-main-btn{width:100%}
-  .flyer-file-row{align-items:stretch;flex-direction:column}
-  .flyer-file-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}
-  .flyer-management-actions{grid-template-columns:1fr}
-  .flyer-management-actions .flyer-meetings-btn{grid-column:auto}
-  .edit-delivery-preview{align-items:flex-start;flex-direction:column}
+@media(max-width:520px){
+  .family-counters{justify-content:flex-start}
+  .family-card-top{flex-direction:column}
+  .family-price-grid{grid-template-columns:1fr}
+  .family-actions{grid-template-columns:1fr}
+  .delivery-actions{align-items:stretch}
+  .delivery-actions button{width:100%}
 }
