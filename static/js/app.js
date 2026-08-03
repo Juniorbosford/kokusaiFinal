@@ -141,6 +141,42 @@ function escapeHtml(value){
     .replace(/'/g,"&#039;");
 }
 
+const LOCAL_FLYERS = {
+  "ballas": "/static/images/flyers/ballas.png",
+  "cartel": "/static/images/flyers/cartel.png",
+  "distrito": "/static/images/flyers/distrito.png",
+  "families": "/static/images/flyers/families.png",
+  "the families": "/static/images/flyers/families.png",
+  "hells": "/static/images/flyers/hells.png",
+  "hells angels": "/static/images/flyers/hells.png",
+  "hydra": "/static/images/flyers/hydra1.png",
+  "la guardia": "/static/images/flyers/laguardia.png",
+  "laguardia": "/static/images/flyers/laguardia.png",
+  "legacy": "/static/images/flyers/legacy.png",
+  "leviata": "/static/images/flyers/leviata.png",
+  "vagos": "/static/images/flyers/vagos.png",
+  "vendetta": "/static/images/flyers/vendetta.png",
+  "los bandoleros": "/static/images/flyers/cartel.png",
+  "bandoleros": "/static/images/flyers/cartel.png",
+};
+
+function normalizeFamilyFlyerKey(value){
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\\u0300-\\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getLocalFamilyFlyers(item){
+  const key = normalizeFamilyFlyerKey(item?.nome);
+  if(key === "hydra") return ["/static/images/flyers/hydra1.png", "/static/images/flyers/hydra2.png"];
+  const flyer = LOCAL_FLYERS[key] || "";
+  return flyer ? [flyer] : [];
+}
+
 function setFeedback(el, msg, isError=false){
   if(!el) return;
   el.textContent = msg;
@@ -935,8 +971,10 @@ async function loadFamilias(){
 
     familiasGrid.innerHTML = items.map(item => {
       const closed = item.mercado === "Fechado";
-      const flyer = item.flyer_url
-        ? `<div class="family-flyer"><img data-family-flyer src="${escapeHtml(item.flyer_url)}" alt="Flyer de ${escapeHtml(item.nome)}" referrerpolicy="no-referrer" /></div>`
+      const localFlyers = getLocalFamilyFlyers(item);
+      const flyerUrls = item.flyer_url ? [item.flyer_url] : localFlyers;
+      const flyer = flyerUrls.length
+        ? `<div class="family-flyer ${flyerUrls.length > 1 ? "family-flyer-multiple" : ""}">${flyerUrls.map((url, index) => `<img data-family-flyer src="${escapeHtml(url)}" alt="Flyer ${index + 1} de ${escapeHtml(item.nome)}" referrerpolicy="no-referrer" />`).join("")}</div>`
         : `<div class="family-flyer family-flyer-empty"><span>${escapeHtml(item.icone || "🤝")}</span><small>Sem flyer vinculado</small></div>`;
       return `<article class="family-card ${closed ? "closed" : "open"}">
         ${flyer}
