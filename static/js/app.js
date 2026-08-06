@@ -34,6 +34,7 @@ const familiaForm = document.getElementById("familiaForm");
 const familiaFeedback = document.getElementById("familiaFeedback");
 const familiaSubmitBtn = document.getElementById("familiaSubmitBtn");
 const familiaCancelEditBtn = document.getElementById("familiaCancelEditBtn");
+const toggleFamilyContactBtn = document.getElementById("toggleFamilyContact");
 const familiasGrid = document.getElementById("familiasGrid");
 const familiasDatalist = document.getElementById("familiasDatalist");
 let familiaEmEdicaoId = null;
@@ -205,7 +206,7 @@ function deliveryControl(item){
     <button type="button" class="delivery-confirm-btn" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Sim">
       ${delivered ? "Mover para Vendas" : "Confirmar entrega"}
     </button>
-    <button type="button" class="delivery-cancel-btn" data-cancelar-encomenda="${escapeHtml(item.id)}">Cancelar</button>
+    <button type="button" class="delivery-cancel-btn" data-cancelar-encomenda="${escapeHtml(item.id)}">Cancelar encomenda</button>
   </div>`;
 }
 
@@ -282,7 +283,10 @@ onInput("valor_unitario", updatePreviewCompra);
 onInput("quantidade", updatePreviewCompra);
 onInput("v_valor_unitario", updatePreviewVenda);
 onInput("v_quantidade", updatePreviewVenda);
-onInput("e_valor", updatePreviewEncomenda);
+onInput("e_l85_quantidade", updatePreviewEncomenda);
+onInput("e_l85_valor", updatePreviewEncomenda);
+onInput("e_seringa_quantidade", updatePreviewEncomenda);
+onInput("e_seringa_valor", updatePreviewEncomenda);
 
 function updatePreviewCompra(){
   const valor = Number(inputValue("valor_unitario") || 0);
@@ -297,8 +301,11 @@ function updatePreviewVenda(){
 }
 
 function updatePreviewEncomenda(){
-  const valor = Number(inputValue("e_valor") || 0);
-  setText("previewEncomendaValor", currency(valor));
+  const l85 = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
+  const seringa = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
+  setText("e_l85_subtotal", currency(l85));
+  setText("e_seringa_subtotal", currency(seringa));
+  setText("previewEncomendaValor", currency(l85 + seringa));
 }
 
 async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage){
@@ -365,10 +372,35 @@ vendaForm?.addEventListener("submit", async (e) => {
 
 encomendaForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const itens = [
+    {
+      produto:"L85",
+      quantidade:Number(inputValue("e_l85_quantidade") || 0),
+      valor_unitario:Number(inputValue("e_l85_valor") || 0),
+    },
+    {
+      produto:"Seringa",
+      quantidade:Number(inputValue("e_seringa_quantidade") || 0),
+      valor_unitario:Number(inputValue("e_seringa_valor") || 0),
+    },
+  ];
+
+  if(!itens.some(item => Number.isInteger(item.quantidade) && item.quantidade > 0)){
+    setFeedback(encomendaFeedback, "Informe a quantidade de L85, Seringa ou dos dois produtos.", true);
+    return;
+  }
+  if(itens.some(item => item.quantidade < 0 || !Number.isInteger(item.quantidade))){
+    setFeedback(encomendaFeedback, "As quantidades precisam ser números inteiros.", true);
+    return;
+  }
+  if(itens.some(item => item.quantidade > 0 && (!Number.isFinite(item.valor_unitario) || item.valor_unitario < 0))){
+    setFeedback(encomendaFeedback, "Informe um valor unitário válido para cada produto selecionado.", true);
+    return;
+  }
+
   const payload = {
     quem_pediu: inputValue("e_quem_pediu").trim(),
-    o_que_pediu: inputValue("e_o_que_pediu").trim(),
-    valor: Number(inputValue("e_valor")),
+    itens,
     para_quando: inputValue("e_para_quando").trim(),
     quem_negociou: inputValue("e_quem_negociou").trim(),
     entregue: inputValue("e_entregue"),
@@ -539,6 +571,9 @@ function resetFamiliaForm(){
   familiaForm?.reset();
   const mercado = document.getElementById("f_mercado");
   if(mercado) mercado.value = "Aberto";
+  const contato = document.getElementById("f_contato");
+  if(contato) contato.type = "password";
+  if(toggleFamilyContactBtn) toggleFamilyContactBtn.textContent = "Mostrar";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Adicionar Família/Gangue";
   if(familiaCancelEditBtn) familiaCancelEditBtn.hidden = true;
   setText("familiaFormKicker", "Novo cadastro");
@@ -554,7 +589,9 @@ function iniciarEdicaoFamilia(id){
   document.getElementById("f_mercado").value = item.mercado || "Aberto";
   document.getElementById("f_preco_venda").value = item.preco_venda_para_familia || "";
   document.getElementById("f_preco_compra").value = item.preco_compra_da_familia || "";
+  document.getElementById("f_contato").value = item.contato || "";
   document.getElementById("f_flyer_url").value = item.flyer_url || "";
+  document.getElementById("f_flyer_oculto").checked = Boolean(item.flyer_oculto);
   document.getElementById("f_observacao").value = item.observacao || "";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Salvar alterações";
   if(familiaCancelEditBtn) familiaCancelEditBtn.hidden = false;
@@ -569,6 +606,19 @@ familiaCancelEditBtn?.addEventListener("click", () => {
   setFeedback(familiaFeedback, "Edição cancelada.");
 });
 
+toggleFamilyContactBtn?.addEventListener("click", () => {
+  const input = document.getElementById("f_contato");
+  if(!input) return;
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  toggleFamilyContactBtn.textContent = showing ? "Mostrar" : "Esconder";
+});
+
+onInput("f_flyer_url", () => {
+  const hidden = document.getElementById("f_flyer_oculto");
+  if(hidden && inputValue("f_flyer_url").trim()) hidden.checked = false;
+});
+
 familiaForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const payload = {
@@ -577,7 +627,9 @@ familiaForm?.addEventListener("submit", async (event) => {
     mercado: inputValue("f_mercado"),
     preco_venda_para_familia: inputValue("f_preco_venda").trim(),
     preco_compra_da_familia: inputValue("f_preco_compra").trim(),
+    contato: inputValue("f_contato").trim(),
     flyer_url: inputValue("f_flyer_url").trim(),
+    flyer_oculto: Boolean(document.getElementById("f_flyer_oculto")?.checked),
     observacao: inputValue("f_observacao").trim(),
   };
 
@@ -600,10 +652,58 @@ familiaForm?.addEventListener("submit", async (event) => {
   }
 });
 
+function familyPayloadFromItem(item, overrides = {}){
+  return {
+    nome:item?.nome || "",
+    icone:item?.icone || "",
+    mercado:item?.mercado || "Aberto",
+    preco_venda_para_familia:item?.preco_venda_para_familia || "",
+    preco_compra_da_familia:item?.preco_compra_da_familia || "",
+    contato:item?.contato || "",
+    flyer_url:item?.flyer_url || "",
+    flyer_oculto:Boolean(item?.flyer_oculto),
+    observacao:item?.observacao || "",
+    ...overrides,
+  };
+}
+
 familiasGrid?.addEventListener("click", async (event) => {
+  const contactButton = event.target.closest("[data-toggle-family-contact]");
+  if(contactButton){
+    const card = contactButton.closest(".family-card");
+    const value = card?.querySelector("[data-family-contact-value]");
+    if(!value) return;
+    const willShow = value.hidden;
+    value.hidden = !willShow;
+    contactButton.textContent = willShow ? "Esconder contato" : "Mostrar contato";
+    return;
+  }
+
   const editButton = event.target.closest("[data-editar-familia]");
   if(editButton){
     iniciarEdicaoFamilia(editButton.dataset.editarFamilia);
+    return;
+  }
+
+  const flyerButton = event.target.closest("[data-remover-flyer]");
+  if(flyerButton && canWrite){
+    const id = flyerButton.dataset.removerFlyer;
+    const item = familiasCache.find(familia => familia.id === id);
+    if(!item || !window.confirm(`Remover o flyer de ${item.nome}? Você poderá adicionar outra imagem depois em Editar.`)) return;
+    flyerButton.disabled = true;
+    try{
+      const {res, data} = await fetchJson(`/api/familias/${encodeURIComponent(id)}`, {
+        method:"PUT",
+        headers:csrfHeaders({"Content-Type":"application/json"}),
+        body:JSON.stringify(familyPayloadFromItem(item, {flyer_url:"", flyer_oculto:true})),
+      });
+      setFeedback(familiaFeedback, data.message || (res.ok ? "Flyer removido." : "Erro ao remover flyer."), !res.ok);
+      if(res.ok) await loadFamilias();
+    }catch(error){
+      setFeedback(familiaFeedback, `Falha ao remover flyer: ${error.message}`, true);
+    }finally{
+      flyerButton.disabled = false;
+    }
     return;
   }
 
@@ -868,11 +968,11 @@ async function loadCompras(){
   try{
     const {res, data} = await fetchJson("/api/compras");
     if(!res.ok){
-      setTableContent(comprasTable, `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="7">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      setTableContent(comprasTable, `<tr><td colspan="6">Nenhuma compra registrada.</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="7">Nenhuma compra registrada.</td></tr>`);
       return;
     }
     setTableContent(comprasTable, data.map(item => `
@@ -883,9 +983,10 @@ async function loadCompras(){
         <td>${escapeHtml(item.quem_vendeu)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
+        <td>${escapeHtml(item.observacao || "—")}</td>
       </tr>`).join(""));
   }catch(error){
-    setTableContent(comprasTable, `<tr><td colspan="6">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
+    setTableContent(comprasTable, `<tr><td colspan="7">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -972,7 +1073,7 @@ async function loadFamilias(){
     familiasGrid.innerHTML = items.map(item => {
       const closed = item.mercado === "Fechado";
       const localFlyers = getLocalFamilyFlyers(item);
-      const flyerUrls = item.flyer_url ? [item.flyer_url] : localFlyers;
+      const flyerUrls = item.flyer_oculto ? [] : (item.flyer_url ? [item.flyer_url] : localFlyers);
       const flyer = flyerUrls.length
         ? `<div class="family-flyer ${flyerUrls.length > 1 ? "family-flyer-multiple" : ""}">${flyerUrls.map((url, index) => `<img data-family-flyer src="${escapeHtml(url)}" alt="Flyer ${index + 1} de ${escapeHtml(item.nome)}" referrerpolicy="no-referrer" />`).join("")}</div>`
         : `<div class="family-flyer family-flyer-empty"><span>${escapeHtml(item.icone || "🤝")}</span><small>Sem flyer vinculado</small></div>`;
@@ -984,11 +1085,12 @@ async function loadFamilias(){
             <span class="market-status ${closed ? "closed" : "open"}">${closed ? "Mercado fechado" : "Mercado aberto"}</span>
           </div>
           <div class="family-price-grid">
-            <div><span>Venda para eles</span><p>${escapeHtml(item.preco_venda_para_familia || "Não informado")}</p></div>
-            <div><span>Compra deles</span><p>${escapeHtml(item.preco_compra_da_familia || "Não informado")}</p></div>
+            <div><span>Nosso valor para a família</span><p>${escapeHtml(item.preco_venda_para_familia || "Não informado")}</p></div>
+            <div><span>Valor deles para a Kokusai</span><p>${escapeHtml(item.preco_compra_da_familia || "Não informado")}</p></div>
           </div>
+          ${item.contato ? `<div class="family-contact"><button type="button" class="family-contact-toggle" data-toggle-family-contact>Mostrar contato</button><span data-family-contact-value hidden>${escapeHtml(item.contato)}</span></div>` : ""}
           ${item.observacao ? `<p class="family-note">${escapeHtml(item.observacao)}</p>` : ""}
-          ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">✏️ Editar</button><button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover</button></div>` : ""}
+          ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">✏️ Editar dados/flyer</button>${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyer</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
         </div>
       </article>`;
     }).join("");

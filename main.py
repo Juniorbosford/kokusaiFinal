@@ -147,6 +147,7 @@ ENCOMENDAS_HEADERS = [
     "entregue",
     "observacao",
     "entregue_em",
+    "itens_json",
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
@@ -162,6 +163,8 @@ FAMILIAS_HEADERS = [
     "flyer_url",
     "observacao",
     "atualizado_em",
+    "contato",
+    "flyer_oculto",
 ]
 DEFAULT_FAMILIAS = [
     {
@@ -172,6 +175,15 @@ DEFAULT_FAMILIAS = [
         "preco_compra_da_familia": "",
         "flyer_url": "",
         "observacao": "Cadastro padrão para garantir que a Aura apareça nas opções de facções.",
+    },
+    {
+        "nome": "Distrito",
+        "icone": "🏙️",
+        "mercado": "Aberto",
+        "preco_venda_para_familia": "",
+        "preco_compra_da_familia": "",
+        "flyer_url": "",
+        "observacao": "Cadastro padrão para permitir uma tabela especial de valores para o Distrito.",
     },
     {
         "nome": "Cartel",
@@ -621,6 +633,12 @@ def normalize_market_status(value):
     return "Aberto"
 
 
+def normalize_flag(value):
+    if isinstance(value, bool):
+        return value
+    return normalized_lookup_key(value) in {"1", "true", "sim", "yes", "on"}
+
+
 def family_id_from_name(name):
     digest = hashlib.sha1(normalized_lookup_key(name).encode("utf-8")).hexdigest()[:12].upper()
     return f"KKSF-{digest}"
@@ -707,6 +725,7 @@ def legacy_flyers_payloads():
     sale_index = find_column("preco_venda_para_familia", "preço de venda", "preco de venda", "valor venda", "venda para eles")
     purchase_index = find_column("preco_compra_da_familia", "preço de compra", "preco de compra", "valor compra", "compra deles")
     flyer_index = find_column("flyer_url", "flyer", "imagem", "imagem_url", "url")
+    contact_index = find_column("contato", "telefone", "discord", "responsavel", "responsável")
     observation_index = find_column("observacao", "observação", "descricao", "descrição")
 
     payloads = []
@@ -721,6 +740,7 @@ def legacy_flyers_payloads():
             "preco_venda_para_familia": sheet_cell(row, sale_index) if sale_index is not None else "",
             "preco_compra_da_familia": sheet_cell(row, purchase_index) if purchase_index is not None else "",
             "flyer_url": sheet_cell(row, flyer_index) if flyer_index is not None else "",
+            "contato": sheet_cell(row, contact_index) if contact_index is not None else "",
             "observacao": sheet_cell(row, observation_index) if observation_index is not None else "Importada da antiga aba Flyers.",
         })
     return payloads
@@ -740,6 +760,8 @@ def build_family_row(data, registro_id=None, criado_em=None):
         str(data.get("flyer_url") or "").strip(),
         str(data.get("observacao") or "").strip(),
         now,
+        str(data.get("contato") or "").strip(),
+        "Sim" if normalize_flag(data.get("flyer_oculto")) else "Não",
     ]
 
 
@@ -845,7 +867,7 @@ def upsert_family_from_meeting(name, icon=""):
                 changed = True
             if changed:
                 padded[9] = format_timestamp()
-                worksheet.update(f"A{row_index}:J{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
+                worksheet.update(f"A{row_index}:L{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
                 invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
             return padded[0] or family_id_from_name(canonical_name), False
 
@@ -1136,10 +1158,89 @@ def normalize_venda(row):
 def normalize_encomenda(row):
     item = row_to_dict(row, ENCOMENDAS_HEADERS)
     item["entregue"] = validate_yes_no(item.get("entregue")) or "Não"
+    item["itens"] = parse_encomenda_items_json(item.get("itens_json"))
+    item.pop("itens_json", None)
     return item
 
 
 ENCOMENDA_ITEM_PATTERN = re.compile(r"^\s*(\d+)(?:\s*x\s*|\s+)(.+?)\s*$", re.IGNORECASE)
+
+
+def parse_encomenda_items_json(raw_value):
+    if not raw_value:
+        return []
+    try:
+        raw_items = json.loads(str(raw_value))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw_items, list):
+        return []
+
+    items = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        try:
+            quantidade = int(raw_item.get("quantidade") or 0)
+            valor_unitario = float(raw_item.get("valor_unitario") or 0)
+        except (TypeError, ValueError):
+            continue
+        produto = str(raw_item.get("produto") or "").strip()
+        if not produto or quantidade <= 0 or quantidade > MAX_QUANTITY or valor_unitario < 0:
+            continue
+        items.append({
+            "produto": produto,
+            "quantidade": quantidade,
+            "valor_unitario": round(valor_unitario, 2),
+            "valor_total": round(quantidade * valor_unitario, 2),
+        })
+    return items
+
+
+def validate_encomenda_items(raw_items):
+    if not isinstance(raw_items, list):
+        raise ValueError("Os itens da encomenda são inválidos.")
+
+    items = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise ValueError("Um dos itens da encomenda é inválido.")
+        try:
+            quantidade_num = float(raw_item.get("quantidade") or 0)
+            valor_unitario = float(raw_item.get("valor_unitario") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("Quantidade e valor dos produtos devem ser numéricos.")
+
+        if not quantidade_num.is_integer():
+            raise ValueError("A quantidade dos produtos deve ser um número inteiro.")
+        quantidade = int(quantidade_num)
+
+        # Linhas com quantidade zero são apenas campos ainda não usados no formulário.
+        if quantidade == 0:
+            continue
+        if quantidade < 0 or quantidade > MAX_QUANTITY:
+            raise ValueError(f"A quantidade deve ficar entre 1 e {MAX_QUANTITY}.")
+        if valor_unitario < 0 or valor_unitario > MAX_MONEY_VALUE:
+            raise ValueError("O valor unitário informado é inválido.")
+
+        produto = clean_text(raw_item.get("produto"), "Produto", required=True)
+        valor_total = round(quantidade * valor_unitario, 2)
+        if valor_total > MAX_MONEY_VALUE:
+            raise ValueError("O valor total de um dos produtos é muito alto.")
+        items.append({
+            "produto": produto,
+            "quantidade": quantidade,
+            "valor_unitario": round(valor_unitario, 2),
+            "valor_total": valor_total,
+        })
+
+    if not items:
+        raise ValueError("Informe a quantidade de pelo menos um produto: L85 ou Seringa.")
+
+    total = round(sum(item["valor_total"] for item in items), 2)
+    if total > MAX_MONEY_VALUE:
+        raise ValueError("Valor total da encomenda muito alto.")
+    return items, total
 
 
 def parse_encomenda_item(item_text):
@@ -1196,6 +1297,35 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
     ]
 
 
+def build_venda_rows_from_encomenda(item, entregue_em=None):
+    """Converte uma encomenda em uma ou mais vendas sem perder os itens combinados."""
+    items = parse_encomenda_items_json(item.get("itens_json"))
+    if not items:
+        return [build_venda_row_from_encomenda(item, entregue_em=entregue_em)]
+
+    encomenda_id = str(item.get("id") or "").strip()
+    prazo = str(item.get("para_quando") or "").strip()
+    observacao_original = str(item.get("observacao") or "").strip()
+    rows = []
+    for index, order_item in enumerate(items, start=1):
+        detalhes = [f"Convertida da encomenda {encomenda_id} (item {index}/{len(items)})."]
+        if prazo:
+            detalhes.append(f"Prazo combinado: {prazo}.")
+        observacao = " ".join(filter(None, [observacao_original, *detalhes]))[:MAX_OBSERVATION_LENGTH]
+        rows.append([
+            f"{venda_id_from_encomenda(encomenda_id)}-{index}",
+            entregue_em or format_timestamp(),
+            order_item["produto"],
+            str(item.get("quem_pediu") or "").strip(),
+            str(item.get("quem_negociou") or "").strip(),
+            order_item["valor_unitario"],
+            order_item["quantidade"],
+            order_item["valor_total"],
+            observacao,
+        ])
+    return rows
+
+
 def worksheet_has_record_id(worksheet, registro_id):
     rows = cached_get_all_values(worksheet.title, worksheet, force=True)
     return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
@@ -1205,6 +1335,7 @@ def normalize_family(row):
     item = row_to_dict(row, FAMILIAS_HEADERS)
     item["nome"] = canonical_family_name(item.get("nome"))
     item["mercado"] = normalize_market_status(item.get("mercado"))
+    item["flyer_oculto"] = normalize_flag(item.get("flyer_oculto"))
     return item
 
 
@@ -1517,7 +1648,7 @@ def list_encomendas():
 def create_encomenda():
     try:
         data = request.get_json(silent=True)
-        required_fields = ["quem_pediu", "o_que_pediu", "valor", "para_quando", "quem_negociou", "entregue"]
+        required_fields = ["quem_pediu", "para_quando", "quem_negociou", "entregue"]
 
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
@@ -1526,15 +1657,30 @@ def create_encomenda():
         if missing:
             return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
 
-        try:
-            valor = float(data["valor"])
-        except (ValueError, TypeError):
-            return error_response("O valor da encomenda deve ser numérico.", 400)
-
-        if valor < 0:
-            return error_response("O valor da encomenda não pode ser negativo.", 400)
-        if valor > MAX_MONEY_VALUE:
-            return error_response("Valor da encomenda muito alto.", 400)
+        itens_json = ""
+        if isinstance(data.get("itens"), list):
+            try:
+                items, valor = validate_encomenda_items(data["itens"])
+            except ValueError as validation_error:
+                return error_response(str(validation_error), 400)
+            o_que_pediu = " + ".join(f'{item["quantidade"]}x {item["produto"]}' for item in items)
+            itens_json = json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+        else:
+            # Compatibilidade com registros/clientes antigos que enviam um item livre.
+            if str(data.get("o_que_pediu", "")).strip() == "" or str(data.get("valor", "")).strip() == "":
+                return error_response("Informe os itens e o valor da encomenda.", 400)
+            try:
+                valor = float(data["valor"])
+            except (ValueError, TypeError):
+                return error_response("O valor da encomenda deve ser numérico.", 400)
+            if valor < 0:
+                return error_response("O valor da encomenda não pode ser negativo.", 400)
+            if valor > MAX_MONEY_VALUE:
+                return error_response("Valor da encomenda muito alto.", 400)
+            try:
+                o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
+            except ValueError as validation_error:
+                return error_response(str(validation_error), 400)
 
         entregue = str(data["entregue"]).strip().capitalize()
         if entregue not in ["Sim", "Não", "Nao"]:
@@ -1545,7 +1691,6 @@ def create_encomenda():
 
         try:
             quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
-            o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
             para_quando = clean_text_field(data, "para_quando", "Para quando")
             quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
             observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
@@ -1566,12 +1711,14 @@ def create_encomenda():
             "entregue": entregue,
             "observacao": observacao,
             "entregue_em": agora if entregue == "Sim" else "",
+            "itens_json": itens_json,
         }
 
         if entregue == "Sim":
             vendas_worksheet = get_vendas_worksheet()
-            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=agora)
-            vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+            venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=agora)
+            for venda_row in venda_rows:
+                vendas_worksheet.append_row(venda_row, value_input_option="RAW")
             invalidate_values_cache(VENDAS_WORKSHEET_NAME)
             log_info(f"Encomenda já entregue registrada diretamente em Vendas. ID={registro_id}")
 
@@ -1579,7 +1726,8 @@ def create_encomenda():
                 "ok": True,
                 "message": "Encomenda entregue e registrada diretamente em Vendas.",
                 "id": registro_id,
-                "venda_id": venda_row[0],
+                "venda_id": venda_rows[0][0],
+                "venda_ids": [row[0] for row in venda_rows],
                 "valor": round(valor, 2),
                 "moved_to_vendas": True,
             }), 201
@@ -1596,6 +1744,7 @@ def create_encomenda():
             entregue,
             observacao,
             "",
+            itens_json,
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -1651,28 +1800,33 @@ def update_encomenda_entrega(registro_id):
                 })
 
             entregue_em = str(row[9] or "").strip() or format_timestamp()
-            encomenda_item = normalize_encomenda(row)
+            encomenda_item = row_to_dict(row, ENCOMENDAS_HEADERS)
             encomenda_item["entregue"] = "Sim"
             encomenda_item["entregue_em"] = entregue_em
 
             vendas_worksheet = get_vendas_worksheet()
-            venda_row = build_venda_row_from_encomenda(encomenda_item, entregue_em=entregue_em)
-            venda_id = venda_row[0]
+            venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=entregue_em)
+            venda_ids = [venda_row[0] for venda_row in venda_rows]
 
             # Se a gravação da venda tiver ocorrido e a exclusão da encomenda falhar,
             # uma nova tentativa apenas conclui a exclusão, sem duplicar a venda.
-            if not worksheet_has_record_id(vendas_worksheet, venda_id):
-                vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+            existing_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet, force=True)
+            existing_ids = {sheet_cell(existing_row, 0) for existing_row in existing_rows[1:]}
+            for venda_row in venda_rows:
+                if venda_row[0] not in existing_ids:
+                    vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+                    existing_ids.add(venda_row[0])
 
             worksheet.delete_rows(row_index)
             invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
-            log_info(f"Encomenda movida para Vendas. Encomenda={registro_id} Venda={venda_id}")
+            log_info(f"Encomenda movida para Vendas. Encomenda={registro_id} Vendas={','.join(venda_ids)}")
 
         return jsonify({
             "ok": True,
             "message": "Entrega confirmada. A encomenda foi movida para Vendas.",
             "id": registro_id,
-            "venda_id": venda_id,
+            "venda_id": venda_ids[0],
+            "venda_ids": venda_ids,
             "entregue": "Sim",
             "entregue_em": entregue_em,
             "moved_to_vendas": True,
@@ -1913,6 +2067,10 @@ def validate_family_payload(data):
         max_length=MAX_OBSERVATION_LENGTH, required=False,
     )
     flyer_url = clean_optional_http_url(data.get("flyer_url"), "Link do flyer")
+    contact = clean_text_field(
+        data, "contato", "Contato", max_length=200, required=False,
+    )
+    flyer_hidden = normalize_flag(data.get("flyer_oculto"))
     observation = clean_text_field(
         data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False,
     )
@@ -1923,6 +2081,8 @@ def validate_family_payload(data):
         "preco_venda_para_familia": sale_price,
         "preco_compra_da_familia": purchase_price,
         "flyer_url": flyer_url,
+        "contato": contact,
+        "flyer_oculto": flyer_hidden,
         "observacao": observation,
     }
 
@@ -1982,7 +2142,7 @@ def update_familia(registro_id):
 
             padded = list(row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(row))
             updated = build_family_row(payload, registro_id=padded[0], criado_em=padded[1])
-            worksheet.update(f"A{row_index}:J{row_index}", [updated], value_input_option="RAW")
+            worksheet.update(f"A{row_index}:L{row_index}", [updated], value_input_option="RAW")
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
 
         return jsonify({"ok": True, "message": "Família/gangue atualizada com sucesso."})

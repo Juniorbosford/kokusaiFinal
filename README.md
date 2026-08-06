@@ -95,3 +95,12 @@ Consulte `SECURITY_REVIEW.md` antes de publicar alterações no GitHub/Railway.
 
 - Encomendas pendentes agora possuem o botão **Cancelar**.
 - Ao confirmar o cancelamento, o registro é apagado imediatamente da aba `Encomendas` e não é enviado para `Vendas`.
+
+## Pedidos combinados e gestão de famílias
+
+- Uma única encomenda pode conter **L85** e **Seringa**, cada uma com quantidade e valor unitário próprios. O total é calculado pela soma dos dois produtos.
+- Ao confirmar a entrega de um pedido combinado, cada produto é registrado corretamente na aba `Vendas`.
+- Compras possuem **Justificativa (opcional)** e o texto aparece no histórico.
+- Famílias possuem um campo específico de **contato**, mascarado por padrão na interface.
+- O campo de venda para a família é exibido como **Nosso valor para esta família**, permitindo manter tabelas especiais como Aura e Distrito.
+- Flyers podem ser substituídos por URL, ocultados e removidos pela própria aba de Famílias.

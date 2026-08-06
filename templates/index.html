@@ -174,8 +174,8 @@
               </div>
 
               <div class="field field-full">
-                <label for="observacao">Observação</label>
-                <textarea id="observacao" placeholder="Informações extras, se necessário"></textarea>
+                <label for="observacao">Justificativa (opcional)</label>
+                <textarea id="observacao" placeholder="Ex.: compra para produção, reposição ou outra necessidade"></textarea>
               </div>
 
               <div class="calc-box">
@@ -216,6 +216,7 @@
                     <th>Quem vendeu</th>
                     <th>Qtd</th>
                     <th>Total</th>
+                    <th>Justificativa</th>
                   </tr>
                 </thead>
                 <tbody id="comprasTable"></tbody>
@@ -347,14 +348,38 @@
                 <input id="e_quem_pediu" list="familiasDatalist" placeholder="Ex.: Nome (fac)" required />
               </div>
 
-              <div class="field">
-                <label for="e_o_que_pediu">O que pediu</label>
-                <input id="e_o_que_pediu" placeholder="Ex.: 15 L85" required />
-              </div>
-
-              <div class="field">
-                <label for="e_valor">Valor</label>
-                <input id="e_valor" type="number" min="0" step="0.01" placeholder="0,00" required />
+              <div class="field field-full">
+                <label>Itens do pedido</label>
+                <div class="order-items-grid">
+                  <div class="order-item-card">
+                    <div class="order-item-title">
+                      <strong>L85</strong>
+                      <span id="e_l85_subtotal">R$ 0,00</span>
+                    </div>
+                    <div class="order-item-fields">
+                      <label for="e_l85_quantidade">Quantidade
+                        <input id="e_l85_quantidade" type="number" min="0" step="1" placeholder="0" />
+                      </label>
+                      <label for="e_l85_valor">Valor unitário
+                        <input id="e_l85_valor" type="number" min="0" step="0.01" placeholder="0,00" />
+                      </label>
+                    </div>
+                  </div>
+                  <div class="order-item-card">
+                    <div class="order-item-title">
+                      <strong>Seringa</strong>
+                      <span id="e_seringa_subtotal">R$ 0,00</span>
+                    </div>
+                    <div class="order-item-fields">
+                      <label for="e_seringa_quantidade">Quantidade
+                        <input id="e_seringa_quantidade" type="number" min="0" step="1" placeholder="0" />
+                      </label>
+                      <label for="e_seringa_valor">Valor unitário
+                        <input id="e_seringa_valor" type="number" min="0" step="0.01" placeholder="0,00" />
+                      </label>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div class="field">
@@ -382,7 +407,7 @@
               </div>
 
               <div class="calc-box">
-                <span>Valor informado</span>
+                <span>Total dos produtos</span>
                 <strong id="previewEncomendaValor">R$ 0,00</strong>
               </div>
 
@@ -546,20 +571,32 @@
                 </select>
               </div>
               <div class="field field-full">
-                <label for="f_preco_venda">Preço de venda para eles</label>
-                <textarea id="f_preco_venda" placeholder="Ex.: L85 por R$ 45.000 para esta família"></textarea>
+                <label for="f_preco_venda">Nosso valor para esta família</label>
+                <textarea id="f_preco_venda" placeholder="Ex.: tabela especial da Aura ou Distrito"></textarea>
               </div>
               <div class="field field-full">
-                <label for="f_preco_compra">Preço deles de venda para a Kokusai</label>
+                <label for="f_preco_compra">Valor deles para a Kokusai</label>
                 <textarea id="f_preco_compra" placeholder="Ex.: Materiais, produtos e valores comprados desta família"></textarea>
               </div>
               <div class="field field-full">
-                <label for="f_flyer_url">Vincular imagem do flyer (opcional)</label>
+                <label for="f_contato">Contato</label>
+                <div class="secret-input-row">
+                  <input id="f_contato" type="password" autocomplete="off" placeholder="Digite o contato da família" />
+                  <button type="button" class="secondary-btn compact-btn" id="toggleFamilyContact">Mostrar</button>
+                </div>
+              </div>
+              <div class="field field-full">
+                <label for="f_flyer_url">Imagem do flyer (opcional)</label>
                 <input id="f_flyer_url" type="url" placeholder="https://.../flyer.png" />
+                <small class="field-help">Cole um novo link para adicionar ou substituir a imagem atual.</small>
+                <label class="check-line" for="f_flyer_oculto">
+                  <input id="f_flyer_oculto" type="checkbox" />
+                  <span>Ocultar o flyer atual</span>
+                </label>
               </div>
               <div class="field field-full">
                 <label for="f_observacao">Observações</label>
-                <textarea id="f_observacao" placeholder="Contatos, regras, restrições ou informações importantes"></textarea>
+                <textarea id="f_observacao" placeholder="Regras, restrições ou informações importantes"></textarea>
               </div>
               <div class="form-actions">
                 <button type="submit" class="primary-btn" id="familiaSubmitBtn">Adicionar Família/Gangue</button>

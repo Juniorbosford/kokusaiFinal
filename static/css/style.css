@@ -268,6 +268,18 @@ input:focus,textarea:focus,select:focus{
 }
 .calc-box span{color:var(--muted-strong);font-weight:700}
 .calc-box strong{font-size:1.2rem}
+.order-items-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.order-item-card{padding:14px;border-radius:15px;border:1px solid var(--line);background:rgba(255,255,255,.025)}
+.order-item-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.order-item-title strong{font-size:1rem;color:var(--text)}
+.order-item-title span{color:#a8f0c8;font-size:.82rem;font-weight:850}
+.order-item-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.order-item-fields label{display:flex;flex-direction:column;gap:6px;font-size:.76rem}
+.field-help{color:var(--muted);font-size:.76rem;line-height:1.45}
+.secret-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.compact-btn{min-height:46px;padding:0 14px}
+.check-line{display:flex;align-items:center;gap:9px;width:max-content;max-width:100%;cursor:pointer;font-size:.8rem}
+.check-line input{width:17px;min-height:17px;height:17px;padding:0;margin:0;accent-color:var(--accent)}
 .table-wrap{overflow:visible;max-width:100%;border-radius:16px;border:1px solid var(--line);background:rgba(6,8,12,.52)}
 table{width:100%;max-width:100%;border-collapse:separate;border-spacing:0;min-width:0;table-layout:fixed}
 th,td{padding:14px 13px;text-align:left;border-bottom:1px solid rgba(255,255,255,.065);vertical-align:middle}
@@ -897,9 +909,12 @@ table.craft-result-table{min-width:650px}
 .family-price-grid>div{padding:11px;border-radius:13px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.055)}
 .family-price-grid span{display:block;color:var(--muted);font-size:.69rem;font-weight:900;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
 .family-price-grid p{margin:0;color:var(--muted-strong);font-size:.82rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.family-contact{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:11px;padding:10px 11px;border-radius:12px;background:rgba(139,92,246,.075);border:1px solid rgba(139,92,246,.15)}
+.family-contact-toggle{min-height:32px;padding:0 10px;border-radius:9px;border:1px solid rgba(139,92,246,.28);background:rgba(139,92,246,.10);color:#e1d7ff;font-weight:850;cursor:pointer}
+.family-contact span{color:var(--muted-strong);font-size:.82rem;overflow-wrap:anywhere}
 .family-note{margin:11px 0 0;padding:10px 11px;border-radius:12px;background:rgba(255,255,255,.035);color:var(--muted);font-size:.8rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
-.family-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:13px}
-.family-edit-btn,.family-delete-btn{
+.family-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:13px}
+.family-edit-btn,.family-delete-btn,.family-flyer-delete-btn{
   min-height:38px;
   border-radius:11px;
   font-weight:900;
@@ -907,9 +922,11 @@ table.craft-result-table{min-width:650px}
 }
 .family-edit-btn{border:1px solid rgba(139,92,246,.32);background:rgba(139,92,246,.11);color:#e1d7ff}
 .family-edit-btn:hover{background:rgba(139,92,246,.19)}
+.family-flyer-delete-btn{border:1px solid rgba(245,158,11,.30);background:rgba(245,158,11,.09);color:#ffe1a6}
+.family-flyer-delete-btn:hover{background:rgba(245,158,11,.16)}
 .family-delete-btn{border:1px solid rgba(239,68,68,.30);background:rgba(239,68,68,.09);color:#ffc4c4}
 .family-delete-btn:hover{background:rgba(239,68,68,.16)}
-.family-edit-btn:disabled,.family-delete-btn:disabled{opacity:.55;cursor:not-allowed}
+.family-edit-btn:disabled,.family-delete-btn:disabled,.family-flyer-delete-btn:disabled{opacity:.55;cursor:not-allowed}
 .family-cancel-edit[hidden]{display:none}
 .family-empty{grid-column:1/-1;padding:36px;text-align:center;border:1px dashed var(--line);border-radius:17px;color:var(--muted);background:rgba(255,255,255,.02)}
 
@@ -941,4 +958,6 @@ table.craft-result-table{min-width:650px}
   .family-actions{grid-template-columns:1fr}
   .delivery-actions{align-items:stretch}
   .delivery-actions button{width:100%}
+  .order-items-grid,.order-item-fields{grid-template-columns:1fr}
+  .secret-input-row{grid-template-columns:1fr}
 }
