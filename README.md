@@ -25,10 +25,11 @@ python main.py
 
 ## Autenticação adicionada
 
-Esta versão inclui login com dois perfis:
+Esta versão inclui três níveis de acesso:
 
 - `kokusai`: administrador com acesso total.
 - `nekutai`: leitor com acesso somente para visualização.
+- `member`: contas individuais das Salas de Meta; cada pessoa vê apenas a própria sala e não acessa o painel operacional.
 
 As senhas são validadas por hash PBKDF2-SHA256. Consulte `LOGIN_RAILWAY.md` para configurar `SECRET_KEY`, cookies seguros no Railway e troca de senha.
 
@@ -49,22 +50,16 @@ O cálculo é feito no navegador e não salva nada na planilha. O usuário `koku
 
 ## Pagamento de metas
 
-A aba **Metas** foi adicionada abaixo de **Encomendas**.
+A antiga lista de metas foi transformada em **Salas de Meta** semanais e privadas.
 
-Ela usa a aba `Pagamento de Metas` no Google Sheets e mantém apenas o necessário para controle semanal:
+- Cada membro possui usuário e senha próprios e é redirecionado para `/minha-meta`.
+- O membro vê somente a própria sala, envia fotos da semana e consulta seu histórico.
+- O administrador vê todas as salas, abre os comprovantes e marca cada semana como `Pago`, `Pendente` ou `Recusado`.
+- A semana nova é criada automaticamente usando o mesmo dia de virada configurado em `META_RESET_WEEKDAY` (quarta-feira por padrão), sem apagar o histórico anterior.
+- Dados de usuários/status ficam no PostgreSQL e as imagens ficam em Bucket privado no Railway.
+- Em desenvolvimento local, o módulo usa SQLite e `data/meta_uploads` automaticamente.
 
-- nome da pessoa;
-- status de pagamento: `Sim` ou `Não`;
-- data da última atualização;
-- semana atual e confirmação de fechamento.
-
-A lista inicial foi transcrita da planilha **NKT - CONTROLE DE META FINANCEIRA.xlsx**, aba `Meta Semanal Padrao`. O usuário `kokusai` pode alterar o status, adicionar nomes e apagar nomes. O usuário `nekutai` apenas visualiza.
-
-Variável opcional no Railway:
-
-```txt
-METAS_WORKSHEET_NAME=Pagamento de Metas
-```
+Consulte `RAILWAY_METAS.md` para configurar PostgreSQL e Bucket no Railway. As credenciais iniciais dos membros ficam em `CREDENCIAIS_METAS.txt`, arquivo ignorado pelo Git.
 
 ## Fluxo de encomendas e vendas
 

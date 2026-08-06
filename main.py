@@ -8,14 +8,18 @@ import re
 import time
 import threading
 import secrets
+import sqlite3
+import uuid
+from io import BytesIO
 from copy import deepcopy
 from datetime import datetime, timedelta, date, timezone
 from functools import wraps
 import unicodedata
 from urllib.parse import urlparse
-from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g
+from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_file
 import gspread
 from google.oauth2.service_account import Credentials
+from meta_members import META_MEMBERS
 
 try:
     from zoneinfo import ZoneInfo
@@ -37,7 +41,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.getenv(
     "SESSION_COOKIE_SECURE",
     "true" if IS_RAILWAY else "false",
 ).lower() == "true"
-app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(64 * 1024)))
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(12 * 1024 * 1024)))
 
 
 SHEET_NAME = os.getenv("SHEET_NAME", "KokusaiDB")
@@ -53,6 +57,26 @@ LEGACY_FLYERS_WORKSHEET_NAME = os.getenv("FLYERS_WORKSHEET_NAME", "Flyers")
 META_RESET_WEEKDAY = int(os.getenv("META_RESET_WEEKDAY", "2"))  # 0=segunda, 2=quarta
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 APP_UTC_OFFSET_HOURS = int(os.getenv("APP_UTC_OFFSET_HOURS", "-3"))
+
+# Salas semanais de meta: PostgreSQL + Bucket no Railway em produção.
+# Localmente, SQLite e a pasta data/meta_uploads permitem testar sem infraestrutura externa.
+META_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+META_DB_LOCAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "kokusai_metas.db")
+META_BUCKET_NAME = (os.getenv("BUCKET") or os.getenv("AWS_S3_BUCKET_NAME") or "").strip()
+META_BUCKET_ENDPOINT = (os.getenv("ENDPOINT") or os.getenv("AWS_ENDPOINT_URL") or "").strip()
+META_BUCKET_REGION = (os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION") or "auto").strip()
+META_BUCKET_ACCESS_KEY = (os.getenv("ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
+META_BUCKET_SECRET_KEY = (os.getenv("SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
+META_LOCAL_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "meta_uploads")
+META_MAX_FILE_BYTES = int(os.getenv("META_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
+META_MAX_PHOTOS_PER_WEEK = int(os.getenv("META_MAX_PHOTOS_PER_WEEK", "5"))
+META_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+META_IMAGE_MAX_SIDE = int(os.getenv("META_IMAGE_MAX_SIDE", "2200"))
+META_IMAGE_WEBP_QUALITY = int(os.getenv("META_IMAGE_WEBP_QUALITY", "88"))
+
+_meta_db_lock = threading.RLock()
+_meta_db_ready = False
+_meta_storage_client_cache = {"client": None}
 
 # Cache simples para não estourar a quota do Google Sheets.
 # O Google Sheets cobra cada leitura da API; antes o painel fazia várias leituras
@@ -103,35 +127,35 @@ AUTH_USERS = {
 
 DEFAULT_META_NAMES = [
     "Astrid",
-    "Biel",
+    "Ayanna",
+    "Cecilia",
     "Dulce",
-    "Dylan",
-    "Eloá",
     "GB",
     "Gohan",
+    "Harper",
     "Hinata",
     "João",
-    "Junior Azul",
+    "Junior (Azulzin)",
+    "Kyotaka",
     "Lara Salles",
+    "Larissa",
     "Liam",
     "Lipe",
-    "Larissa",
-    "Lucas",
+    "Lucas Diaz",
     "Lucas Ricci",
-    "Luciano",
     "Matheus",
+    "Max",
     "Mia",
-    "Minazuki",
+    "Mina",
     "Morgan",
     "Nanami",
     "Ricardo",
     "Semente",
+    "Viny",
+    "Yan (Gordin)",
+    "Yara",
     "Yori",
     "Wanda",
-    "Yan (Gordin)",
-    "Haper",
-    "Vô Chico",
-    "Kyotaka",
 ]
 
 COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
@@ -269,6 +293,356 @@ def verify_password(password, password_hash):
         return False
 
 
+def meta_db_uses_postgres():
+    return bool(META_DATABASE_URL)
+
+
+def meta_db_connect():
+    if META_DATABASE_URL:
+        try:
+            import psycopg
+        except ImportError as error:
+            raise RuntimeError("Dependência psycopg não instalada. Execute pip install -r requirements.txt.") from error
+        return psycopg.connect(META_DATABASE_URL)
+
+    if IS_RAILWAY:
+        raise RuntimeError("DATABASE_URL não configurada. Adicione um PostgreSQL ao projeto no Railway.")
+
+    os.makedirs(os.path.dirname(META_DB_LOCAL_PATH), exist_ok=True)
+    connection = sqlite3.connect(META_DB_LOCAL_PATH, timeout=20)
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def meta_sql(query):
+    return query.replace("?", "%s") if meta_db_uses_postgres() else query
+
+
+def meta_rows_from_cursor(cursor):
+    if not cursor.description:
+        return []
+    columns = [description[0] for description in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def meta_query_all(query, params=()):
+    ensure_meta_database_ready()
+    connection = meta_db_connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(meta_sql(query), tuple(params))
+        return meta_rows_from_cursor(cursor)
+    finally:
+        connection.close()
+
+
+def meta_query_one(query, params=()):
+    rows = meta_query_all(query, params)
+    return rows[0] if rows else None
+
+
+def meta_execute(query, params=()):
+    ensure_meta_database_ready()
+    connection = meta_db_connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(meta_sql(query), tuple(params))
+        connection.commit()
+        return cursor.rowcount
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def meta_member_id(username):
+    digest = hashlib.sha1(str(username).encode("utf-8")).hexdigest()[:20]
+    return f"META-USER-{digest}"
+
+
+def ensure_meta_database_ready():
+    global _meta_db_ready
+    if _meta_db_ready:
+        return
+
+    with _meta_db_lock:
+        if _meta_db_ready:
+            return
+        connection = meta_db_connect()
+        try:
+            cursor = connection.cursor()
+            statements = [
+                """
+                CREATE TABLE IF NOT EXISTS meta_users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    display_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'member',
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS meta_submissions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    week_start TEXT NOT NULL,
+                    week_end TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'Pendente',
+                    admin_note TEXT NOT NULL DEFAULT '',
+                    submitted_at TEXT,
+                    reviewed_at TEXT,
+                    reviewed_by TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(user_id, week_start),
+                    FOREIGN KEY(user_id) REFERENCES meta_users(id)
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS meta_photos (
+                    id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    object_key TEXT NOT NULL,
+                    original_name TEXT NOT NULL,
+                    content_type TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(submission_id) REFERENCES meta_submissions(id),
+                    FOREIGN KEY(user_id) REFERENCES meta_users(id)
+                )
+                """,
+                "CREATE INDEX IF NOT EXISTS idx_meta_submissions_week ON meta_submissions(week_start)",
+                "CREATE INDEX IF NOT EXISTS idx_meta_photos_submission ON meta_photos(submission_id)",
+            ]
+            for statement in statements:
+                cursor.execute(statement)
+
+            created_at = format_timestamp()
+            seed_query = meta_sql(
+                """
+                INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at)
+                VALUES (?, ?, ?, ?, 'member', 1, ?)
+                ON CONFLICT(username) DO NOTHING
+                """
+            )
+            for member in META_MEMBERS:
+                cursor.execute(seed_query, (
+                    meta_member_id(member["username"]),
+                    member["username"],
+                    member["display_name"],
+                    member["password_hash"],
+                    created_at,
+                ))
+            connection.commit()
+            _meta_db_ready = True
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+
+def get_meta_member_by_username(username):
+    try:
+        return meta_query_one(
+            "SELECT id, username, display_name, password_hash, role, active FROM meta_users WHERE username = ?",
+            (str(username or "").strip().lower(),),
+        )
+    except Exception as error:
+        log_error("Falha ao consultar usuário da sala de meta", error)
+        return None
+
+
+def get_meta_member_by_id(user_id):
+    return meta_query_one(
+        "SELECT id, username, display_name, role, active FROM meta_users WHERE id = ? AND active = 1",
+        (user_id,),
+    )
+
+
+def ensure_current_meta_submissions():
+    ensure_meta_database_ready()
+    week = meta_week_payload()
+    members = meta_query_all(
+        "SELECT id FROM meta_users WHERE role = 'member' AND active = 1 ORDER BY display_name"
+    )
+    connection = meta_db_connect()
+    try:
+        cursor = connection.cursor()
+        query = meta_sql(
+            """
+            INSERT INTO meta_submissions (id, user_id, week_start, week_end, status, created_at)
+            VALUES (?, ?, ?, ?, 'Pendente', ?)
+            ON CONFLICT(user_id, week_start) DO NOTHING
+            """
+        )
+        created_at = format_timestamp()
+        for member in members:
+            cursor.execute(query, (
+                f"META-SUB-{uuid.uuid4().hex}", member["id"], week["semana_inicio"], week["semana_fim"], created_at,
+            ))
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return week
+
+
+def get_current_meta_submission(user_id):
+    week = ensure_current_meta_submissions()
+    return meta_query_one(
+        """
+        SELECT id, user_id, week_start, week_end, status, admin_note, submitted_at, reviewed_at, reviewed_by, created_at
+        FROM meta_submissions WHERE user_id = ? AND week_start = ?
+        """,
+        (user_id, week["semana_inicio"]),
+    )
+
+
+def get_meta_photos(submission_id):
+    return meta_query_all(
+        """
+        SELECT id, submission_id, user_id, object_key, original_name, content_type, size_bytes, created_at
+        FROM meta_photos WHERE submission_id = ? ORDER BY created_at ASC
+        """,
+        (submission_id,),
+    )
+
+
+def get_meta_room_history(user_id, limit=12):
+    current_week = meta_week_payload()["semana_inicio"]
+    return meta_query_all(
+        """
+        SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at, s.reviewed_at,
+               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count
+        FROM meta_submissions s
+        WHERE s.user_id = ? AND s.week_start <> ?
+        ORDER BY substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2) DESC
+        LIMIT ?
+        """,
+        (user_id, current_week, int(limit)),
+    )
+
+
+def meta_bucket_configured():
+    return all([META_BUCKET_NAME, META_BUCKET_ENDPOINT, META_BUCKET_ACCESS_KEY, META_BUCKET_SECRET_KEY])
+
+
+def get_meta_storage_client():
+    if not meta_bucket_configured():
+        return None
+    if _meta_storage_client_cache.get("client") is not None:
+        return _meta_storage_client_cache["client"]
+    try:
+        import boto3
+    except ImportError as error:
+        raise RuntimeError("Dependência boto3 não instalada. Execute pip install -r requirements.txt.") from error
+    client = boto3.client(
+        "s3",
+        endpoint_url=META_BUCKET_ENDPOINT,
+        region_name=META_BUCKET_REGION,
+        aws_access_key_id=META_BUCKET_ACCESS_KEY,
+        aws_secret_access_key=META_BUCKET_SECRET_KEY,
+    )
+    _meta_storage_client_cache["client"] = client
+    return client
+
+
+def prepare_meta_image(upload):
+    if not upload or not upload.filename:
+        raise ValueError("Selecione uma foto para enviar.")
+    if upload.mimetype not in META_ALLOWED_IMAGE_TYPES:
+        raise ValueError("Envie somente imagens JPG, PNG ou WEBP.")
+
+    raw = upload.stream.read(META_MAX_FILE_BYTES + 1)
+    if len(raw) > META_MAX_FILE_BYTES:
+        raise ValueError("A foto ultrapassa o limite de 10 MB.")
+    if not raw:
+        raise ValueError("A foto enviada está vazia.")
+
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as error:
+        raise RuntimeError("Dependência Pillow não instalada. Execute pip install -r requirements.txt.") from error
+
+    try:
+        image = Image.open(BytesIO(raw))
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((META_IMAGE_MAX_SIDE, META_IMAGE_MAX_SIDE))
+        if image.mode not in {"RGB", "L"}:
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            if "A" in image.getbands():
+                background.paste(image, mask=image.getchannel("A"))
+            else:
+                background.paste(image)
+            image = background
+        elif image.mode == "L":
+            image = image.convert("RGB")
+        output = BytesIO()
+        image.save(output, format="WEBP", quality=META_IMAGE_WEBP_QUALITY, method=6)
+        return output.getvalue()
+    except Exception as error:
+        raise ValueError("Não foi possível ler essa imagem. Tente enviar outra foto.") from error
+
+
+def store_meta_photo(upload, user_id, week_start):
+    image_bytes = prepare_meta_image(upload)
+    object_key = f"metas/{user_id}/{week_start.replace('/', '-')}/{uuid.uuid4().hex}.webp"
+    client = get_meta_storage_client()
+    if client:
+        client.put_object(Bucket=META_BUCKET_NAME, Key=object_key, Body=image_bytes, ContentType="image/webp")
+    else:
+        if IS_RAILWAY:
+            raise RuntimeError("Bucket de fotos não configurado no Railway.")
+        local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/"))
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as file_handle:
+            file_handle.write(image_bytes)
+    return {
+        "object_key": object_key,
+        "original_name": os.path.basename(upload.filename)[:180],
+        "content_type": "image/webp",
+        "size_bytes": len(image_bytes),
+    }
+
+
+def delete_meta_photo_object(object_key):
+    client = get_meta_storage_client()
+    if client:
+        client.delete_object(Bucket=META_BUCKET_NAME, Key=object_key)
+        return
+    local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *str(object_key).split("/"))
+    if os.path.isfile(local_path):
+        os.remove(local_path)
+
+
+def meta_photo_access_url(photo):
+    client = get_meta_storage_client()
+    if client:
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": META_BUCKET_NAME, "Key": photo["object_key"]},
+            ExpiresIn=300,
+        )
+    return url_for("meta_photo_file", photo_id=photo["id"])
+
+
+def serialize_meta_photo(photo):
+    return {
+        "id": photo["id"],
+        "original_name": photo["original_name"],
+        "content_type": photo["content_type"],
+        "size_bytes": int(photo["size_bytes"] or 0),
+        "created_at": photo["created_at"],
+        "url": meta_photo_access_url(photo),
+    }
+
+
 def get_current_user():
     username = session.get("username")
     if not username:
@@ -276,14 +650,17 @@ def get_current_user():
 
     user = AUTH_USERS.get(username)
     if not user:
-        session.clear()
-        return None
+        user = get_meta_member_by_username(username)
+        if not user or not int(user.get("active") or 0):
+            session.clear()
+            return None
 
     return {
         "username": username,
         "display_name": user["display_name"],
         "role": user["role"],
         "can_write": user["role"] == "admin",
+        "user_id": user.get("id") if isinstance(user, dict) else None,
     }
 
 
@@ -375,6 +752,44 @@ def require_login(view):
     return wrapped
 
 
+def require_staff(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            if wants_json_response():
+                return error_response("Login necessário para acessar o sistema.", 401)
+            return redirect(url_for("login", next=request.path))
+        if user["role"] not in {"admin", "viewer"}:
+            if wants_json_response():
+                return error_response("Esta área é restrita à equipe Kokusai.", 403)
+            return redirect(url_for("meta_room"))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def require_member(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            if wants_json_response():
+                return error_response("Login necessário para acessar sua sala.", 401)
+            return redirect(url_for("login", next=request.path))
+        if user["role"] != "member":
+            if wants_json_response():
+                return error_response("Esta ação é exclusiva dos membros das salas de meta.", 403)
+            return redirect(url_for("home"))
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            csrf_error = csrf_error_if_invalid()
+            if csrf_error:
+                return csrf_error
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 def require_admin(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -405,6 +820,7 @@ def inject_auth_context():
     return {
         "current_user": user,
         "is_admin": bool(user and user.get("role") == "admin"),
+        "is_member": bool(user and user.get("role") == "member"),
         "csrf_token": get_csrf_token(),
     }
 
@@ -1370,6 +1786,9 @@ def normalize_meta(row):
 @app.get("/")
 @require_login
 def home():
+    user = get_current_user()
+    if user and user.get("role") == "member":
+        return redirect(url_for("meta_room"))
     return render_template("index.html")
 
 
@@ -1395,7 +1814,7 @@ def login():
             error = "Muitas tentativas de login. Aguarde alguns minutos e tente novamente."
             return render_template("login.html", error=error, next_url=next_url), 429
 
-        user = AUTH_USERS.get(username)
+        user = AUTH_USERS.get(username) or get_meta_member_by_username(username)
 
         if user and verify_password(password, user["password_hash"]):
             session.clear()
@@ -1403,6 +1822,8 @@ def login():
             session["username"] = username
             get_csrf_token()
             clear_login_attempts(key)
+            if user.get("role") == "member":
+                return redirect(url_for("meta_room"))
             return redirect(safe_next_url(request.form.get("next") or next_url))
 
         record_failed_login(key)
@@ -1436,6 +1857,240 @@ def health():
     })
 
 
+def build_meta_room_payload(user_id):
+    member = get_meta_member_by_id(user_id)
+    if not member:
+        raise ValueError("Membro não encontrado.")
+    submission = get_current_meta_submission(user_id)
+    photos = get_meta_photos(submission["id"])
+    history = get_meta_room_history(user_id)
+    return {
+        "member": {
+            "id": member["id"],
+            "username": member["username"],
+            "display_name": member["display_name"],
+        },
+        "submission": submission,
+        "photos": [serialize_meta_photo(photo) for photo in photos],
+        "history": history,
+        "limits": {
+            "max_photos": META_MAX_PHOTOS_PER_WEEK,
+            "max_file_mb": round(META_MAX_FILE_BYTES / (1024 * 1024)),
+        },
+    }
+
+
+@app.get("/minha-meta")
+@require_member
+def meta_room():
+    return render_template("meta_room.html")
+
+
+@app.get("/api/meta-room")
+@require_member
+def current_meta_room():
+    try:
+        user = get_current_user()
+        return jsonify(build_meta_room_payload(user["user_id"]))
+    except Exception as error:
+        log_error("Falha ao carregar sala individual de meta", error)
+        return error_response(str(error))
+
+
+@app.post("/api/meta-room/photos")
+@require_member
+def upload_meta_room_photo():
+    try:
+        user = get_current_user()
+        submission = get_current_meta_submission(user["user_id"])
+        if submission["status"] == "Pago":
+            return error_response("A meta desta semana já foi marcada como paga e está bloqueada para novos envios.", 409)
+
+        current_photos = get_meta_photos(submission["id"])
+        if len(current_photos) >= META_MAX_PHOTOS_PER_WEEK:
+            return error_response(f"Limite de {META_MAX_PHOTOS_PER_WEEK} fotos por semana atingido.", 400)
+
+        upload = request.files.get("photo")
+        stored = store_meta_photo(upload, user["user_id"], submission["week_start"])
+        photo_id = f"META-PHOTO-{uuid.uuid4().hex}"
+        created_at = format_timestamp()
+        try:
+            meta_execute(
+                """
+                INSERT INTO meta_photos (id, submission_id, user_id, object_key, original_name, content_type, size_bytes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    photo_id, submission["id"], user["user_id"], stored["object_key"], stored["original_name"],
+                    stored["content_type"], stored["size_bytes"], created_at,
+                ),
+            )
+        except Exception:
+            delete_meta_photo_object(stored["object_key"])
+            raise
+
+        meta_execute(
+            "UPDATE meta_submissions SET status = 'Enviado', submitted_at = ? WHERE id = ?",
+            (created_at, submission["id"]),
+        )
+        return jsonify({"ok": True, "message": "Foto enviada para sua sala com sucesso.", "photo_id": photo_id}), 201
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha no upload da sala de meta", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/meta-room/photos/<photo_id>")
+@require_member
+def delete_meta_room_photo(photo_id):
+    try:
+        user = get_current_user()
+        photo = meta_query_one(
+            """
+            SELECT p.id, p.object_key, p.submission_id, p.user_id, s.status, s.week_start
+            FROM meta_photos p JOIN meta_submissions s ON s.id = p.submission_id
+            WHERE p.id = ? AND p.user_id = ?
+            """,
+            (photo_id, user["user_id"]),
+        )
+        if not photo:
+            return error_response("Foto não encontrada na sua sala.", 404)
+        current_week = meta_week_payload()["semana_inicio"]
+        if photo["week_start"] != current_week:
+            return error_response("Fotos de semanas anteriores fazem parte do histórico e não podem ser removidas.", 409)
+        if photo["status"] == "Pago":
+            return error_response("Esta semana já foi marcada como paga.", 409)
+
+        delete_meta_photo_object(photo["object_key"])
+        meta_execute("DELETE FROM meta_photos WHERE id = ?", (photo_id,))
+        remaining = meta_query_one(
+            "SELECT COUNT(*) AS total FROM meta_photos WHERE submission_id = ?",
+            (photo["submission_id"],),
+        )
+        if int(remaining["total"] or 0) == 0:
+            meta_execute(
+                "UPDATE meta_submissions SET status = 'Pendente', submitted_at = NULL WHERE id = ?",
+                (photo["submission_id"],),
+            )
+        return jsonify({"ok": True, "message": "Foto removida da semana atual."})
+    except Exception as error:
+        log_error("Falha ao remover foto da sala de meta", error)
+        return error_response(str(error))
+
+
+@app.get("/meta/photo/<photo_id>")
+@require_login
+def meta_photo_file(photo_id):
+    try:
+        photo = meta_query_one(
+            "SELECT id, user_id, object_key, content_type FROM meta_photos WHERE id = ?",
+            (photo_id,),
+        )
+        if not photo:
+            return error_response("Foto não encontrada.", 404)
+        user = get_current_user()
+        if user["role"] == "member" and photo["user_id"] != user.get("user_id"):
+            return error_response("Você não tem acesso a esta foto.", 403)
+        if user["role"] not in {"member", "admin"}:
+            return error_response("Somente o dono da sala e o administrador podem acessar esta foto.", 403)
+        if meta_bucket_configured():
+            return redirect(meta_photo_access_url(photo))
+
+        local_root = os.path.abspath(META_LOCAL_UPLOAD_DIR)
+        local_path = os.path.abspath(os.path.join(META_LOCAL_UPLOAD_DIR, *photo["object_key"].split("/")))
+        if not local_path.startswith(local_root + os.sep) or not os.path.isfile(local_path):
+            return error_response("Arquivo da foto não encontrado.", 404)
+        return send_file(local_path, mimetype=photo.get("content_type") or "image/webp")
+    except Exception as error:
+        log_error("Falha ao servir foto da sala de meta", error)
+        return error_response(str(error))
+
+
+@app.get("/api/meta-rooms")
+@require_admin
+def list_meta_rooms():
+    try:
+        week = ensure_current_meta_submissions()
+        rooms = meta_query_all(
+            """
+            SELECT u.id AS user_id, u.username, u.display_name, s.id AS submission_id,
+                   s.status, s.admin_note, s.submitted_at, s.reviewed_at,
+                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count
+            FROM meta_users u
+            JOIN meta_submissions s ON s.user_id = u.id AND s.week_start = ?
+            WHERE u.role = 'member' AND u.active = 1
+            ORDER BY u.display_name ASC
+            """,
+            (week["semana_inicio"],),
+        )
+        return jsonify({"week": week, "rooms": rooms})
+    except Exception as error:
+        log_error("Falha ao listar salas de meta", error)
+        return error_response(str(error))
+
+
+@app.get("/api/meta-rooms/<user_id>")
+@require_admin
+def admin_meta_room_detail(user_id):
+    try:
+        return jsonify(build_meta_room_payload(user_id))
+    except ValueError as error:
+        return error_response(str(error), 404)
+    except Exception as error:
+        log_error("Falha ao abrir sala de meta pelo admin", error)
+        return error_response(str(error))
+
+
+@app.post("/api/meta-rooms/<submission_id>/status")
+@require_admin
+def review_meta_room(submission_id):
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+        status = str(data.get("status") or "").strip().capitalize()
+        if status not in {"Pago", "Pendente", "Recusado"}:
+            return error_response("Status deve ser Pago, Pendente ou Recusado.", 400)
+
+        submission = meta_query_one(
+            "SELECT id, user_id FROM meta_submissions WHERE id = ?",
+            (submission_id,),
+        )
+        if not submission:
+            return error_response("Sala semanal não encontrada.", 404)
+        if status == "Pago":
+            photo_count = meta_query_one(
+                "SELECT COUNT(*) AS total FROM meta_photos WHERE submission_id = ?",
+                (submission_id,),
+            )
+            if int(photo_count["total"] or 0) == 0:
+                return error_response("Não é possível marcar como paga sem nenhuma foto enviada.", 400)
+
+        note = clean_text(data.get("admin_note"), "Observação do admin", max_length=500, required=False)
+        reviewed_at = format_timestamp()
+        admin = get_current_user()
+        meta_execute(
+            """
+            UPDATE meta_submissions
+            SET status = ?, admin_note = ?, reviewed_at = ?, reviewed_by = ?
+            WHERE id = ?
+            """,
+            (status, note, reviewed_at, admin["username"], submission_id),
+        )
+        return jsonify({
+            "ok": True,
+            "message": f"Meta marcada como {status}.",
+            "status": status,
+            "reviewed_at": reviewed_at,
+        })
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha ao revisar sala de meta", error)
+        return error_response(str(error))
+
+
 @app.get("/api/debug-config")
 @require_admin
 def debug_config():
@@ -1459,13 +2114,15 @@ def debug_config():
         "encomendas_worksheet": ENCOMENDAS_WORKSHEET_NAME,
         "metas_worksheet": METAS_WORKSHEET_NAME,
         "historico_metas_worksheet": HISTORICO_METAS_WORKSHEET_NAME,
+        "meta_database_configured": bool(META_DATABASE_URL) or not IS_RAILWAY,
+        "meta_bucket_configured": meta_bucket_configured(),
         "credentials_present": bool(credentials_json),
         "service_account_email": client_email,
     })
 
 
 @app.get("/api/compras")
-@require_login
+@require_staff
 def list_compras():
     try:
         worksheet = get_compras_worksheet()
@@ -1535,7 +2192,7 @@ def create_compra():
 
 
 @app.get("/api/vendas")
-@require_login
+@require_staff
 def list_vendas():
     try:
         worksheet = get_vendas_worksheet()
@@ -1605,7 +2262,7 @@ def create_venda():
 
 
 @app.get("/api/resumo")
-@require_login
+@require_staff
 def resumo_compras():
     try:
         worksheet = get_compras_worksheet()
@@ -1618,7 +2275,7 @@ def resumo_compras():
 
 
 @app.get("/api/resumo-vendas")
-@require_login
+@require_staff
 def resumo_vendas():
     try:
         worksheet = get_vendas_worksheet()
@@ -1631,7 +2288,7 @@ def resumo_vendas():
 
 
 @app.get("/api/encomendas")
-@require_login
+@require_staff
 def list_encomendas():
     try:
         worksheet = get_encomendas_worksheet()
@@ -1859,7 +2516,7 @@ def cancel_encomenda(registro_id):
 
 
 @app.get("/api/resumo-encomendas")
-@require_login
+@require_staff
 def resumo_encomendas():
     try:
         worksheet = get_encomendas_worksheet()
@@ -1873,7 +2530,7 @@ def resumo_encomendas():
 
 
 @app.get("/api/reunioes")
-@require_login
+@require_staff
 def list_reunioes():
     try:
         worksheet = get_reunioes_worksheet()
@@ -2035,7 +2692,7 @@ def cancelar_reuniao(registro_id):
 
 
 @app.get("/api/familias")
-@require_login
+@require_staff
 def list_familias():
     try:
         worksheet = get_familias_worksheet()
@@ -2170,7 +2827,7 @@ def delete_familia(registro_id):
 
 
 @app.get("/api/metas")
-@require_login
+@require_staff
 def list_metas():
     try:
         worksheet = get_metas_worksheet()
@@ -2183,40 +2840,30 @@ def list_metas():
 
 
 @app.get("/api/resumo-metas")
-@require_login
+@require_staff
 def resumo_metas():
     try:
-        worksheet = get_metas_worksheet()
-        rows = cached_get_all_values(METAS_WORKSHEET_NAME, worksheet)
-        registros = active_meta_rows(rows)
-        total = len(registros)
-        pagos = 0
-        confirmados = 0
-
-        for row in registros:
-            status = row[2].strip().lower() if len(row) > 2 else ""
-            if status == "sim":
-                pagos += 1
-            if len(row) > 6 and str(row[6]).strip().lower() in ["sim", "s"]:
-                confirmados += 1
-
-        if registros:
-            semana_inicio = registros[0][4] if len(registros[0]) > 4 else meta_week_payload()["semana_inicio"]
-            semana_fim = registros[0][5] if len(registros[0]) > 5 else meta_week_payload()["semana_fim"]
-        else:
-            week = meta_week_payload()
-            semana_inicio = week["semana_inicio"]
-            semana_fim = week["semana_fim"]
+        week = ensure_current_meta_submissions()
+        rows = meta_query_all(
+            "SELECT status FROM meta_submissions WHERE week_start = ?",
+            (week["semana_inicio"],),
+        )
+        total = len(rows)
+        pagos = sum(1 for row in rows if row["status"] == "Pago")
+        enviados = sum(1 for row in rows if row["status"] == "Enviado")
+        recusados = sum(1 for row in rows if row["status"] == "Recusado")
 
         return jsonify({
             "total": total,
             "pagos": pagos,
             "pendentes": max(total - pagos, 0),
-            "confirmados": confirmados,
-            "faltam_confirmar": max(total - confirmados, 0),
-            "semana_inicio": semana_inicio,
-            "semana_fim": semana_fim,
-            "semana_label": f"{semana_inicio} até {semana_fim}",
+            "enviados": enviados,
+            "recusados": recusados,
+            "confirmados": pagos,
+            "faltam_confirmar": max(total - pagos, 0),
+            "semana_inicio": week["semana_inicio"],
+            "semana_fim": week["semana_fim"],
+            "semana_label": week["semana_label"],
         })
 
     except Exception as e:

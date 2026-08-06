@@ -32,7 +32,7 @@
         <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
         <button class="nav-link" data-target="reunioes"><span>Reuniões</span></button>
         <button class="nav-link" data-target="familias"><span>Famílias</span></button>
-        <button class="nav-link" data-target="metas"><span>Metas</span></button>
+        {% if is_admin %}<button class="nav-link" data-target="metas"><span>Salas de Meta</span></button>{% endif %}
         <button class="nav-link" data-target="craft"><span>Craft</span></button>
       </nav>
 
@@ -630,104 +630,66 @@
         </div>
       </section>
 
+      {% if is_admin %}
       <section class="view" id="metas">
         <div class="section-intro">
           <div>
-            <p class="eyebrow">Pagamento de metas</p>
-            <h3>Controle semanal em formato de planilha</h3>
+            <p class="eyebrow">Salas de Meta</p>
+            <h3>Controle semanal por pessoa</h3>
           </div>
-          <p>Marque SIM ou NÃO em cada nome. Quando todos forem marcados, a semana é salva no histórico e a próxima semana abre zerada automaticamente.</p>
+          <p>Cada membro envia as próprias fotos em uma sala privada. Aqui você acompanha todos os envios, confere os comprovantes e confirma o pagamento.</p>
         </div>
 
-        <div class="section-grid metas-layout">
-          <section class="panel-card metas-control-card">
-            <div class="panel-head">
-              <div>
-                <p class="panel-kicker">Resumo rápido</p>
-                <h3>Status das metas</h3>
-              </div>
-            </div>
-
+        <section class="panel-card meta-admin-summary-card">
+          <div class="meta-admin-summary-head">
             <div class="meta-week-box">
               <span>Semana atual</span>
               <strong id="metaSemanaAtual">--</strong>
-              <small id="metaProgresso">0/0 marcados</small>
+              <small id="metaProgresso">0/0 pagos</small>
             </div>
-
             <div class="meta-kpi-grid">
+              <div><span>Salas</span><strong id="metaTotal">0</strong></div>
+              <div><span>Pagas</span><strong id="metaPagas">0</strong></div>
+              <div><span>Enviadas</span><strong id="metaEnviadas">0</strong></div>
+              <div><span>Pendentes</span><strong id="metaPendentes">0</strong></div>
+            </div>
+          </div>
+          <div class="feedback" id="metasFeedback">Selecione uma sala para conferir os comprovantes da semana.</div>
+        </section>
+
+        <div class="meta-admin-layout">
+          <section class="panel-card meta-rooms-list-card">
+            <div class="panel-head meta-rooms-list-head">
               <div>
-                <span>Total</span>
-                <strong id="metaTotal">0</strong>
+                <p class="panel-kicker">Equipe</p>
+                <h3>Salas individuais</h3>
               </div>
-              <div>
-                <span>Sim</span>
-                <strong id="metaPagas">0</strong>
-              </div>
-              <div>
-                <span>Não</span>
-                <strong id="metaPendentes">0</strong>
+              <div class="meta-room-search-wrap">
+                <input id="metaRoomsSearch" type="search" placeholder="Buscar pessoa..." />
               </div>
             </div>
-
-            {% if is_admin %}
-            <form id="metaForm" class="form-grid compact-form">
-              <div class="field field-full">
-                <label for="meta_nome">Adicionar pessoa</label>
-                <input id="meta_nome" placeholder="Nome da pessoa" />
-              </div>
-
-              <div class="field field-full">
-                <label for="meta_pago">Status inicial</label>
-                <select id="meta_pago">
-                  <option value="Não">Não</option>
-                  <option value="Sim">Sim</option>
-                </select>
-              </div>
-
-              <div class="form-actions">
-                <button type="submit" class="primary-btn">Adicionar na planilha</button>
-              </div>
-            </form>
-            <div class="form-actions compact-actions">
-              <button type="button" class="secondary-btn" id="fecharSemanaBtn">Fechar semana agora</button>
+            <div class="meta-rooms-grid" id="metaRoomsGrid">
+              <div class="meta-empty-state">Carregando salas...</div>
             </div>
-            <div class="feedback" id="metasFeedback">Clique em SIM ou NÃO para confirmar cada pessoa. Ao finalizar todos, o sistema reseta para a próxima semana.</div>
-            {% else %}
+          </section>
+
+          <section class="panel-card meta-room-detail-card" id="metaRoomDetailCard">
+            <div id="metaRoomDetail" class="meta-room-detail-empty">
+              <span>📸</span>
+              <h3>Selecione uma sala</h3>
+              <p>Clique no nome de uma pessoa para ver as fotos e o histórico semanal dela.</p>
+            </div>
+            {% if not is_admin %}
             <div class="readonly-card compact-readonly">
               <span class="readonly-icon">🔒</span>
               <h4>Modo somente leitura</h4>
-              <p>Seu usuário pode visualizar os pagamentos de meta, mas não pode alterar status, fechar semana nem apagar nomes.</p>
+              <p>Você pode conferir as salas e as fotos, mas somente o administrador pode alterar o status do pagamento.</p>
             </div>
             {% endif %}
           </section>
-
-          <section class="panel-card table-card metas-sheet-card">
-            <div class="panel-head">
-              <div>
-                <p class="panel-kicker">Planilha</p>
-                <h3>Lista de pagamentos</h3>
-              </div>
-            </div>
-
-            <div class="table-wrap metas-table-wrap">
-              <table class="spreadsheet-table metas-sheet-table responsive-table">
-                <thead>
-                  <tr>
-                    <th class="sheet-index-col">#</th>
-                    <th>Nome</th>
-                    <th>Meta paga?</th>
-                    <th>Atualizado</th>
-                    {% if is_admin %}<th>Ações</th>{% endif %}
-                  </tr>
-                </thead>
-                <tbody id="metasTable">
-                  <tr><td colspan="{{ 5 if is_admin else 4 }}">Carregando pagamentos de meta...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
         </div>
       </section>
+      {% endif %}
 
       <section class="view" id="craft">
         <div class="section-intro">

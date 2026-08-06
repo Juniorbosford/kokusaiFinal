@@ -3,3 +3,6 @@ gspread
 google-auth
 gunicorn
 tzdata
+psycopg[binary]
+boto3
+Pillow

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minha Sala de Meta | Kokusai</title>
+  <meta name="description" content="Sala semanal individual de meta Kokusai." />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+  <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body class="meta-room-page" data-role="member">
+  <div class="page-noise" aria-hidden="true"></div>
+  <div class="meta-room-shell">
+    <aside class="meta-room-sidebar">
+      <div class="brand">
+        <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="brand-logo" />
+        <div>
+          <p class="brand-kicker">Kokusai</p>
+          <h1>Minha Meta</h1>
+          <span>Sala individual</span>
+        </div>
+      </div>
+      <div class="member-profile-card">
+        <span>Logado como</span>
+        <strong>{{ current_user.display_name }}</strong>
+        <small>@{{ current_user.username }}</small>
+      </div>
+      <div class="member-week-mini">
+        <span>Semana atual</span>
+        <strong id="memberWeekMini">Carregando...</strong>
+      </div>
+      <form action="{{ url_for('logout') }}" method="post" class="member-logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <button type="submit" class="logout-btn">Sair</button>
+      </form>
+    </aside>
+
+    <main class="meta-room-main">
+      <header class="member-room-header">
+        <div>
+          <p class="eyebrow">Sala semanal</p>
+          <h2 id="memberRoomTitle">Meta de {{ current_user.display_name }}</h2>
+          <p>Envie aqui as fotos que comprovam sua meta desta semana. Somente você e a administração conseguem acessar esta sala.</p>
+        </div>
+        <span class="meta-status-badge pending" id="memberMetaStatus">Pendente</span>
+      </header>
+
+      <section class="member-room-grid">
+        <article class="panel-card member-upload-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Semana atual</p>
+              <h3 id="memberWeekLabel">Carregando semana...</h3>
+            </div>
+          </div>
+          <div class="member-upload-zone" id="memberUploadZone">
+            <input id="memberPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+            <div>
+              <strong>Selecione suas fotos</strong>
+              <p>JPG, PNG ou WEBP. Você pode selecionar mais de uma de uma vez.</p>
+            </div>
+          </div>
+          <div class="member-upload-actions">
+            <span id="memberPhotoCounter">0 fotos enviadas</span>
+            <button class="primary-btn" type="button" id="memberUploadBtn">Enviar fotos</button>
+          </div>
+          <div class="feedback" id="memberMetaFeedback">Aguardando envio.</div>
+          <div class="member-admin-note" id="memberAdminNote" hidden></div>
+        </article>
+
+        <article class="panel-card member-current-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Comprovantes</p>
+              <h3>Fotos desta semana</h3>
+            </div>
+          </div>
+          <div class="member-photo-grid" id="memberPhotoGrid">
+            <div class="meta-empty-state">Carregando fotos...</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel-card member-history-card">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Arquivo</p>
+            <h3>Histórico de semanas</h3>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="responsive-table">
+            <thead><tr><th>Semana</th><th>Fotos</th><th>Status</th><th>Revisado</th></tr></thead>
+            <tbody id="memberHistoryTable"><tr><td colspan="4">Carregando histórico...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='js/meta_room.js') }}"></script>
+</body>
+</html>

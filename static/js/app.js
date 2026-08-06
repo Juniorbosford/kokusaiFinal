@@ -43,10 +43,12 @@ const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
 const reunioesGrid = document.getElementById("reunioesGrid");
-const metasTable = document.getElementById("metasTable");
-const metaForm = document.getElementById("metaForm");
 const metasFeedback = document.getElementById("metasFeedback");
-const fecharSemanaBtn = document.getElementById("fecharSemanaBtn");
+const metaRoomsGrid = document.getElementById("metaRoomsGrid");
+const metaRoomsSearch = document.getElementById("metaRoomsSearch");
+const metaRoomDetail = document.getElementById("metaRoomDetail");
+let metaRoomsCache = [];
+let selectedMetaRoomUserId = null;
 const craftForm = document.getElementById("craftForm");
 const craftInputs = document.querySelectorAll("[data-craft-input]");
 const craftTable = document.getElementById("craftTable");
@@ -216,14 +218,15 @@ function paymentBadge(value){
   return `<span class="status-badge ${isPaid ? "success" : "pending"}">${isPaid ? "SIM" : "NÃO"}</span>`;
 }
 
-function updateMetaCounters(total=0, pagos=0, pendentes=0, confirmados=0, semanaLabel="--"){
+function updateMetaCounters(total=0, pagos=0, pendentes=0, confirmados=0, semanaLabel="--", enviados=0){
   setText("metaTotal", integer(total));
   setText("metaPagas", integer(pagos));
   setText("metaPendentes", integer(pendentes));
+  setText("metaEnviadas", integer(enviados));
   setText("statMetasPagas", integer(pagos));
   setText("statMetasPendentes", integer(pendentes));
   setText("metaSemanaAtual", semanaLabel || "--");
-  setText("metaProgresso", `${integer(confirmados)}/${integer(total)} marcados`);
+  setText("metaProgresso", `${integer(confirmados)}/${integer(total)} pagos`);
 }
 
 async function parseResponse(res){
@@ -727,105 +730,6 @@ familiasGrid?.addEventListener("click", async (event) => {
   }
 });
 
-metaForm?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const payload = {
-    nome: inputValue("meta_nome").trim(),
-    pago: inputValue("meta_pago") || "Não",
-  };
-
-  const ok = await sendPost("/api/metas", payload, metasFeedback, "Adicionando nome...", "Nome adicionado na lista de metas.");
-  if(ok){
-    metaForm.reset();
-    const status = document.getElementById("meta_pago");
-    if(status) status.value = "Não";
-  }
-});
-
-metasTable?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-meta-choice]");
-  if(!button || !canWrite) return;
-
-  const id = button.dataset.metaStatus;
-  const pago = button.dataset.metaChoice;
-  const row = button.closest("tr");
-  const buttons = row ? row.querySelectorAll("[data-meta-choice]") : [button];
-  buttons.forEach(btn => btn.disabled = true);
-  setFeedback(metasFeedback, `Marcando ${pago.toUpperCase()}...`);
-
-  try{
-    const {res, data} = await fetchJson(`/api/metas/${encodeURIComponent(id)}/status`, {
-      method:"POST",
-      headers:csrfHeaders({"Content-Type":"application/json"}),
-      body:JSON.stringify({pago})
-    });
-    if(!res.ok){
-      setFeedback(metasFeedback, data.error || "Erro ao atualizar status.", true);
-      await loadMetas();
-      return;
-    }
-
-    const message = data.week_closed
-      ? `${data.message} Nova semana: ${data.next_week?.semana_label || "--"}.`
-      : (data.message || "Status atualizado.");
-    setFeedback(metasFeedback, message);
-    await Promise.all([loadMetas(), loadResumo()]);
-  }catch(error){
-    setFeedback(metasFeedback, `Falha ao atualizar status: ${error.message}`, true);
-  }finally{
-    buttons.forEach(btn => btn.disabled = false);
-  }
-});
-
-metasTable?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-delete-meta]");
-  if(!button || !canWrite) return;
-
-  const id = button.dataset.deleteMeta;
-  const name = button.dataset.name || "essa pessoa";
-  if(!window.confirm(`Apagar ${name} da lista de metas?`)) return;
-
-  button.disabled = true;
-  setFeedback(metasFeedback, "Apagando nome da planilha...");
-
-  try{
-    const {res, data} = await fetchJson(`/api/metas/${encodeURIComponent(id)}`, {method:"DELETE", headers:csrfHeaders()});
-    if(!res.ok){
-      setFeedback(metasFeedback, data.error || "Erro ao apagar nome.", true);
-      return;
-    }
-    setFeedback(metasFeedback, data.message || "Nome removido.");
-    await Promise.all([loadMetas(), loadResumo()]);
-  }catch(error){
-    setFeedback(metasFeedback, `Falha ao apagar nome: ${error.message}`, true);
-  }finally{
-    button.disabled = false;
-  }
-});
-
-fecharSemanaBtn?.addEventListener("click", async () => {
-  if(!canWrite) return;
-  if(!window.confirm("Fechar a semana atual, salvar no histórico e abrir a próxima zerada?")) return;
-
-  fecharSemanaBtn.disabled = true;
-  setFeedback(metasFeedback, "Fechando semana e abrindo a próxima...");
-
-  try{
-    const {res, data} = await fetchJson("/api/metas/fechar-semana", {method:"POST", headers:csrfHeaders()});
-    if(!res.ok){
-      setFeedback(metasFeedback, data.error || "Erro ao fechar semana.", true);
-      return;
-    }
-    setFeedback(metasFeedback, `${data.message} Nova semana: ${data.next_week?.semana_label || "--"}.`);
-    await Promise.all([loadMetas(), loadResumo()]);
-  }catch(error){
-    setFeedback(metasFeedback, `Falha ao fechar semana: ${error.message}`, true);
-  }finally{
-    fecharSemanaBtn.disabled = false;
-  }
-});
-
-
 function integer(value){
   return new Intl.NumberFormat("pt-BR", {maximumFractionDigits:0}).format(Number(value || 0));
 }
@@ -960,7 +864,7 @@ async function loadResumo(){
     document.getElementById("statValorCompras").textContent = currency(dc.valor_movimentado ?? 0);
     document.getElementById("statValorVendas").textContent = currency(dv.valor_movimentado ?? 0);
     document.getElementById("statValorEncomendas").textContent = currency(de.valor_movimentado ?? 0);
-    updateMetaCounters(dm.total ?? 0, dm.pagos ?? 0, dm.pendentes ?? 0, dm.confirmados ?? 0, dm.semana_label ?? "--");
+    updateMetaCounters(dm.total ?? 0, dm.pagos ?? 0, dm.pendentes ?? 0, dm.confirmados ?? 0, dm.semana_label ?? "--", dm.enviados ?? 0);
   }catch{}
 }
 
@@ -1145,52 +1049,109 @@ async function loadReunioes(){
   }catch(error){ reunioesGrid.innerHTML = `<div class="meeting-empty">Falha ao carregar reuniões: ${escapeHtml(error.message)}</div>`; }
 }
 
-async function loadMetas(){
-  if(!metasTable) return;
+function metaStatusClass(status){
+  const value = String(status || "Pendente").toLowerCase();
+  if(value === "pago") return "paid";
+  if(value === "enviado") return "sent";
+  if(value === "recusado") return "rejected";
+  return "pending";
+}
 
-  const colspan = canWrite ? 5 : 4;
+function renderMetaRooms(){
+  if(!metaRoomsGrid) return;
+  const term = String(metaRoomsSearch?.value || "").trim().toLocaleLowerCase("pt-BR");
+  const rooms = metaRoomsCache.filter(room => !term || `${room.display_name} ${room.username}`.toLocaleLowerCase("pt-BR").includes(term));
+  if(!rooms.length){
+    metaRoomsGrid.innerHTML = '<div class="meta-empty-state">Nenhuma sala encontrada.</div>';
+    return;
+  }
+  metaRoomsGrid.innerHTML = rooms.map(room => `
+    <button type="button" class="meta-room-list-item ${room.user_id === selectedMetaRoomUserId ? "active" : ""}" data-meta-room-user="${escapeHtml(room.user_id)}">
+      <span class="meta-room-avatar">${escapeHtml(String(room.display_name || "?").slice(0, 1).toUpperCase())}</span>
+      <span class="meta-room-person"><strong>${escapeHtml(room.display_name)}</strong><small>@${escapeHtml(room.username)}</small></span>
+      <span class="meta-room-list-info"><span class="meta-status-badge ${metaStatusClass(room.status)}">${escapeHtml(room.status)}</span><small>${integer(room.photo_count || 0)} foto(s)</small></span>
+    </button>`).join("");
+}
+
+async function loadMetaRoomDetail(userId){
+  if(!metaRoomDetail) return;
+  selectedMetaRoomUserId = userId;
+  renderMetaRooms();
+  metaRoomDetail.innerHTML = '<div class="meta-empty-state">Carregando sala...</div>';
   try{
-    const {res, data} = await fetchJson("/api/metas");
-    if(!res.ok){
-      setTableContent(metasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar metas.")}</td></tr>`);
-      return;
-    }
-    if(!Array.isArray(data) || !data.length){
-      setTableContent(metasTable, `<tr><td colspan="${colspan}">Nenhum nome cadastrado na lista de metas.</td></tr>`);
-      updateMetaCounters(0, 0, 0, 0, "--");
-      return;
-    }
+    const {res, data} = await fetchJson(`/api/meta-rooms/${encodeURIComponent(userId)}`);
+    if(!res.ok){ metaRoomDetail.innerHTML = `<div class="meta-empty-state">${escapeHtml(data.error || "Erro ao abrir sala.")}</div>`; return; }
+    const submission = data.submission || {};
+    const photos = Array.isArray(data.photos) ? data.photos : [];
+    const history = Array.isArray(data.history) ? data.history : [];
+    const photosHtml = photos.length
+      ? `<div class="admin-meta-photo-grid">${photos.map((photo, index) => `<a href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="Comprovante ${index + 1} de ${escapeHtml(data.member.display_name)}" /><span>Foto ${index + 1}</span></a>`).join("")}</div>`
+      : '<div class="meta-empty-state compact">Nenhuma foto enviada nesta semana.</div>';
+    const historyHtml = history.length
+      ? history.map(item => `<tr><td>${escapeHtml(item.week_start)} até ${escapeHtml(item.week_end)}</td><td>${integer(item.photo_count || 0)}</td><td><span class="meta-status-badge ${metaStatusClass(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.reviewed_at || "—")}</td></tr>`).join("")
+      : '<tr><td colspan="4">Nenhum histórico ainda.</td></tr>';
 
-    const pagos = data.filter(item => String(item.pago || "").trim().toLowerCase() === "sim").length;
-    const confirmados = data.filter(item => Boolean(item.confirmado)).length;
-    const first = data[0] || {};
-    const semanaLabel = first.semana_inicio && first.semana_fim ? `${first.semana_inicio} até ${first.semana_fim}` : "--";
-    updateMetaCounters(data.length, pagos, data.length - pagos, confirmados, semanaLabel);
-
-    setTableContent(metasTable, data.map((item, index) => {
-      const pago = String(item.pago || "Não").trim().toLowerCase() === "sim" ? "Sim" : "Não";
-      const confirmado = Boolean(item.confirmado);
-      const statusCell = canWrite
-        ? `<div class="payment-toggle-group" aria-label="Pagamento de ${escapeHtml(item.nome)}">
-            <button type="button" class="payment-choice ${pago === "Sim" ? "active success" : ""}" data-meta-status="${escapeHtml(item.id)}" data-meta-choice="Sim">SIM</button>
-            <button type="button" class="payment-choice ${pago === "Não" ? "active pending" : ""}" data-meta-status="${escapeHtml(item.id)}" data-meta-choice="Não">NÃO</button>
-          </div>`
-        : paymentBadge(pago);
-      const actionCell = canWrite
-        ? `<td><button class="danger-btn small-btn" type="button" data-delete-meta="${escapeHtml(item.id)}" data-name="${escapeHtml(item.nome)}">Apagar</button></td>`
-        : "";
-
-      return `
-        <tr class="${confirmado ? "meta-confirmed" : "meta-unconfirmed"}">
-          <td class="sheet-index">${index + 1}</td>
-          <td class="meta-name-cell"><strong>${escapeHtml(item.nome)}</strong>${confirmado ? "" : `<small>Aguardando clique</small>`}</td>
-          <td>${statusCell}</td>
-          <td>${confirmado ? escapeHtml(item.atualizado_em || "--") : "--"}</td>
-          ${actionCell}
-        </tr>`;
-    }).join(""));
+    metaRoomDetail.innerHTML = `
+      <div class="meta-room-detail-head">
+        <div><p class="panel-kicker">Sala individual</p><h3>${escapeHtml(data.member.display_name)}</h3><small>@${escapeHtml(data.member.username)}</small></div>
+        <span class="meta-status-badge ${metaStatusClass(submission.status)}">${escapeHtml(submission.status || "Pendente")}</span>
+      </div>
+      <div class="meta-detail-week"><span>Semana</span><strong>${escapeHtml(submission.week_start)} até ${escapeHtml(submission.week_end)}</strong><small>${integer(photos.length)} foto(s) enviada(s)</small></div>
+      ${photosHtml}
+      ${canWrite ? `<div class="meta-review-panel"><label for="metaAdminNote">Observação para o membro</label><textarea id="metaAdminNote" placeholder="Opcional: motivo da recusa, orientação ou observação">${escapeHtml(submission.admin_note || "")}</textarea><div class="meta-review-actions"><button type="button" class="meta-review-paid" data-meta-review="Pago" data-submission-id="${escapeHtml(submission.id)}">✓ Marcar pago</button><button type="button" class="meta-review-pending" data-meta-review="Pendente" data-submission-id="${escapeHtml(submission.id)}">Voltar para pendente</button><button type="button" class="meta-review-rejected" data-meta-review="Recusado" data-submission-id="${escapeHtml(submission.id)}">Recusar</button></div></div>` : (submission.admin_note ? `<p class="family-note">Observação: ${escapeHtml(submission.admin_note)}</p>` : "")}
+      <div class="meta-detail-history"><div class="panel-head"><div><p class="panel-kicker">Histórico</p><h3>Semanas anteriores</h3></div></div><div class="table-wrap"><table class="responsive-table"><thead><tr><th>Semana</th><th>Fotos</th><th>Status</th><th>Revisado</th></tr></thead><tbody>${historyHtml}</tbody></table></div></div>`;
   }catch(error){
-    setTableContent(metasTable, `<tr><td colspan="${colspan}">Falha ao carregar metas: ${escapeHtml(error.message)}</td></tr>`);
+    metaRoomDetail.innerHTML = `<div class="meta-empty-state">Falha ao abrir sala: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+metaRoomsGrid?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-meta-room-user]");
+  if(button) loadMetaRoomDetail(button.dataset.metaRoomUser);
+});
+
+metaRoomsSearch?.addEventListener("input", renderMetaRooms);
+
+metaRoomDetail?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-meta-review]");
+  if(!button || !canWrite) return;
+  const status = button.dataset.metaReview;
+  if(status === "Pago" && !window.confirm("Confirmar que esta meta foi paga? Depois disso o membro não poderá alterar as fotos desta semana.")) return;
+  const buttons = metaRoomDetail.querySelectorAll("[data-meta-review]");
+  buttons.forEach(item => item.disabled = true);
+  try{
+    const {res, data} = await fetchJson(`/api/meta-rooms/${encodeURIComponent(button.dataset.submissionId)}/status`, {
+      method:"POST",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify({status, admin_note:inputValue("metaAdminNote").trim()}),
+    });
+    setFeedback(metasFeedback, data.message || (res.ok ? "Status atualizado." : "Erro ao revisar meta."), !res.ok);
+    if(res.ok){
+      await Promise.all([loadMetas(), loadResumo()]);
+    }
+  }catch(error){ setFeedback(metasFeedback, `Falha ao revisar meta: ${error.message}`, true); }
+  finally{ buttons.forEach(item => item.disabled = false); }
+});
+
+async function loadMetas(){
+  if(!metaRoomsGrid) return;
+  try{
+    const {res, data} = await fetchJson("/api/meta-rooms");
+    if(!res.ok){
+      metaRoomsGrid.innerHTML = `<div class="meta-empty-state">${escapeHtml(data.error || "Erro ao carregar salas de meta.")}</div>`;
+      setFeedback(metasFeedback, data.error || "Erro ao carregar salas de meta.", true);
+      return;
+    }
+    metaRoomsCache = Array.isArray(data.rooms) ? data.rooms : [];
+    const pagos = metaRoomsCache.filter(room => room.status === "Pago").length;
+    const enviados = metaRoomsCache.filter(room => room.status === "Enviado").length;
+    updateMetaCounters(metaRoomsCache.length, pagos, Math.max(metaRoomsCache.length - pagos, 0), pagos, data.week?.semana_label || "--", enviados);
+    renderMetaRooms();
+    if(selectedMetaRoomUserId && metaRoomsCache.some(room => room.user_id === selectedMetaRoomUserId)){
+      await loadMetaRoomDetail(selectedMetaRoomUserId);
+    }
+  }catch(error){
+    metaRoomsGrid.innerHTML = `<div class="meta-empty-state">Falha ao carregar salas: ${escapeHtml(error.message)}</div>`;
   }
 }
 
