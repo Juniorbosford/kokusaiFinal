@@ -2411,6 +2411,113 @@ def create_encomenda():
         return error_response(str(e))
 
 
+@app.put("/api/encomendas/<registro_id>")
+@require_admin
+def update_encomenda(registro_id):
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+
+        required_fields = ["quem_pediu", "para_quando", "quem_negociou", "entregue"]
+        missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
+        if missing:
+            return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
+
+        try:
+            items, valor = validate_encomenda_items(data.get("itens"))
+            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            para_quando = clean_text_field(data, "para_quando", "Para quando")
+            quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
+            observacao = clean_text_field(
+                data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False,
+            )
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        entregue = validate_yes_no(data.get("entregue"))
+        if not entregue:
+            return error_response("O campo 'entregue' deve ser 'Sim' ou 'Não'.", 400)
+
+        o_que_pediu = " + ".join(f'{item["quantidade"]}x {item["produto"]}' for item in items)
+        itens_json = json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+
+        with _sheets_lock:
+            worksheet = get_encomendas_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Encomenda não encontrada.", 404)
+
+            while len(row) < len(ENCOMENDAS_HEADERS):
+                row.append("")
+
+            original_date = str(row[1] or "").strip() or format_timestamp()
+            encomenda_item = {
+                "id": registro_id,
+                "data": original_date,
+                "quem_pediu": quem_pediu,
+                "o_que_pediu": o_que_pediu,
+                "valor": round(valor, 2),
+                "para_quando": para_quando,
+                "quem_negociou": quem_negociou,
+                "entregue": entregue,
+                "observacao": observacao,
+                "entregue_em": "",
+                "itens_json": itens_json,
+            }
+
+            if entregue == "Sim":
+                entregue_em = format_timestamp()
+                encomenda_item["entregue_em"] = entregue_em
+                vendas_worksheet = get_vendas_worksheet()
+                venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=entregue_em)
+                existing_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet, force=True)
+                existing_ids = {sheet_cell(existing_row, 0) for existing_row in existing_rows[1:]}
+                for venda_row in venda_rows:
+                    if venda_row[0] not in existing_ids:
+                        vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+                        existing_ids.add(venda_row[0])
+                worksheet.delete_rows(row_index)
+                invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+                return jsonify({
+                    "ok": True,
+                    "message": "Encomenda atualizada, entregue e movida para Vendas.",
+                    "id": registro_id,
+                    "moved_to_vendas": True,
+                    "venda_ids": [venda_row[0] for venda_row in venda_rows],
+                })
+
+            worksheet.update(
+                f"A{row_index}:K{row_index}",
+                [[
+                    registro_id,
+                    original_date,
+                    quem_pediu,
+                    o_que_pediu,
+                    round(valor, 2),
+                    para_quando,
+                    quem_negociou,
+                    "Não",
+                    observacao,
+                    "",
+                    itens_json,
+                ]],
+                value_input_option="RAW",
+            )
+            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
+
+        return jsonify({
+            "ok": True,
+            "message": "Encomenda atualizada com sucesso.",
+            "id": registro_id,
+            "valor": round(valor, 2),
+            "moved_to_vendas": False,
+        })
+    except Exception as e:
+        log_error("Falha em /api/encomendas/<id> [PUT]", e)
+        return error_response(str(e))
+
+
 @app.post("/api/encomendas/<registro_id>/entrega")
 @require_admin
 def update_encomenda_entrega(registro_id):

@@ -21,6 +21,8 @@ const refreshBtn = document.getElementById("refreshBtn");
 const form = document.getElementById("compraForm");
 const vendaForm = document.getElementById("vendaForm");
 const encomendaForm = document.getElementById("encomendaForm");
+const encomendaSubmitBtn = document.getElementById("encomendaSubmitBtn");
+const encomendaCancelEditBtn = document.getElementById("encomendaCancelEditBtn");
 const reuniaoForm = document.getElementById("reuniaoForm");
 const formFeedback = document.getElementById("formFeedback");
 const vendaFeedback = document.getElementById("vendaFeedback");
@@ -42,6 +44,8 @@ let familiasCache = [];
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
+let encomendaEmEdicaoId = null;
+let encomendasCache = [];
 const reunioesGrid = document.getElementById("reunioesGrid");
 const metasFeedback = document.getElementById("metasFeedback");
 const metaRoomsGrid = document.getElementById("metaRoomsGrid");
@@ -205,6 +209,7 @@ function deliveryControl(item){
   if(!canWrite) return delivered ? deliveryBadge("Sim") : deliveryBadge("Não");
 
   return `<div class="delivery-actions">
+    <button type="button" class="delivery-edit-btn" data-editar-encomenda="${escapeHtml(item.id)}">Editar</button>
     <button type="button" class="delivery-confirm-btn" data-encomenda-entrega="${escapeHtml(item.id)}" data-encomenda-choice="Sim">
       ${delivered ? "Mover para Vendas" : "Confirmar entrega"}
     </button>
@@ -311,6 +316,63 @@ function updatePreviewEncomenda(){
   setText("previewEncomendaValor", currency(l85 + seringa));
 }
 
+function resetEncomendaForm(){
+  encomendaEmEdicaoId = null;
+  encomendaForm?.reset();
+  updatePreviewEncomenda();
+  if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar encomenda";
+  if(encomendaCancelEditBtn) encomendaCancelEditBtn.hidden = true;
+  setText("encomendaFormKicker", "Nova encomenda");
+  setText("encomendaFormTitle", "Dados da encomenda");
+}
+
+function iniciarEdicaoEncomenda(id){
+  const item = encomendasCache.find(encomenda => encomenda.id === id);
+  if(!item || !encomendaForm) return;
+
+  const itens = Array.isArray(item.itens) ? item.itens : [];
+  const l85 = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "l85");
+  const seringa = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "seringa");
+
+  encomendaEmEdicaoId = id;
+  document.getElementById("e_quem_pediu").value = item.quem_pediu || "";
+  document.getElementById("e_l85_quantidade").value = l85?.quantidade || "";
+  document.getElementById("e_l85_valor").value = l85?.valor_unitario ?? "";
+  document.getElementById("e_seringa_quantidade").value = seringa?.quantidade || "";
+  document.getElementById("e_seringa_valor").value = seringa?.valor_unitario ?? "";
+
+  // Compatibilidade com encomendas antigas, anteriores ao campo itens_json.
+  if(!itens.length){
+    const texto = String(item.o_que_pediu || "");
+    const match = texto.match(/^\s*(?:(\d+)\s*x?\s*)?(L85|Seringa)\s*$/i);
+    if(match){
+      const quantidade = Number(match[1] || 1);
+      const valorUnitario = quantidade > 0 ? Number(item.valor || 0) / quantidade : 0;
+      const prefixo = match[2].toLowerCase() === "l85" ? "e_l85" : "e_seringa";
+      document.getElementById(`${prefixo}_quantidade`).value = quantidade;
+      document.getElementById(`${prefixo}_valor`).value = Number(valorUnitario.toFixed(2));
+    }
+  }
+
+  document.getElementById("e_para_quando").value = item.para_quando || "";
+  document.getElementById("e_quem_negociou").value = item.quem_negociou || "";
+  document.getElementById("e_entregue").value = String(item.entregue || "Não").toLowerCase() === "sim" ? "Sim" : "Não";
+  document.getElementById("e_observacao").value = item.observacao || "";
+  updatePreviewEncomenda();
+
+  if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar alterações";
+  if(encomendaCancelEditBtn) encomendaCancelEditBtn.hidden = false;
+  setText("encomendaFormKicker", "Editar encomenda");
+  setText("encomendaFormTitle", item.quem_pediu || "Atualizar encomenda");
+  setFeedback(encomendaFeedback, "Edite os campos e clique em Salvar alterações.");
+  encomendaForm.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+encomendaCancelEditBtn?.addEventListener("click", () => {
+  resetEncomendaForm();
+  setFeedback(encomendaFeedback, "Edição cancelada.");
+});
+
 async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage){
   if(!canWrite){
     setFeedback(feedbackEl, "Seu usuário está em modo somente leitura.", true);
@@ -410,10 +472,29 @@ encomendaForm?.addEventListener("submit", async (e) => {
     observacao: inputValue("e_observacao").trim(),
   };
 
+  if(encomendaEmEdicaoId){
+    try{
+      setFeedback(encomendaFeedback, "Salvando alterações...");
+      const {res, data} = await fetchJson(`/api/encomendas/${encodeURIComponent(encomendaEmEdicaoId)}`, {
+        method:"PUT",
+        headers:csrfHeaders({"Content-Type":"application/json"}),
+        body:JSON.stringify(payload)
+      });
+      setFeedback(encomendaFeedback, data.message || (res.ok ? "Encomenda atualizada." : "Erro ao atualizar encomenda."), !res.ok);
+      if(res.ok){
+        resetEncomendaForm();
+        await Promise.all([loadEncomendas(), loadVendas(), loadResumo()]);
+        if(data.moved_to_vendas) activateView("vendas");
+      }
+    }catch(error){
+      setFeedback(encomendaFeedback, `Falha ao atualizar encomenda: ${error.message}`, true);
+    }
+    return;
+  }
+
   const result = await sendPost("/api/encomendas", payload, encomendaFeedback, "Salvando encomenda...", "Encomenda salva com sucesso.");
   if(result){
-    encomendaForm.reset();
-    updatePreviewEncomenda();
+    resetEncomendaForm();
     if(result.moved_to_vendas){
       activateView("vendas");
     }
@@ -509,6 +590,12 @@ reunioesGrid?.addEventListener("click", async (event) => {
 
 encomendasTable?.addEventListener("click", async (event) => {
   if(!canWrite) return;
+
+  const editButton = event.target.closest("[data-editar-encomenda]");
+  if(editButton){
+    iniciarEdicaoEncomenda(editButton.dataset.editarEncomenda);
+    return;
+  }
 
   const cancelButton = event.target.closest("[data-cancelar-encomenda]");
   if(cancelButton){
@@ -926,9 +1013,11 @@ async function loadEncomendas(){
   try{
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
+      encomendasCache = [];
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`);
       return;
     }
+    encomendasCache = Array.isArray(data) ? data : [];
     if(!Array.isArray(data) || !data.length){
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
       return;
@@ -944,6 +1033,7 @@ async function loadEncomendas(){
         <td>${deliveryControl(item)}</td>
       </tr>`).join(""));
   }catch(error){
+    encomendasCache = [];
     setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }

@@ -1005,6 +1005,18 @@ table.craft-result-table{min-width:650px}
 .family-empty{grid-column:1/-1;padding:36px;text-align:center;border:1px dashed var(--line);border-radius:17px;color:var(--muted);background:rgba(255,255,255,.02)}
 
 .delivery-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.delivery-edit-btn{
+  min-height:38px;
+  padding:0 12px;
+  border-radius:11px;
+  border:1px solid rgba(139,92,246,.32);
+  background:rgba(139,92,246,.11);
+  color:#e1d7ff;
+  font-weight:900;
+  cursor:pointer;
+}
+.delivery-edit-btn:hover{background:rgba(139,92,246,.19)}
+.delivery-edit-btn:disabled{opacity:.55;cursor:not-allowed}
 .delivery-cancel-btn{
   min-height:38px;
   padding:0 12px;
@@ -1017,6 +1029,7 @@ table.craft-result-table{min-width:650px}
 }
 .delivery-cancel-btn:hover{background:rgba(239,68,68,.16)}
 .delivery-cancel-btn:disabled{opacity:.55;cursor:not-allowed}
+.encomenda-cancel-edit[hidden]{display:none}
 
 @media(max-width:1180px){
   .families-layout{grid-template-columns:1fr}

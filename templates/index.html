@@ -336,8 +336,8 @@
           <section class="panel-card">
             <div class="panel-head">
               <div>
-                <p class="panel-kicker">Nova encomenda</p>
-                <h3>Dados da encomenda</h3>
+                <p class="panel-kicker" id="encomendaFormKicker">Nova encomenda</p>
+                <h3 id="encomendaFormTitle">Dados da encomenda</h3>
               </div>
             </div>
             {% if is_admin %}
@@ -412,7 +412,8 @@
               </div>
 
               <div class="form-actions">
-                <button type="submit" class="primary-btn">Salvar encomenda</button>
+                <button type="submit" class="primary-btn" id="encomendaSubmitBtn">Salvar encomenda</button>
+                <button type="button" class="ghost-btn encomenda-cancel-edit" id="encomendaCancelEditBtn" hidden>Cancelar edição</button>
               </div>
             </form>
 

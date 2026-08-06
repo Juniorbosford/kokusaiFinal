@@ -93,6 +93,7 @@ Consulte `SECURITY_REVIEW.md` antes de publicar alterações no GitHub/Railway.
 ## Pedidos combinados e gestão de famílias
 
 - Uma única encomenda pode conter **L85** e **Seringa**, cada uma com quantidade e valor unitário próprios. O total é calculado pela soma dos dois produtos.
+- Encomendas pendentes podem ser **editadas por completo** no mesmo formulário: cliente, produtos, quantidades, valores, prazo, negociador, status e observação.
 - Ao confirmar a entrega de um pedido combinado, cada produto é registrado corretamente na aba `Vendas`.
 - Compras possuem **Justificativa (opcional)** e o texto aparece no histórico.
 - Famílias possuem um campo específico de **contato**, mascarado por padrão na interface.
