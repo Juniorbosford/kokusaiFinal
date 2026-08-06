@@ -25,10 +25,9 @@ python main.py
 
 ## Autenticação adicionada
 
-Esta versão inclui três níveis de acesso:
+Esta versão inclui dois níveis de acesso:
 
 - `kokusai`: administrador com acesso total.
-- `nekutai`: leitor com acesso somente para visualização.
 - `member`: contas individuais das Salas de Meta; cada pessoa vê apenas a própria sala e não acessa o painel operacional.
 
 As senhas são validadas por hash PBKDF2-SHA256. Consulte `LOGIN_RAILWAY.md` para configurar `SECRET_KEY`, cookies seguros no Railway e troca de senha.
@@ -46,7 +45,7 @@ Ela calcula automaticamente os materiais necessários para:
 - Maçarico
 - Rastreador ilegal
 
-O cálculo é feito no navegador e não salva nada na planilha. O usuário `kokusai` pode preencher as quantidades e o campo **Tenho** para ver quanto falta. O usuário `nekutai` visualiza apenas as receitas em modo somente leitura.
+O cálculo é feito no navegador e não salva nada na planilha. O usuário `kokusai` pode preencher as quantidades e o campo **Tenho** para ver quanto falta.
 
 ## Pagamento de metas
 

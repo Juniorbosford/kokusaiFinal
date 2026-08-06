@@ -111,15 +111,7 @@ AUTH_USERS = {
         "role": "admin",
         "password_hash": os.getenv(
             "KOKUSAI_PASSWORD_HASH",
-            "pbkdf2_sha256$260000$zqJoxGpMrsecY1W5QaTi8g==$GdZg+UENu9jEfCZqybyt2+VFpZ25GtfFW3DzyYMetAo="
-        ),
-    },
-    "nekutai": {
-        "display_name": "Nekutai",
-        "role": "viewer",
-        "password_hash": os.getenv(
-            "NEKUTAI_PASSWORD_HASH",
-            "pbkdf2_sha256$260000$ADKx8F6jvODIGc5PijE9Fw==$tP2F34N+nyRT7/SspPQ108lAcJ/gQ3jD/manX3XLLsg="
+            "pbkdf2_sha256$260000$UNqSVZhNiPV2DIIY+tj5wg==$roxLIJfeZrFmQJ7CUMI8RZ4b0xKKpKWrXch8RugQCuI="
         ),
     },
 }

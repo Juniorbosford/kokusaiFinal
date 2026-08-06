@@ -23,7 +23,6 @@ SESSION_COOKIE_SECURE=true
 SPREADSHEET_ID=id_da_sua_planilha
 GOOGLE_CREDENTIALS_JSON={...json completo da service account...}
 KOKUSAI_PASSWORD_HASH=hash_gerado
-NEKUTAI_PASSWORD_HASH=hash_gerado
 ```
 
 Para gerar uma chave forte de sessão no Windows:
