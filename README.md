@@ -81,6 +81,16 @@ Consulte `RAILWAY_METAS.md` para configurar PostgreSQL e Bucket no Railway. As c
 - O relatório exibido pode ser baixado como arquivo TXT pelo navegador.
 - Registros antigos também entram no ranking quando o nome do comprador corresponde exatamente a uma família cadastrada.
 
+## Dinheiro limpo e dinheiro sujo
+
+- Compras, vendas e encomendas possuem a opção **Tipo de dinheiro**.
+- **Dinheiro limpo** mantém o valor calculado normalmente.
+- **Dinheiro sujo** acrescenta automaticamente **30%** sobre o valor base.
+- A prévia mostra o valor base, o acréscimo e o total antes de salvar.
+- A planilha guarda separadamente `tipo_dinheiro`, `valor_base` e `acrescimo_dinheiro_sujo`, enquanto `valor_total`/`valor` recebe o valor final.
+- Quando uma encomenda em dinheiro sujo é entregue, os 30% são preservados ao converter os produtos em vendas.
+- O histórico identifica visualmente o tipo de dinheiro usado em cada movimentação.
+
 ## Layout responsivo
 
 Os formulários e históricos agora usam toda a largura disponível. Em telas menores, as linhas das tabelas viram cartões, evitando barras de rolagem horizontal nas abas Compras, Vendas, Encomendas, Relatórios, Metas e Craft.

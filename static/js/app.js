@@ -155,6 +155,28 @@ function currency(value){
   return new Intl.NumberFormat("pt-BR", {style:"currency", currency:"BRL"}).format(Number(value || 0));
 }
 
+function moneyPricing(baseValue, moneyType){
+  const base = Math.max(0, Number(baseValue || 0));
+  const dirty = String(moneyType || "").trim().toLowerCase() === "dinheiro sujo";
+  const surcharge = dirty ? Math.round((base * 0.30 + Number.EPSILON) * 100) / 100 : 0;
+  return {base, surcharge, total:Math.round((base + surcharge + Number.EPSILON) * 100) / 100, dirty};
+}
+
+function moneyTypeBadge(value){
+  const dirty = String(value || "").trim().toLowerCase() === "dinheiro sujo";
+  return `<span class="money-type-badge ${dirty ? "dirty" : ""}">${dirty ? "Dinheiro sujo +30%" : "Dinheiro limpo"}</span>`;
+}
+
+function renderMoneyPreview(totalId, detailId, baseValue, moneyType){
+  const pricing = moneyPricing(baseValue, moneyType);
+  setText(totalId, currency(pricing.total));
+  setText(detailId, pricing.dirty
+    ? `${currency(pricing.base)} + ${currency(pricing.surcharge)} (30%)`
+    : "Dinheiro limpo — sem acréscimo");
+  document.getElementById(totalId)?.closest(".money-calc-box")?.classList.toggle("dirty", pricing.dirty);
+  return pricing;
+}
+
 function escapeHtml(value){
   return String(value ?? "")
     .replace(/&/g,"&amp;")
@@ -305,23 +327,26 @@ function onInput(id, handler){
 
 onInput("valor_unitario", updatePreviewCompra);
 onInput("quantidade", updatePreviewCompra);
+onInput("c_tipo_dinheiro", updatePreviewCompra);
 onInput("v_valor_unitario", updatePreviewVenda);
 onInput("v_quantidade", updatePreviewVenda);
+onInput("v_tipo_dinheiro", updatePreviewVenda);
 onInput("e_l85_quantidade", updatePreviewEncomenda);
 onInput("e_l85_valor", updatePreviewEncomenda);
 onInput("e_seringa_quantidade", updatePreviewEncomenda);
 onInput("e_seringa_valor", updatePreviewEncomenda);
+onInput("e_tipo_dinheiro", updatePreviewEncomenda);
 
 function updatePreviewCompra(){
   const valor = Number(inputValue("valor_unitario") || 0);
   const qtd = Number(inputValue("quantidade") || 0);
-  setText("previewTotal", currency(valor * qtd));
+  renderMoneyPreview("previewTotal", "previewCompraDetalhe", valor * qtd, inputValue("c_tipo_dinheiro"));
 }
 
 function updatePreviewVenda(){
   const valor = Number(inputValue("v_valor_unitario") || 0);
   const qtd = Number(inputValue("v_quantidade") || 0);
-  setText("previewVendaTotal", currency(valor * qtd));
+  renderMoneyPreview("previewVendaTotal", "previewVendaDetalhe", valor * qtd, inputValue("v_tipo_dinheiro"));
 }
 
 function syncVendaFamilyField(){
@@ -339,11 +364,12 @@ function syncVendaFamilyField(){
 vendaFamiliaSelect?.addEventListener("change", syncVendaFamilyField);
 
 function updatePreviewEncomenda(){
-  const l85 = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
-  const seringa = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
-  setText("e_l85_subtotal", currency(l85));
-  setText("e_seringa_subtotal", currency(seringa));
-  setText("previewEncomendaValor", currency(l85 + seringa));
+  const moneyType = inputValue("e_tipo_dinheiro");
+  const l85Base = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
+  const seringaBase = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
+  setText("e_l85_subtotal", currency(moneyPricing(l85Base, moneyType).total));
+  setText("e_seringa_subtotal", currency(moneyPricing(seringaBase, moneyType).total));
+  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase, moneyType);
 }
 
 function resetEncomendaForm(){
@@ -388,7 +414,7 @@ function iniciarEdicaoEncomenda(id){
     const match = texto.match(/^\s*(?:(\d+)\s*x?\s*)?(L85|Seringa)\s*$/i);
     if(match){
       const quantidade = Number(match[1] || 1);
-      const valorUnitario = quantidade > 0 ? Number(item.valor || 0) / quantidade : 0;
+      const valorUnitario = quantidade > 0 ? Number(item.valor_base || item.valor || 0) / quantidade : 0;
       const prefixo = match[2].toLowerCase() === "l85" ? "e_l85" : "e_seringa";
       document.getElementById(`${prefixo}_quantidade`).value = quantidade;
       document.getElementById(`${prefixo}_valor`).value = Number(valorUnitario.toFixed(2));
@@ -398,6 +424,7 @@ function iniciarEdicaoEncomenda(id){
   document.getElementById("e_para_quando").value = item.para_quando || "";
   document.getElementById("e_quem_negociou").value = item.quem_negociou || "";
   document.getElementById("e_entregue").value = String(item.entregue || "Não").toLowerCase() === "sim" ? "Sim" : "Não";
+  document.getElementById("e_tipo_dinheiro").value = String(item.tipo_dinheiro || "Dinheiro limpo").toLowerCase() === "dinheiro sujo" ? "Dinheiro sujo" : "Dinheiro limpo";
   document.getElementById("e_observacao").value = item.observacao || "";
   updatePreviewEncomenda();
 
@@ -448,6 +475,7 @@ form?.addEventListener("submit", async (e) => {
     quem_vendeu: inputValue("quem_vendeu").trim(),
     valor_unitario: Number(inputValue("valor_unitario")),
     quantidade: Number(inputValue("quantidade")),
+    tipo_dinheiro: inputValue("c_tipo_dinheiro"),
     observacao: inputValue("observacao").trim(),
   };
 
@@ -467,6 +495,7 @@ vendaForm?.addEventListener("submit", async (e) => {
     quem_vende: inputValue("quem_vende").trim(),
     valor_unitario: Number(inputValue("v_valor_unitario")),
     quantidade: Number(inputValue("v_quantidade")),
+    tipo_dinheiro: inputValue("v_tipo_dinheiro"),
     observacao: inputValue("v_observacao").trim(),
   };
 
@@ -517,6 +546,7 @@ encomendaForm?.addEventListener("submit", async (e) => {
     para_quando: inputValue("e_para_quando").trim(),
     quem_negociou: inputValue("e_quem_negociou").trim(),
     entregue: inputValue("e_entregue"),
+    tipo_dinheiro: inputValue("e_tipo_dinheiro"),
     observacao: inputValue("e_observacao").trim(),
   };
 
@@ -1023,11 +1053,11 @@ async function loadCompras(){
   try{
     const {res, data} = await fetchJson("/api/compras");
     if(!res.ok){
-      setTableContent(comprasTable, `<tr><td colspan="7">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="8">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      setTableContent(comprasTable, `<tr><td colspan="7">Nenhuma compra registrada.</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="8">Nenhuma compra registrada.</td></tr>`);
       return;
     }
     setTableContent(comprasTable, data.map(item => `
@@ -1037,11 +1067,12 @@ async function loadCompras(){
         <td>${escapeHtml(item.quem_pediu)}</td>
         <td>${escapeHtml(item.quem_vendeu)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
+        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
         <td>${currency(item.valor_total)}</td>
         <td>${escapeHtml(item.observacao || "—")}</td>
       </tr>`).join(""));
   }catch(error){
-    setTableContent(comprasTable, `<tr><td colspan="7">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
+    setTableContent(comprasTable, `<tr><td colspan="8">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -1049,11 +1080,11 @@ async function loadVendas(){
   try{
     const {res, data} = await fetchJson("/api/vendas");
     if(!res.ok){
-      setTableContent(vendasTable, `<tr><td colspan="6">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`);
+      setTableContent(vendasTable, `<tr><td colspan="7">${escapeHtml(data.error || "Erro ao carregar vendas.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      setTableContent(vendasTable, `<tr><td colspan="6">Nenhuma venda registrada.</td></tr>`);
+      setTableContent(vendasTable, `<tr><td colspan="7">Nenhuma venda registrada.</td></tr>`);
       return;
     }
     setTableContent(vendasTable, data.map(item => {
@@ -1067,11 +1098,12 @@ async function loadVendas(){
         <td>${linked ? `<span class="order-family-chip"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span>` : escapeHtml(item.quem_compra)}</td>
         <td>${escapeHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
+        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
         <td>${currency(item.valor_total)}</td>
       </tr>`;
     }).join(""));
   }catch(error){
-    setTableContent(vendasTable, `<tr><td colspan="6">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`);
+    setTableContent(vendasTable, `<tr><td colspan="7">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -1213,7 +1245,7 @@ relatorioDownloadBtn?.addEventListener("click", () => {
 async function loadEncomendas(){
   if(!encomendasTable) return;
 
-  const colspan = 7;
+  const colspan = 8;
   try{
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
@@ -1237,6 +1269,7 @@ async function loadEncomendas(){
         <td>${escapeHtml(item.o_que_pediu)}</td>
         <td>${escapeHtml(item.para_quando)}</td>
         <td>${escapeHtml(item.quem_negociou)}</td>
+        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
         <td>${currency(item.valor)}</td>
         <td>${deliveryControl(item)}</td>
       </tr>`;

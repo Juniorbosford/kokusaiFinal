@@ -165,7 +165,7 @@
               </div>
 
               <div class="field">
-                <label for="valor_unitario">Valor unitário</label>
+                <label for="valor_unitario">Valor unitário base</label>
                 <input id="valor_unitario" type="number" min="0" step="0.01" placeholder="0,00" required />
               </div>
 
@@ -174,13 +174,21 @@
                 <input id="quantidade" type="number" min="1" placeholder="1" required />
               </div>
 
+              <div class="field">
+                <label for="c_tipo_dinheiro">Tipo de dinheiro</label>
+                <select id="c_tipo_dinheiro" required>
+                  <option value="Dinheiro limpo">Dinheiro limpo</option>
+                  <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
+                </select>
+              </div>
+
               <div class="field field-full">
                 <label for="observacao">Justificativa (opcional)</label>
                 <textarea id="observacao" placeholder="Ex.: compra para produção, reposição ou outra necessidade"></textarea>
               </div>
 
-              <div class="calc-box">
-                <span>Total calculado</span>
+              <div class="calc-box money-calc-box">
+                <div><span>Total calculado</span><small id="previewCompraDetalhe">Dinheiro limpo — sem acréscimo</small></div>
                 <strong id="previewTotal">R$ 0,00</strong>
               </div>
 
@@ -216,6 +224,7 @@
                     <th>Quem pediu</th>
                     <th>Quem vendeu</th>
                     <th>Qtd</th>
+                    <th>Pagamento</th>
                     <th>Total</th>
                     <th>Justificativa</th>
                   </tr>
@@ -272,7 +281,7 @@
               </div>
 
               <div class="field">
-                <label for="v_valor_unitario">Valor unitário</label>
+                <label for="v_valor_unitario">Valor unitário base</label>
                 <input id="v_valor_unitario" type="number" min="0" step="0.01" placeholder="0,00" required />
               </div>
 
@@ -281,13 +290,21 @@
                 <input id="v_quantidade" type="number" min="1" placeholder="1" required />
               </div>
 
+              <div class="field">
+                <label for="v_tipo_dinheiro">Tipo de dinheiro</label>
+                <select id="v_tipo_dinheiro" required>
+                  <option value="Dinheiro limpo">Dinheiro limpo</option>
+                  <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
+                </select>
+              </div>
+
               <div class="field field-full">
                 <label for="v_observacao">Observação</label>
                 <textarea id="v_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
-              <div class="calc-box">
-                <span>Total calculado</span>
+              <div class="calc-box money-calc-box">
+                <div><span>Total calculado</span><small id="previewVendaDetalhe">Dinheiro limpo — sem acréscimo</small></div>
                 <strong id="previewVendaTotal">R$ 0,00</strong>
               </div>
 
@@ -323,6 +340,7 @@
                     <th>Quem compra</th>
                     <th>Quem vende</th>
                     <th>Qtd</th>
+                    <th>Pagamento</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -499,13 +517,21 @@
                 </select>
               </div>
 
+              <div class="field">
+                <label for="e_tipo_dinheiro">Tipo de dinheiro</label>
+                <select id="e_tipo_dinheiro" required>
+                  <option value="Dinheiro limpo">Dinheiro limpo</option>
+                  <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
+                </select>
+              </div>
+
               <div class="field field-full">
                 <label for="e_observacao">Observação</label>
                 <textarea id="e_observacao" placeholder="Informações extras, se necessário"></textarea>
               </div>
 
-              <div class="calc-box">
-                <span>Total dos produtos</span>
+              <div class="calc-box money-calc-box">
+                <div><span>Total dos produtos</span><small id="previewEncomendaDetalhe">Dinheiro limpo — sem acréscimo</small></div>
                 <strong id="previewEncomendaValor">R$ 0,00</strong>
               </div>
 
@@ -542,6 +568,7 @@
                     <th>O que pediu</th>
                     <th>Pra quando</th>
                     <th>Negociou</th>
+                    <th>Pagamento</th>
                     <th>Valor</th>
                     <th>Ação</th>
                   </tr>

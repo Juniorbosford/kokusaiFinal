@@ -268,6 +268,12 @@ input:focus,textarea:focus,select:focus{
 }
 .calc-box span{color:var(--muted-strong);font-weight:700}
 .calc-box strong{font-size:1.2rem}
+.money-calc-box>div{display:flex;flex-direction:column;gap:5px}
+.money-calc-box small{color:var(--muted);font-size:.76rem;font-weight:750;line-height:1.35}
+.money-calc-box.dirty{border-color:rgba(240,184,75,.38);background:linear-gradient(135deg,rgba(240,184,75,.14),rgba(255,255,255,.026))}
+.money-calc-box.dirty small{color:#ffe0a3}
+.money-type-badge{display:inline-flex;align-items:center;justify-content:center;min-height:29px;padding:0 9px;border-radius:999px;border:1px solid rgba(49,208,131,.24);background:rgba(49,208,131,.09);color:#c9ffe4;font-size:.71rem;font-weight:900;white-space:nowrap}
+.money-type-badge.dirty{border-color:rgba(240,184,75,.32);background:rgba(240,184,75,.11);color:#ffe2a8}
 .order-items-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .order-item-card{padding:14px;border-radius:15px;border:1px solid var(--line);background:rgba(255,255,255,.025)}
 .order-item-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}

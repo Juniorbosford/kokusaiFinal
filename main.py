@@ -100,6 +100,7 @@ MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
 MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
 MAX_QUANTITY = int(os.getenv("MAX_QUANTITY", "1000000"))
 MAX_MONEY_VALUE = float(os.getenv("MAX_MONEY_VALUE", "1000000000"))
+DIRTY_MONEY_RATE = 0.30
 SHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
@@ -150,7 +151,10 @@ DEFAULT_META_NAMES = [
     "Wanda",
 ]
 
-COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
+COMPRAS_HEADERS = [
+    "id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade",
+    "valor_total", "observacao", "tipo_dinheiro", "valor_base", "acrescimo_dinheiro_sujo",
+]
 VENDAS_HEADERS = [
     "id",
     "data",
@@ -165,6 +169,9 @@ VENDAS_HEADERS = [
     "familia_nome",
     "familia_icone",
     "encomenda_id",
+    "tipo_dinheiro",
+    "valor_base",
+    "acrescimo_dinheiro_sujo",
 ]
 ENCOMENDAS_HEADERS = [
     "id",
@@ -181,6 +188,9 @@ ENCOMENDAS_HEADERS = [
     "familia_id",
     "familia_nome",
     "familia_icone",
+    "tipo_dinheiro",
+    "valor_base",
+    "acrescimo_dinheiro_sujo",
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
@@ -1136,6 +1146,50 @@ def normalized_lookup_key(value):
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
+def normalize_money_type(value):
+    normalized = normalized_lookup_key(value)
+    if normalized in {"dinheiro sujo", "sujo", "dirty", "dirty money"}:
+        return "Dinheiro sujo"
+    return "Dinheiro limpo"
+
+
+def calculate_payment_values(base_value, money_type):
+    try:
+        base = round(float(base_value or 0), 2)
+    except (TypeError, ValueError):
+        raise ValueError("O valor base informado é inválido.")
+    if base < 0 or base > MAX_MONEY_VALUE:
+        raise ValueError("O valor base informado é inválido.")
+
+    normalized_type = normalize_money_type(money_type)
+    surcharge = round(base * DIRTY_MONEY_RATE, 2) if normalized_type == "Dinheiro sujo" else 0.0
+    total = round(base + surcharge, 2)
+    if total > MAX_MONEY_VALUE:
+        raise ValueError("Valor total muito alto.")
+    return normalized_type, base, surcharge, total
+
+
+def apply_payment_defaults(item, total_field):
+    money_type = normalize_money_type(item.get("tipo_dinheiro"))
+    try:
+        total = round(float(item.get(total_field) or 0), 2)
+    except (TypeError, ValueError):
+        total = 0.0
+    try:
+        base = round(float(item.get("valor_base") or total), 2)
+    except (TypeError, ValueError):
+        base = total
+    try:
+        surcharge = round(float(item.get("acrescimo_dinheiro_sujo") or 0), 2)
+    except (TypeError, ValueError):
+        surcharge = 0.0
+
+    item["tipo_dinheiro"] = money_type
+    item["valor_base"] = base
+    item["acrescimo_dinheiro_sujo"] = surcharge
+    return item
+
+
 def canonical_family_name(value):
     name = str(value or "").strip()
     if normalized_lookup_key(name) in {"bandoleros", "bandolero"}:
@@ -1667,7 +1721,7 @@ def validate_numeric_fields(data, required_fields):
 
 
 def normalize_compra(row):
-    return row_to_dict(row, COMPRAS_HEADERS)
+    return apply_payment_defaults(row_to_dict(row, COMPRAS_HEADERS), "valor_total")
 
 
 def normalize_venda(row):
@@ -1675,7 +1729,7 @@ def normalize_venda(row):
     item["familia_nome"] = str(item.get("familia_nome") or item.get("quem_compra") or "").strip()
     item["familia_icone"] = str(item.get("familia_icone") or "").strip()
     item["encomenda_id"] = str(item.get("encomenda_id") or "").strip()
-    return item
+    return apply_payment_defaults(item, "valor_total")
 
 
 def normalize_encomenda(row):
@@ -1685,7 +1739,7 @@ def normalize_encomenda(row):
     item["familia_nome"] = str(item.get("familia_nome") or item.get("quem_pediu") or "").strip()
     item["familia_icone"] = str(item.get("familia_icone") or "").strip()
     item.pop("itens_json", None)
-    return item
+    return apply_payment_defaults(item, "valor")
 
 
 ENCOMENDA_ITEM_PATTERN = re.compile(r"^\s*(\d+)(?:\s*x\s*|\s+)(.+?)\s*$", re.IGNORECASE)
@@ -1795,10 +1849,44 @@ def venda_id_from_encomenda(encomenda_id):
     return f"KKSV-ENC-{str(encomenda_id or '').strip()}"
 
 
+def price_order_items(items, money_type):
+    """Aplica os 30% e distribui os centavos sem alterar o preço unitário base."""
+    normalized_type = normalize_money_type(money_type)
+    total_base = round(sum(float(item.get("valor_total") or 0) for item in items), 2)
+    _, _, total_surcharge, total_value = calculate_payment_values(total_base, normalized_type)
+    remaining_surcharge = total_surcharge
+    priced_items = []
+
+    for index, item in enumerate(items):
+        base_value = round(float(item.get("valor_total") or 0), 2)
+        if normalized_type == "Dinheiro sujo":
+            if index == len(items) - 1:
+                surcharge = round(remaining_surcharge, 2)
+            else:
+                surcharge = min(round(base_value * DIRTY_MONEY_RATE, 2), max(remaining_surcharge, 0.0))
+                remaining_surcharge = round(remaining_surcharge - surcharge, 2)
+        else:
+            surcharge = 0.0
+        priced_item = dict(item)
+        priced_item.update({
+            "tipo_dinheiro": normalized_type,
+            "valor_base": base_value,
+            "acrescimo_dinheiro_sujo": surcharge,
+            "valor_final": round(base_value + surcharge, 2),
+        })
+        priced_items.append(priced_item)
+
+    return priced_items, total_base, total_surcharge, total_value
+
+
 def build_venda_row_from_encomenda(item, entregue_em=None):
     quantidade, produto = parse_encomenda_item(item.get("o_que_pediu"))
-    valor_total = round(float(item.get("valor") or 0), 2)
-    valor_unitario = round(valor_total / quantidade, 2) if quantidade else valor_total
+    money_type = normalize_money_type(item.get("tipo_dinheiro"))
+    raw_base_value = item.get("valor_base")
+    if str(raw_base_value or "").strip() == "":
+        raw_base_value = item.get("valor")
+    _, valor_base, surcharge, valor_total = calculate_payment_values(raw_base_value, money_type)
+    valor_unitario = round(valor_base / quantidade, 2) if quantidade else valor_base
     encomenda_id = str(item.get("id") or "").strip()
     prazo = str(item.get("para_quando") or "").strip()
     observacao_original = str(item.get("observacao") or "").strip()
@@ -1823,6 +1911,9 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
         str(item.get("familia_nome") or item.get("quem_pediu") or "").strip(),
         str(item.get("familia_icone") or "").strip(),
         encomenda_id,
+        money_type,
+        valor_base,
+        surcharge,
     ]
 
 
@@ -1832,12 +1923,14 @@ def build_venda_rows_from_encomenda(item, entregue_em=None):
     if not items:
         return [build_venda_row_from_encomenda(item, entregue_em=entregue_em)]
 
+    money_type = normalize_money_type(item.get("tipo_dinheiro"))
+    priced_items, _, _, _ = price_order_items(items, money_type)
     encomenda_id = str(item.get("id") or "").strip()
     prazo = str(item.get("para_quando") or "").strip()
     observacao_original = str(item.get("observacao") or "").strip()
     rows = []
-    for index, order_item in enumerate(items, start=1):
-        detalhes = [f"Convertida da encomenda {encomenda_id} (item {index}/{len(items)})."]
+    for index, order_item in enumerate(priced_items, start=1):
+        detalhes = [f"Convertida da encomenda {encomenda_id} (item {index}/{len(priced_items)})."]
         if prazo:
             detalhes.append(f"Prazo combinado: {prazo}.")
         observacao = " ".join(filter(None, [observacao_original, *detalhes]))[:MAX_OBSERVATION_LENGTH]
@@ -1849,12 +1942,15 @@ def build_venda_rows_from_encomenda(item, entregue_em=None):
             str(item.get("quem_negociou") or "").strip(),
             order_item["valor_unitario"],
             order_item["quantidade"],
-            order_item["valor_total"],
+            order_item["valor_final"],
             observacao,
             str(item.get("familia_id") or "").strip(),
             str(item.get("familia_nome") or item.get("quem_pediu") or "").strip(),
             str(item.get("familia_icone") or "").strip(),
             encomenda_id,
+            money_type,
+            order_item["valor_base"],
+            order_item["acrescimo_dinheiro_sujo"],
         ])
     return rows
 
@@ -2653,9 +2749,12 @@ def create_compra():
 
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
-        valor_total = round(quantidade * valor_unitario, 2)
-        if valor_total > MAX_MONEY_VALUE:
-            return error_response("Valor total muito alto.", 400)
+        try:
+            money_type, valor_base, surcharge, valor_total = calculate_payment_values(
+                quantidade * valor_unitario, data.get("tipo_dinheiro"),
+            )
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
 
         agora = format_timestamp()
         registro_id = generate_record_id("KKSC")
@@ -2671,6 +2770,9 @@ def create_compra():
             quantidade,
             valor_total,
             observacao,
+            money_type,
+            valor_base,
+            surcharge,
         ], value_input_option="RAW")
         invalidate_values_cache(COMPRAS_WORKSHEET_NAME)
         log_info(f"Compra registrada com sucesso. ID={registro_id}")
@@ -2680,6 +2782,9 @@ def create_compra():
             "message": "Compra salva com sucesso.",
             "id": registro_id,
             "valor_total": valor_total,
+            "tipo_dinheiro": money_type,
+            "valor_base": valor_base,
+            "acrescimo_dinheiro_sujo": surcharge,
         }), 201
 
     except Exception as e:
@@ -2744,9 +2849,12 @@ def create_venda():
 
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
-        valor_total = round(quantidade * valor_unitario, 2)
-        if valor_total > MAX_MONEY_VALUE:
-            return error_response("Valor total muito alto.", 400)
+        try:
+            money_type, valor_base, surcharge, valor_total = calculate_payment_values(
+                quantidade * valor_unitario, data.get("tipo_dinheiro"),
+            )
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
 
         agora = format_timestamp()
         registro_id = generate_record_id("KKSV")
@@ -2766,6 +2874,9 @@ def create_venda():
             family["nome"],
             family["icone"],
             "",
+            money_type,
+            valor_base,
+            surcharge,
         ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
         log_info(f"Venda registrada com sucesso. ID={registro_id}")
@@ -2776,6 +2887,9 @@ def create_venda():
             "id": registro_id,
             "valor_total": valor_total,
             "familia_id": family["id"],
+            "tipo_dinheiro": money_type,
+            "valor_base": valor_base,
+            "acrescimo_dinheiro_sujo": surcharge,
         }), 201
 
     except Exception as e:
@@ -2866,7 +2980,7 @@ def create_encomenda():
         itens_json = ""
         if isinstance(data.get("itens"), list):
             try:
-                items, valor = validate_encomenda_items(data["itens"])
+                items, valor_base = validate_encomenda_items(data["itens"])
             except ValueError as validation_error:
                 return error_response(str(validation_error), 400)
             o_que_pediu = " + ".join(f'{item["quantidade"]}x {item["produto"]}' for item in items)
@@ -2876,17 +2990,24 @@ def create_encomenda():
             if str(data.get("o_que_pediu", "")).strip() == "" or str(data.get("valor", "")).strip() == "":
                 return error_response("Informe os itens e o valor da encomenda.", 400)
             try:
-                valor = float(data["valor"])
+                valor_base = float(data["valor"])
             except (ValueError, TypeError):
                 return error_response("O valor da encomenda deve ser numérico.", 400)
-            if valor < 0:
+            if valor_base < 0:
                 return error_response("O valor da encomenda não pode ser negativo.", 400)
-            if valor > MAX_MONEY_VALUE:
+            if valor_base > MAX_MONEY_VALUE:
                 return error_response("Valor da encomenda muito alto.", 400)
             try:
                 o_que_pediu = clean_text_field(data, "o_que_pediu", "O que pediu")
             except ValueError as validation_error:
                 return error_response(str(validation_error), 400)
+
+        try:
+            money_type, valor_base, surcharge, valor = calculate_payment_values(
+                valor_base, data.get("tipo_dinheiro"),
+            )
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
 
         entregue = str(data["entregue"]).strip().capitalize()
         if entregue not in ["Sim", "Não", "Nao"]:
@@ -2922,6 +3043,9 @@ def create_encomenda():
             "familia_id": family["id"],
             "familia_nome": family["nome"],
             "familia_icone": family["icone"],
+            "tipo_dinheiro": money_type,
+            "valor_base": valor_base,
+            "acrescimo_dinheiro_sujo": surcharge,
         }
 
         if entregue == "Sim":
@@ -2939,6 +3063,7 @@ def create_encomenda():
                 "venda_id": venda_rows[0][0],
                 "venda_ids": [row[0] for row in venda_rows],
                 "valor": round(valor, 2),
+                "tipo_dinheiro": money_type,
                 "moved_to_vendas": True,
             }), 201
 
@@ -2958,6 +3083,9 @@ def create_encomenda():
             family["id"],
             family["nome"],
             family["icone"],
+            money_type,
+            valor_base,
+            surcharge,
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -2967,6 +3095,7 @@ def create_encomenda():
             "message": "Encomenda salva com sucesso.",
             "id": registro_id,
             "valor": round(valor, 2),
+            "tipo_dinheiro": money_type,
             "moved_to_vendas": False,
         }), 201
 
@@ -2989,13 +3118,20 @@ def update_encomenda(registro_id):
             return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
 
         try:
-            items, valor = validate_encomenda_items(data.get("itens"))
+            items, valor_base = validate_encomenda_items(data.get("itens"))
             family = get_family_snapshot(data.get("familia_id"))
             quem_pediu = family["nome"]
             para_quando = clean_text_field(data, "para_quando", "Para quando")
             quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
             observacao = clean_text_field(
                 data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False,
+            )
+        except ValueError as validation_error:
+            return error_response(str(validation_error), 400)
+
+        try:
+            money_type, valor_base, surcharge, valor = calculate_payment_values(
+                valor_base, data.get("tipo_dinheiro"),
             )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
@@ -3032,6 +3168,9 @@ def update_encomenda(registro_id):
                 "familia_id": family["id"],
                 "familia_nome": family["nome"],
                 "familia_icone": family["icone"],
+                "tipo_dinheiro": money_type,
+                "valor_base": valor_base,
+                "acrescimo_dinheiro_sujo": surcharge,
             }
 
             if entregue == "Sim":
@@ -3056,7 +3195,7 @@ def update_encomenda(registro_id):
                 })
 
             worksheet.update(
-                f"A{row_index}:N{row_index}",
+                f"A{row_index}:Q{row_index}",
                 [[
                     registro_id,
                     original_date,
@@ -3072,6 +3211,9 @@ def update_encomenda(registro_id):
                     family["id"],
                     family["nome"],
                     family["icone"],
+                    money_type,
+                    valor_base,
+                    surcharge,
                 ]],
                 value_input_option="RAW",
             )
@@ -3082,6 +3224,7 @@ def update_encomenda(registro_id):
             "message": "Encomenda atualizada com sucesso.",
             "id": registro_id,
             "valor": round(valor, 2),
+            "tipo_dinheiro": money_type,
             "moved_to_vendas": False,
         })
     except Exception as e:
