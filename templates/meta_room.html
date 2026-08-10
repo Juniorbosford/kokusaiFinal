@@ -57,15 +57,15 @@
               <h3 id="memberWeekLabel">Carregando semana...</h3>
             </div>
           </div>
-          <div class="member-upload-zone" id="memberUploadZone">
-            <input id="memberPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+          <div class="member-upload-zone" id="memberUploadZone" tabindex="0" role="button" aria-label="Selecionar ou arrastar fotos para enviar">
+            <input id="memberPhotoInput" type="file" accept="image/jpeg,image/jpg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple />
             <div>
-              <strong>Selecione suas fotos</strong>
-              <p>JPG, PNG ou WEBP. Você pode selecionar mais de uma de uma vez.</p>
+              <strong>Arraste suas fotos aqui ou clique para selecionar</strong>
+              <p>JPG, JPEG, PNG ou WEBP. Você pode selecionar mais de uma de uma vez.</p>
             </div>
           </div>
           <div class="member-upload-actions">
-            <span id="memberPhotoCounter">0 fotos enviadas</span>
+            <span><strong id="memberPhotoCounter">0 fotos enviadas</strong><small id="memberSelectedPhotos">Nenhuma foto selecionada</small></span>
             <button class="primary-btn" type="button" id="memberUploadBtn">Enviar fotos</button>
           </div>
           <div class="feedback" id="memberMetaFeedback">Aguardando envio.</div>

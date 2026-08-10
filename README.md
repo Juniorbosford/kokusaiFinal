@@ -53,6 +53,7 @@ A antiga lista de metas foi transformada em **Salas de Meta** semanais e privada
 
 - Cada membro possui usuário e senha próprios e é redirecionado para `/minha-meta`.
 - O membro vê somente a própria sala, envia fotos da semana e consulta seu histórico.
+- O envio aceita JPG/JPEG, PNG e WEBP, inclusive fotos cujo navegador não informa o tipo MIME corretamente; basta clicar ou arrastar as imagens para a área de upload.
 - O administrador vê todas as salas, abre os comprovantes e marca cada pessoa como `Pago` ou `Não pago`.
 - A sala abre na sexta-feira, recebe comprovantes até quarta às 23:59 e fica disponível para conferência na quinta-feira.
 - Ao finalizar a conferência, o resultado é bloqueado, fica salvo no PostgreSQL e um log TXT é baixado automaticamente no computador do admin.

@@ -1,10 +1,13 @@
 const memberCsrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
 const photoInput = document.getElementById("memberPhotoInput");
 const uploadBtn = document.getElementById("memberUploadBtn");
+const uploadZone = document.getElementById("memberUploadZone");
+const selectedPhotosLabel = document.getElementById("memberSelectedPhotos");
 const photoGrid = document.getElementById("memberPhotoGrid");
 const historyTable = document.getElementById("memberHistoryTable");
 const feedback = document.getElementById("memberMetaFeedback");
 let currentRoom = null;
+let selectedPhotos = [];
 
 function memberEscape(value){
   return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
@@ -15,6 +18,28 @@ function memberFeedback(message, error=false){
   feedback.textContent = message;
   feedback.classList.toggle("error", error);
   feedback.classList.toggle("success", !error);
+}
+
+function isSupportedMemberImage(file){
+  const name = String(file?.name || "").toLowerCase();
+  const mime = String(file?.type || "").toLowerCase();
+  return /\.(jpe?g|png|webp)$/.test(name) || ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(mime);
+}
+
+function updateSelectedPhotos(files){
+  selectedPhotos = Array.from(files || []).filter(Boolean);
+  const accepted = selectedPhotos.filter(isSupportedMemberImage);
+  const rejected = selectedPhotos.length - accepted.length;
+  selectedPhotos = accepted;
+  if(uploadZone) uploadZone.classList.toggle("has-files", selectedPhotos.length > 0);
+  if(selectedPhotosLabel){
+    selectedPhotosLabel.textContent = selectedPhotos.length
+      ? `${selectedPhotos.length} foto${selectedPhotos.length === 1 ? " selecionada" : "s selecionadas"}`
+      : "Nenhuma foto selecionada";
+  }
+  if(rejected){
+    memberFeedback("Use somente imagens JPG, JPEG, PNG ou WEBP.", true);
+  }
 }
 
 function setMemberStatus(status){
@@ -87,6 +112,7 @@ async function loadMemberRoom(){
     const locked = !data.schedule?.envios_abertos || ["Pago", "Não pago"].includes(data.submission.status);
     photoInput.disabled = locked;
     uploadBtn.disabled = locked;
+    if(locked) updateSelectedPhotos([]);
     if(locked){
       if(data.schedule?.closed){
         memberFeedback("Esta semana foi finalizada pela administração.");
@@ -101,8 +127,42 @@ async function loadMemberRoom(){
   }
 }
 
+photoInput?.addEventListener("change", () => updateSelectedPhotos(photoInput.files));
+
+["dragenter", "dragover"].forEach(eventName => {
+  uploadZone?.addEventListener(eventName, event => {
+    event.preventDefault();
+    if(!photoInput?.disabled) uploadZone.classList.add("drag-over");
+  });
+});
+
+uploadZone?.addEventListener("dragleave", event => {
+  if(!uploadZone.contains(event.relatedTarget)) uploadZone.classList.remove("drag-over");
+});
+
+uploadZone?.addEventListener("drop", event => {
+  event.preventDefault();
+  uploadZone.classList.remove("drag-over");
+  if(photoInput?.disabled) return;
+  const files = Array.from(event.dataTransfer?.files || []);
+  updateSelectedPhotos(files);
+  try{
+    const transfer = new DataTransfer();
+    selectedPhotos.forEach(file => transfer.items.add(file));
+    photoInput.files = transfer.files;
+  }catch{
+    // O envio usa selectedPhotos, então navegadores que bloqueiam essa atribuição continuam funcionando.
+  }
+});
+
+uploadZone?.addEventListener("keydown", event => {
+  if(photoInput?.disabled || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  photoInput?.click();
+});
+
 uploadBtn?.addEventListener("click", async () => {
-  const files = Array.from(photoInput.files || []);
+  const files = selectedPhotos.length ? selectedPhotos : Array.from(photoInput.files || []);
   if(!files.length){ memberFeedback("Selecione pelo menos uma foto.", true); return; }
   const remaining = Math.max((currentRoom?.limits?.max_photos || 5) - (currentRoom?.photos?.length || 0), 0);
   if(files.length > remaining){ memberFeedback(`Você pode enviar mais ${remaining} foto(s) nesta semana.`, true); return; }
@@ -121,6 +181,7 @@ uploadBtn?.addEventListener("click", async () => {
       if(!response.ok) throw new Error(data.error || "Falha ao enviar uma das fotos.");
     }
     photoInput.value = "";
+    updateSelectedPhotos([]);
     memberFeedback("Fotos enviadas. Sua meta está aguardando conferência.");
     await loadMemberRoom();
   }catch(error){

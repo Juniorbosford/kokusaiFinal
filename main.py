@@ -70,7 +70,7 @@ META_BUCKET_SECRET_KEY = (os.getenv("SECRET_ACCESS_KEY") or os.getenv("AWS_SECRE
 META_LOCAL_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "meta_uploads")
 META_MAX_FILE_BYTES = int(os.getenv("META_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
 META_MAX_PHOTOS_PER_WEEK = int(os.getenv("META_MAX_PHOTOS_PER_WEEK", "5"))
-META_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+META_ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 META_IMAGE_MAX_SIDE = int(os.getenv("META_IMAGE_MAX_SIDE", "2200"))
 META_IMAGE_WEBP_QUALITY = int(os.getenv("META_IMAGE_WEBP_QUALITY", "88"))
 
@@ -667,8 +667,6 @@ def get_meta_storage_client():
 def prepare_meta_image(upload):
     if not upload or not upload.filename:
         raise ValueError("Selecione uma foto para enviar.")
-    if upload.mimetype not in META_ALLOWED_IMAGE_TYPES:
-        raise ValueError("Envie somente imagens JPG, PNG ou WEBP.")
 
     raw = upload.stream.read(META_MAX_FILE_BYTES + 1)
     if len(raw) > META_MAX_FILE_BYTES:
@@ -683,6 +681,13 @@ def prepare_meta_image(upload):
 
     try:
         image = Image.open(BytesIO(raw))
+        detected_format = str(image.format or "").upper()
+        # Alguns celulares/navegadores enviam JPG como image/jpg ou mesmo sem
+        # MIME. Validamos o arquivo de verdade pelo Pillow, não pelo cabeçalho
+        # enviado pelo navegador.
+        if detected_format not in META_ALLOWED_IMAGE_FORMATS:
+            raise ValueError("Envie somente imagens JPG, JPEG, PNG ou WEBP.")
+        image.load()
         image = ImageOps.exif_transpose(image)
         image.thumbnail((META_IMAGE_MAX_SIDE, META_IMAGE_MAX_SIDE))
         if image.mode not in {"RGB", "L"}:
@@ -697,6 +702,8 @@ def prepare_meta_image(upload):
         output = BytesIO()
         image.save(output, format="WEBP", quality=META_IMAGE_WEBP_QUALITY, method=6)
         return output.getvalue()
+    except ValueError:
+        raise
     except Exception as error:
         raise ValueError("Não foi possível ler essa imagem. Tente enviar outra foto.") from error
 
@@ -2055,6 +2062,12 @@ def build_family_sales_report(month_value=None):
     groups = {}
 
     def resolve_family(record, name_field):
+        """Resolve somente famílias existentes no cadastro atual.
+
+        Registros antigos podem ter colunas extras deslocadas. Por isso, nunca
+        usamos um nome/emoji gravado na venda como uma nova família do ranking:
+        ele precisa corresponder a um cadastro real em Famílias.
+        """
         family_id = str(record.get("familia_id") or "").strip()
         current = families_by_id.get(family_id)
         if current:
@@ -2064,21 +2077,24 @@ def build_family_sales_report(month_value=None):
                 "icone": str(current.get("icone") or "").strip(),
             }
 
-        record_name = str(record.get("familia_nome") or record.get(name_field) or "").strip()
-        if family_id and record_name:
-            return {
-                "id": family_id,
-                "nome": record_name,
-                "icone": str(record.get("familia_icone") or "").strip(),
-            }
-
-        current = families_by_name.get(normalized_lookup_key(record_name))
-        if current:
-            return {
-                "id": str(current.get("id") or "").strip(),
-                "nome": str(current.get("nome") or record_name).strip(),
-                "icone": str(current.get("icone") or "").strip(),
-            }
+        # Primeiro tentamos a foto do cadastro gravada na venda; depois, o
+        # comprador/pedinte. Assim uma coluna deslocada (ex.: "825000") não
+        # impede a recuperação do nome real, se ele estiver em quem_compra.
+        candidates = [record.get("familia_nome"), record.get(name_field)]
+        checked = set()
+        for candidate in candidates:
+            record_name = str(candidate or "").strip()
+            lookup_key = normalized_lookup_key(record_name)
+            if not lookup_key or lookup_key in checked:
+                continue
+            checked.add(lookup_key)
+            current = families_by_name.get(lookup_key)
+            if current:
+                return {
+                    "id": str(current.get("id") or "").strip(),
+                    "nome": str(current.get("nome") or record_name).strip(),
+                    "icone": str(current.get("icone") or "").strip(),
+                }
         return None
 
     def get_group(family):
