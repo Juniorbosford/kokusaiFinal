@@ -69,10 +69,21 @@ Consulte `RAILWAY_METAS.md` para configurar PostgreSQL e Bucket no Railway. As c
 - Uma encomenda cadastrada inicialmente como já entregue é registrada diretamente em **Vendas**.
 - Pedidos escritos como `15 L85` ou `15x L85` são convertidos para produto `L85` e quantidade `15`. Sem quantidade explícita, o sistema usa quantidade `1`.
 - A conversão usa um ID estável para evitar venda duplicada caso a exclusão da encomenda precise ser tentada novamente.
+- O vínculo com a família é preservado quando a encomenda vira venda, inclusive em pedidos combinados com mais de um produto.
+
+## Relatório mensal por gangue
+
+- A aba **Relatórios** permite selecionar um mês e gera o ranking das famílias que mais compraram.
+- Vendas diretas podem ser vinculadas a uma família cadastrada; compradores avulsos continuam permitidos.
+- O ranking soma somente vendas concluídas e mostra total gasto, quantidade de compras, encomendas entregues, encomendas pendentes, valor ainda pendente e itens comprados.
+- Uma encomenda com L85 e Seringa conta como uma única compra, embora os valores dos dois produtos sejam somados normalmente.
+- Vendas sem família ficam fora do ranking e aparecem em um indicador separado para facilitar a correção dos próximos registros.
+- O relatório exibido pode ser baixado como arquivo TXT pelo navegador.
+- Registros antigos também entram no ranking quando o nome do comprador corresponde exatamente a uma família cadastrada.
 
 ## Layout responsivo
 
-Os formulários e históricos agora usam toda a largura disponível. Em telas menores, as linhas das tabelas viram cartões, evitando barras de rolagem horizontal nas abas Compras, Vendas, Encomendas, Metas e Craft.
+Os formulários e históricos agora usam toda a largura disponível. Em telas menores, as linhas das tabelas viram cartões, evitando barras de rolagem horizontal nas abas Compras, Vendas, Encomendas, Relatórios, Metas e Craft.
 
 
 ## Segurança

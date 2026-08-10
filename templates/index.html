@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai | Compras, Vendas, Encomendas, Famílias, Metas e Craft</title>
-  <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, famílias, metas e craft no GTARP." />
+  <title>Kokusai | Compras, Vendas, Encomendas, Relatórios, Famílias, Metas e Craft</title>
+  <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, relatórios, famílias, metas e craft no GTARP." />
   <meta name="csrf-token" content="{{ csrf_token }}" />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +21,7 @@
         <div>
           <p class="brand-kicker">Kokusai</p>
           <h1>Departamento</h1>
-          <span>Compras • Vendas • Encomendas • Reuniões • Famílias • Metas • Craft</span>
+          <span>Compras • Vendas • Encomendas • Relatórios • Famílias • Metas • Craft</span>
         </div>
       </div>
 
@@ -30,6 +30,7 @@
         <button class="nav-link" data-target="compras"><span>Compras</span></button>
         <button class="nav-link" data-target="vendas"><span>Vendas</span></button>
         <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
+        <button class="nav-link" data-target="relatorios"><span>Relatórios</span></button>
         <button class="nav-link" data-target="reunioes"><span>Reuniões</span></button>
         <button class="nav-link" data-target="familias"><span>Famílias</span></button>
         {% if is_admin %}<button class="nav-link" data-target="metas"><span>Salas de Meta</span></button>{% endif %}
@@ -252,8 +253,17 @@
               </div>
 
               <div class="field">
+                <label for="v_familia_id">Família / gangue</label>
+                <select id="v_familia_id">
+                  <option value="">Sem família cadastrada</option>
+                </select>
+                <small class="field-help">Selecione uma família para contabilizar a venda no ranking mensal.</small>
+              </div>
+
+              <div class="field field-full" id="v_comprador_manual_field">
                 <label for="quem_compra">Quem compra</label>
-                <input id="quem_compra" list="familiasDatalist" placeholder="Comprador" required />
+                <input id="quem_compra" list="familiasDatalist" placeholder="Comprador avulso" required />
+                <small class="field-help">Use este campo somente quando o comprador não estiver cadastrado como família.</small>
               </div>
 
               <div class="field">
@@ -321,6 +331,91 @@
             </div>
           </section>
         </div>
+      </section>
+
+      <section class="view" id="relatorios">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Desempenho comercial</p>
+            <h3>Relatório mensal por gangue</h3>
+          </div>
+          <p>Veja quem mais comprou da Kokusai, quanto gastou e quantas encomendas foram concluídas ou ainda estão pendentes.</p>
+        </div>
+
+        <section class="panel-card report-filter-card">
+          <div class="report-filter-copy">
+            <p class="panel-kicker">Período do relatório</p>
+            <h3 id="relatorioTitulo">Ranking do mês</h3>
+            <p>O valor gasto considera somente vendas concluídas. Encomendas abertas ficam separadas como valor pendente.</p>
+          </div>
+          <div class="report-filter-actions">
+            <div class="field">
+              <label for="relatorioMes">Mês</label>
+              <input id="relatorioMes" type="month" />
+            </div>
+            <button type="button" class="primary-btn" id="relatorioGerarBtn">Gerar relatório</button>
+            <button type="button" class="ghost-btn" id="relatorioDownloadBtn" disabled>Baixar TXT</button>
+          </div>
+          <div class="feedback report-feedback" id="relatorioFeedback">Escolha o mês para gerar o ranking.</div>
+        </section>
+
+        <div class="report-stats-grid">
+          <article class="stat-card report-stat-card">
+            <p>Gangues no ranking</p>
+            <strong id="relatorioGangues">0</strong>
+            <span>com vendas ou encomendas no mês</span>
+          </article>
+          <article class="stat-card report-stat-card report-stat-highlight">
+            <p>Total gasto</p>
+            <strong id="relatorioTotalGasto">R$ 0,00</strong>
+            <span>somente vendas concluídas</span>
+          </article>
+          <article class="stat-card report-stat-card">
+            <p>Compras concluídas</p>
+            <strong id="relatorioCompras">0</strong>
+            <span>vendas diretas + encomendas entregues</span>
+          </article>
+          <article class="stat-card report-stat-card">
+            <p>Encomendas pendentes</p>
+            <strong id="relatorioEncomendasPendentes">0</strong>
+            <span id="relatorioValorPendente">R$ 0,00 em aberto</span>
+          </article>
+          <article class="stat-card report-stat-card report-stat-warning">
+            <p>Vendas sem família</p>
+            <strong id="relatorioSemFamilia">0</strong>
+            <span id="relatorioValorSemFamilia">R$ 0,00 fora do ranking</span>
+          </article>
+        </div>
+
+        <section class="report-podium" id="relatorioPodio" aria-label="As três gangues que mais gastaram"></section>
+
+        <section class="panel-card table-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Ranking completo</p>
+              <h3>Compras e encomendas por gangue</h3>
+            </div>
+          </div>
+          <div class="table-wrap report-table-wrap">
+            <table class="responsive-table report-table">
+              <thead>
+                <tr>
+                  <th>Posição</th>
+                  <th>Gangue</th>
+                  <th>Total gasto</th>
+                  <th>Compras</th>
+                  <th>Encomendas entregues</th>
+                  <th>Encomendas pendentes</th>
+                  <th>Valor pendente</th>
+                  <th>Itens</th>
+                </tr>
+              </thead>
+              <tbody id="relatorioTable">
+                <tr><td colspan="8">Gere um relatório para visualizar o ranking.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="view" id="encomendas">

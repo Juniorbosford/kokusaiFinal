@@ -151,7 +151,21 @@ DEFAULT_META_NAMES = [
 ]
 
 COMPRAS_HEADERS = ["id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade", "valor_total", "observacao"]
-VENDAS_HEADERS = ["id", "data", "produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade", "valor_total", "observacao"]
+VENDAS_HEADERS = [
+    "id",
+    "data",
+    "produto",
+    "quem_compra",
+    "quem_vende",
+    "valor_unitario",
+    "quantidade",
+    "valor_total",
+    "observacao",
+    "familia_id",
+    "familia_nome",
+    "familia_icone",
+    "encomenda_id",
+]
 ENCOMENDAS_HEADERS = [
     "id",
     "data",
@@ -1657,7 +1671,11 @@ def normalize_compra(row):
 
 
 def normalize_venda(row):
-    return row_to_dict(row, VENDAS_HEADERS)
+    item = row_to_dict(row, VENDAS_HEADERS)
+    item["familia_nome"] = str(item.get("familia_nome") or item.get("quem_compra") or "").strip()
+    item["familia_icone"] = str(item.get("familia_icone") or "").strip()
+    item["encomenda_id"] = str(item.get("encomenda_id") or "").strip()
+    return item
 
 
 def normalize_encomenda(row):
@@ -1801,6 +1819,10 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
         quantidade,
         valor_total,
         observacao,
+        str(item.get("familia_id") or "").strip(),
+        str(item.get("familia_nome") or item.get("quem_pediu") or "").strip(),
+        str(item.get("familia_icone") or "").strip(),
+        encomenda_id,
     ]
 
 
@@ -1829,6 +1851,10 @@ def build_venda_rows_from_encomenda(item, entregue_em=None):
             order_item["quantidade"],
             order_item["valor_total"],
             observacao,
+            str(item.get("familia_id") or "").strip(),
+            str(item.get("familia_nome") or item.get("quem_pediu") or "").strip(),
+            str(item.get("familia_icone") or "").strip(),
+            encomenda_id,
         ])
     return rows
 
@@ -1860,6 +1886,222 @@ def get_family_snapshot(family_id):
         "id": str(family.get("id") or clean_id).strip(),
         "nome": str(family.get("nome") or "").strip(),
         "icone": str(family.get("icone") or "").strip(),
+    }
+
+
+def parse_record_datetime(value):
+    """Lê as datas já usadas nas planilhas, inclusive registros antigos."""
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+
+    for pattern in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw_value, pattern)
+        except ValueError:
+            continue
+
+    try:
+        return datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def report_month_payload(value):
+    month_value = str(value or "").strip() or now_local().strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-\d{2}", month_value):
+        raise ValueError("Mês inválido. Use o formato AAAA-MM.")
+
+    year, month = (int(part) for part in month_value.split("-", 1))
+    if year < 2000 or year > 2100 or month < 1 or month > 12:
+        raise ValueError("Mês inválido.")
+
+    month_names = (
+        "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+    )
+    return {
+        "value": month_value,
+        "year": year,
+        "month": month,
+        "label": f"{month_names[month - 1].capitalize()} de {year}",
+    }
+
+
+def record_is_in_report_month(record, month_payload):
+    record_date = parse_record_datetime(record.get("data"))
+    return bool(
+        record_date
+        and record_date.year == month_payload["year"]
+        and record_date.month == month_payload["month"]
+    )
+
+
+def encomenda_id_from_venda(venda):
+    explicit_id = str(venda.get("encomenda_id") or "").strip()
+    if explicit_id:
+        return explicit_id
+
+    observation = str(venda.get("observacao") or "")
+    match = re.search(r"Convertida da encomenda\s+([^\s.]+)", observation, re.IGNORECASE)
+    return match.group(1).strip() if match else ""
+
+
+def build_family_sales_report(month_value=None):
+    month_payload = report_month_payload(month_value)
+
+    family_worksheet = get_familias_worksheet()
+    family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
+    families = [normalize_family(row) for row in family_rows[1:] if str(sheet_cell(row, 2)).strip()]
+    families_by_id = {str(item.get("id") or "").strip(): item for item in families if str(item.get("id") or "").strip()}
+    families_by_name = {normalized_lookup_key(item.get("nome")): item for item in families if normalized_lookup_key(item.get("nome"))}
+
+    groups = {}
+
+    def resolve_family(record, name_field):
+        family_id = str(record.get("familia_id") or "").strip()
+        current = families_by_id.get(family_id)
+        if current:
+            return {
+                "id": str(current.get("id") or family_id).strip(),
+                "nome": str(current.get("nome") or "").strip(),
+                "icone": str(current.get("icone") or "").strip(),
+            }
+
+        record_name = str(record.get("familia_nome") or record.get(name_field) or "").strip()
+        if family_id and record_name:
+            return {
+                "id": family_id,
+                "nome": record_name,
+                "icone": str(record.get("familia_icone") or "").strip(),
+            }
+
+        current = families_by_name.get(normalized_lookup_key(record_name))
+        if current:
+            return {
+                "id": str(current.get("id") or "").strip(),
+                "nome": str(current.get("nome") or record_name).strip(),
+                "icone": str(current.get("icone") or "").strip(),
+            }
+        return None
+
+    def get_group(family):
+        family_key = str(family.get("id") or "").strip() or normalized_lookup_key(family.get("nome"))
+        if family_key not in groups:
+            groups[family_key] = {
+                "familia_id": str(family.get("id") or "").strip(),
+                "nome": str(family.get("nome") or "Família sem nome").strip(),
+                "icone": str(family.get("icone") or "").strip() or "🤝",
+                "total_gasto": 0.0,
+                "valor_pendente": 0.0,
+                "itens_comprados": 0,
+                "vendas_linhas": 0,
+                "_transacoes": set(),
+                "_encomendas_finalizadas": set(),
+                "_compras_diretas": set(),
+                "_encomendas_pendentes": set(),
+            }
+        return groups[family_key]
+
+    vendas_worksheet = get_vendas_worksheet()
+    vendas_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet)
+    unlinked_sales = 0
+    unlinked_value = 0.0
+
+    for row in vendas_rows[1:]:
+        venda = normalize_venda(row)
+        if not record_is_in_report_month(venda, month_payload):
+            continue
+        try:
+            sale_value = float(venda.get("valor_total") or 0)
+        except (TypeError, ValueError):
+            sale_value = 0.0
+        try:
+            quantity = int(float(venda.get("quantidade") or 0))
+        except (TypeError, ValueError):
+            quantity = 0
+
+        family = resolve_family(venda, "quem_compra")
+        if not family:
+            unlinked_sales += 1
+            unlinked_value += sale_value
+            continue
+
+        group = get_group(family)
+        sale_id = str(venda.get("id") or "").strip() or f"linha-{group['vendas_linhas'] + 1}"
+        order_id = encomenda_id_from_venda(venda)
+        if order_id:
+            group["_encomendas_finalizadas"].add(order_id)
+            group["_transacoes"].add(f"encomenda:{order_id}")
+        else:
+            group["_compras_diretas"].add(sale_id)
+            group["_transacoes"].add(f"venda:{sale_id}")
+        group["total_gasto"] += sale_value
+        group["itens_comprados"] += max(quantity, 0)
+        group["vendas_linhas"] += 1
+
+    encomendas_worksheet = get_encomendas_worksheet()
+    encomendas_rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, encomendas_worksheet)
+    for row in encomendas_rows[1:]:
+        encomenda = normalize_encomenda(row)
+        if not record_is_in_report_month(encomenda, month_payload):
+            continue
+        family = resolve_family(encomenda, "quem_pediu")
+        if not family:
+            continue
+        group = get_group(family)
+        order_id = str(encomenda.get("id") or "").strip()
+        if order_id:
+            group["_encomendas_pendentes"].add(order_id)
+        try:
+            group["valor_pendente"] += float(encomenda.get("valor") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    ranking = []
+    for group in groups.values():
+        item = {
+            "familia_id": group["familia_id"],
+            "nome": group["nome"],
+            "icone": group["icone"],
+            "total_gasto": round(group["total_gasto"], 2),
+            "valor_pendente": round(group["valor_pendente"], 2),
+            "compras": len(group["_transacoes"]),
+            "compras_diretas": len(group["_compras_diretas"]),
+            "encomendas_finalizadas": len(group["_encomendas_finalizadas"]),
+            "encomendas_pendentes": len(group["_encomendas_pendentes"]),
+            "itens_comprados": group["itens_comprados"],
+            "vendas_linhas": group["vendas_linhas"],
+        }
+        ranking.append(item)
+
+    ranking.sort(
+        key=lambda item: (
+            -item["total_gasto"],
+            -item["compras"],
+            -item["encomendas_pendentes"],
+            normalized_lookup_key(item["nome"]),
+        )
+    )
+    for position, item in enumerate(ranking, start=1):
+        item["posicao"] = position
+
+    summary = {
+        "gangues": len(ranking),
+        "total_gasto": round(sum(item["total_gasto"] for item in ranking), 2),
+        "compras": sum(item["compras"] for item in ranking),
+        "encomendas_finalizadas": sum(item["encomendas_finalizadas"] for item in ranking),
+        "encomendas_pendentes": sum(item["encomendas_pendentes"] for item in ranking),
+        "valor_pendente": round(sum(item["valor_pendente"] for item in ranking), 2),
+        "vendas_sem_familia": unlinked_sales,
+        "valor_sem_familia": round(unlinked_value, 2),
+    }
+    return {
+        "mes": month_payload["value"],
+        "mes_label": month_payload["label"],
+        "gerado_em": format_timestamp(),
+        "resumo": summary,
+        "ranking": ranking,
     }
 
 
@@ -2451,7 +2693,22 @@ def list_vendas():
     try:
         worksheet = get_vendas_worksheet()
         rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, worksheet)
-        return jsonify([normalize_venda(row) for row in latest_data_rows(rows)])
+        family_worksheet = get_familias_worksheet()
+        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
+        families_by_id = {
+            str(family.get("id") or "").strip(): family
+            for family in (normalize_family(row) for row in family_rows[1:])
+            if str(family.get("id") or "").strip()
+        }
+        vendas = []
+        for row in latest_data_rows(rows):
+            venda = normalize_venda(row)
+            family = families_by_id.get(str(venda.get("familia_id") or "").strip())
+            if family:
+                venda["familia_nome"] = family["nome"]
+                venda["familia_icone"] = family.get("icone") or ""
+            vendas.append(venda)
+        return jsonify(vendas)
 
     except Exception as e:
         log_error("Falha em /api/vendas [GET]", e)
@@ -2465,7 +2722,7 @@ def create_venda():
         data = request.get_json(silent=True)
         ok, message = validate_numeric_fields(
             data,
-            ["produto", "quem_compra", "quem_vende", "valor_unitario", "quantidade"]
+            ["produto", "quem_vende", "valor_unitario", "quantidade"]
         )
 
         if not ok:
@@ -2473,9 +2730,15 @@ def create_venda():
 
         try:
             produto = clean_text_field(data, "produto", "Produto")
-            quem_compra = clean_text_field(data, "quem_compra", "Quem compra")
             quem_vende = clean_text_field(data, "quem_vende", "Quem vende")
             observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+            family_id = str(data.get("familia_id") or "").strip()
+            if family_id:
+                family = get_family_snapshot(family_id)
+                quem_compra = family["nome"]
+            else:
+                family = {"id": "", "nome": "", "icone": ""}
+                quem_compra = clean_text_field(data, "quem_compra", "Quem compra")
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
@@ -2499,6 +2762,10 @@ def create_venda():
             quantidade,
             valor_total,
             observacao,
+            family["id"],
+            family["nome"],
+            family["icone"],
+            "",
         ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
         log_info(f"Venda registrada com sucesso. ID={registro_id}")
@@ -2508,6 +2775,7 @@ def create_venda():
             "message": "Venda salva com sucesso.",
             "id": registro_id,
             "valor_total": valor_total,
+            "familia_id": family["id"],
         }), 201
 
     except Exception as e:
@@ -2538,6 +2806,18 @@ def resumo_vendas():
 
     except Exception as e:
         log_error("Falha em /api/resumo-vendas", e)
+        return error_response(str(e))
+
+
+@app.get("/api/relatorios/gangues")
+@require_staff
+def relatorio_gangues():
+    try:
+        return jsonify(build_family_sales_report(request.args.get("mes")))
+    except ValueError as validation_error:
+        return error_response(str(validation_error), 400)
+    except Exception as e:
+        log_error("Falha em /api/relatorios/gangues", e)
         return error_response(str(e))
 
 

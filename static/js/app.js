@@ -20,6 +20,9 @@ navLinks.forEach(link => {
 const refreshBtn = document.getElementById("refreshBtn");
 const form = document.getElementById("compraForm");
 const vendaForm = document.getElementById("vendaForm");
+const vendaFamiliaSelect = document.getElementById("v_familia_id");
+const vendaCompradorInput = document.getElementById("quem_compra");
+const vendaCompradorManualField = document.getElementById("v_comprador_manual_field");
 const encomendaForm = document.getElementById("encomendaForm");
 const encomendaFamiliaSelect = document.getElementById("e_familia_id");
 const encomendaSubmitBtn = document.getElementById("encomendaSubmitBtn");
@@ -46,6 +49,13 @@ let familiasCache = [];
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
+const relatorioMes = document.getElementById("relatorioMes");
+const relatorioGerarBtn = document.getElementById("relatorioGerarBtn");
+const relatorioDownloadBtn = document.getElementById("relatorioDownloadBtn");
+const relatorioFeedback = document.getElementById("relatorioFeedback");
+const relatorioTable = document.getElementById("relatorioTable");
+const relatorioPodio = document.getElementById("relatorioPodio");
+let ultimoRelatorio = null;
 let encomendaEmEdicaoId = null;
 let encomendasCache = [];
 const reunioesGrid = document.getElementById("reunioesGrid");
@@ -314,6 +324,20 @@ function updatePreviewVenda(){
   setText("previewVendaTotal", currency(valor * qtd));
 }
 
+function syncVendaFamilyField(){
+  if(!vendaFamiliaSelect || !vendaCompradorInput) return;
+  const wasLinked = vendaCompradorInput.disabled;
+  const family = familiasCache.find(item => item.id === vendaFamiliaSelect.value);
+  const linked = Boolean(family);
+  if(linked) vendaCompradorInput.value = family.nome || "";
+  else if(wasLinked) vendaCompradorInput.value = "";
+  vendaCompradorInput.required = !linked;
+  vendaCompradorInput.disabled = linked;
+  if(vendaCompradorManualField) vendaCompradorManualField.hidden = linked;
+}
+
+vendaFamiliaSelect?.addEventListener("change", syncVendaFamilyField);
+
 function updatePreviewEncomenda(){
   const l85 = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
   const seringa = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
@@ -438,6 +462,7 @@ vendaForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = {
     produto: inputValue("v_produto").trim(),
+    familia_id: inputValue("v_familia_id").trim(),
     quem_compra: inputValue("quem_compra").trim(),
     quem_vende: inputValue("quem_vende").trim(),
     valor_unitario: Number(inputValue("v_valor_unitario")),
@@ -448,6 +473,7 @@ vendaForm?.addEventListener("submit", async (e) => {
   const ok = await sendPost("/api/vendas", payload, vendaFeedback, "Salvando venda...", "Venda salva com sucesso.");
   if(ok){
     vendaForm.reset();
+    syncVendaFamilyField();
     updatePreviewVenda();
   }
 });
@@ -505,7 +531,7 @@ encomendaForm?.addEventListener("submit", async (e) => {
       setFeedback(encomendaFeedback, data.message || (res.ok ? "Encomenda atualizada." : "Erro ao atualizar encomenda."), !res.ok);
       if(res.ok){
         resetEncomendaForm();
-        await Promise.all([loadEncomendas(), loadVendas(), loadResumo()]);
+        await Promise.all([loadEncomendas(), loadVendas(), loadResumo(), loadRelatorio()]);
         if(data.moved_to_vendas) activateView("vendas");
       }
     }catch(error){
@@ -633,7 +659,7 @@ encomendasTable?.addEventListener("click", async (event) => {
         headers:csrfHeaders()
       });
       setFeedback(encomendaFeedback, data.message || (res.ok ? "Encomenda cancelada." : "Erro ao cancelar encomenda."), !res.ok);
-      if(res.ok) await Promise.all([loadEncomendas(), loadResumo()]);
+      if(res.ok) await Promise.all([loadEncomendas(), loadResumo(), loadRelatorio()]);
     }catch(error){
       setFeedback(encomendaFeedback, `Falha ao cancelar encomenda: ${error.message}`, true);
     }finally{
@@ -667,7 +693,7 @@ encomendasTable?.addEventListener("click", async (event) => {
     }
 
     setFeedback(encomendaFeedback, data.message || "Status de entrega atualizado.");
-    await Promise.all([loadEncomendas(), loadVendas(), loadResumo()]);
+    await Promise.all([loadEncomendas(), loadVendas(), loadResumo(), loadRelatorio()]);
     if(data.moved_to_vendas){
       activateView("vendas");
     }
@@ -1030,19 +1056,159 @@ async function loadVendas(){
       setTableContent(vendasTable, `<tr><td colspan="6">Nenhuma venda registrada.</td></tr>`);
       return;
     }
-    setTableContent(vendasTable, data.map(item => `
-      <tr>
+    setTableContent(vendasTable, data.map(item => {
+      const family = familyForOrder(item);
+      const familyName = family?.nome || item.familia_nome || item.quem_compra || "Comprador não informado";
+      const familyIcon = family?.icone || item.familia_icone || "🤝";
+      const linked = Boolean(family?.id || item.familia_id);
+      return `<tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
-        <td>${escapeHtml(item.quem_compra)}</td>
+        <td>${linked ? `<span class="order-family-chip"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span>` : escapeHtml(item.quem_compra)}</td>
         <td>${escapeHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${currency(item.valor_total)}</td>
-      </tr>`).join(""));
+      </tr>`;
+    }).join(""));
   }catch(error){
     setTableContent(vendasTable, `<tr><td colspan="6">Falha ao carregar vendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
+
+function reportMedal(position){
+  if(position === 1) return "🥇";
+  if(position === 2) return "🥈";
+  if(position === 3) return "🥉";
+  return `#${position}`;
+}
+
+function renderRelatorio(data){
+  ultimoRelatorio = data;
+  const summary = data?.resumo || {};
+  const ranking = Array.isArray(data?.ranking) ? data.ranking : [];
+
+  setText("relatorioTitulo", `Ranking de ${data?.mes_label || "mês selecionado"}`);
+  setText("relatorioGangues", integer(summary.gangues || 0));
+  setText("relatorioTotalGasto", currency(summary.total_gasto || 0));
+  setText("relatorioCompras", integer(summary.compras || 0));
+  setText("relatorioEncomendasPendentes", integer(summary.encomendas_pendentes || 0));
+  setText("relatorioValorPendente", `${currency(summary.valor_pendente || 0)} em aberto`);
+  setText("relatorioSemFamilia", integer(summary.vendas_sem_familia || 0));
+  setText("relatorioValorSemFamilia", `${currency(summary.valor_sem_familia || 0)} fora do ranking`);
+
+  if(relatorioDownloadBtn) relatorioDownloadBtn.disabled = false;
+  if(relatorioPodio){
+    const topThree = ranking.slice(0, 3);
+    relatorioPodio.innerHTML = topThree.length ? topThree.map(item => `
+      <article class="report-podium-card report-position-${item.posicao}">
+        <span class="report-medal">${reportMedal(item.posicao)}</span>
+        <div class="report-family-icon">${escapeHtml(item.icone || "🤝")}</div>
+        <strong>${escapeHtml(item.nome)}</strong>
+        <p>${currency(item.total_gasto)}</p>
+        <small>${integer(item.compras)} compra${Number(item.compras) === 1 ? "" : "s"}</small>
+      </article>`).join("") : `<div class="report-empty">Nenhuma venda ou encomenda vinculada a uma família neste mês.</div>`;
+  }
+
+  if(!ranking.length){
+    setTableContent(relatorioTable, `<tr><td colspan="8">Nenhuma gangue com movimentação no período selecionado.</td></tr>`);
+    return;
+  }
+
+  setTableContent(relatorioTable, ranking.map(item => `
+    <tr>
+      <td><span class="report-rank">${reportMedal(item.posicao)}</span></td>
+      <td><span class="order-family-chip"><span>${escapeHtml(item.icone || "🤝")}</span><strong>${escapeHtml(item.nome)}</strong></span></td>
+      <td><strong class="report-money">${currency(item.total_gasto)}</strong></td>
+      <td>${integer(item.compras)}</td>
+      <td>${integer(item.encomendas_finalizadas)}</td>
+      <td>${integer(item.encomendas_pendentes)}</td>
+      <td>${currency(item.valor_pendente)}</td>
+      <td>${integer(item.itens_comprados)}</td>
+    </tr>`).join(""));
+}
+
+async function loadRelatorio(){
+  if(!relatorioMes || !relatorioTable) return;
+  const month = relatorioMes.value;
+  if(!month) return;
+  ultimoRelatorio = null;
+  if(relatorioDownloadBtn) relatorioDownloadBtn.disabled = true;
+  if(relatorioGerarBtn){
+    relatorioGerarBtn.disabled = true;
+    relatorioGerarBtn.textContent = "Gerando...";
+  }
+  setFeedback(relatorioFeedback, "Calculando vendas e encomendas do período...");
+  try{
+    const {res, data} = await fetchJson(`/api/relatorios/gangues?mes=${encodeURIComponent(month)}`);
+    if(!res.ok){
+      setFeedback(relatorioFeedback, data.error || "Não foi possível gerar o relatório.", true);
+      return;
+    }
+    renderRelatorio(data);
+    setFeedback(relatorioFeedback, `Relatório de ${data.mes_label} gerado em ${data.gerado_em}.`);
+  }catch(error){
+    setFeedback(relatorioFeedback, `Falha ao gerar relatório: ${error.message}`, true);
+  }finally{
+    if(relatorioGerarBtn){
+      relatorioGerarBtn.disabled = false;
+      relatorioGerarBtn.textContent = "Gerar relatório";
+    }
+  }
+}
+
+function reportTxt(data){
+  const summary = data?.resumo || {};
+  const ranking = Array.isArray(data?.ranking) ? data.ranking : [];
+  const lines = [
+    "KOKUSAI - RELATÓRIO MENSAL POR GANGUE",
+    "============================================================",
+    `Período: ${data?.mes_label || data?.mes || "Não informado"}`,
+    `Gerado em: ${data?.gerado_em || "Não informado"}`,
+    "",
+    "RESUMO",
+    `Gangues no ranking: ${summary.gangues || 0}`,
+    `Total gasto: ${currency(summary.total_gasto || 0)}`,
+    `Compras concluídas: ${summary.compras || 0}`,
+    `Encomendas entregues: ${summary.encomendas_finalizadas || 0}`,
+    `Encomendas pendentes: ${summary.encomendas_pendentes || 0}`,
+    `Valor pendente: ${currency(summary.valor_pendente || 0)}`,
+    `Vendas sem família: ${summary.vendas_sem_familia || 0} (${currency(summary.valor_sem_familia || 0)})`,
+    "",
+    "RANKING",
+    "------------------------------------------------------------",
+  ];
+
+  if(!ranking.length) lines.push("Nenhuma gangue com movimentação no período.");
+  ranking.forEach(item => {
+    lines.push(
+      `${item.posicao}. ${item.icone || "🤝"} ${item.nome}`,
+      `   Total gasto: ${currency(item.total_gasto)}`,
+      `   Compras concluídas: ${item.compras}`,
+      `   Compras diretas: ${item.compras_diretas}`,
+      `   Encomendas entregues: ${item.encomendas_finalizadas}`,
+      `   Encomendas pendentes: ${item.encomendas_pendentes}`,
+      `   Valor pendente: ${currency(item.valor_pendente)}`,
+      `   Itens comprados: ${item.itens_comprados}`,
+      ""
+    );
+  });
+  return lines.join("\r\n").trimEnd() + "\r\n";
+}
+
+relatorioGerarBtn?.addEventListener("click", loadRelatorio);
+relatorioMes?.addEventListener("change", loadRelatorio);
+relatorioDownloadBtn?.addEventListener("click", () => {
+  if(!ultimoRelatorio) return;
+  const blob = new Blob(["\ufeff", reportTxt(ultimoRelatorio)], {type:"text/plain;charset=utf-8"});
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = `kokusai-relatorio-gangues-${ultimoRelatorio.mes || "mensal"}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(downloadUrl);
+});
 
 async function loadEncomendas(){
   if(!encomendasTable) return;
@@ -1105,6 +1271,12 @@ async function loadFamilias(){
       const selectedFamilyId = encomendaFamiliaSelect.value;
       encomendaFamiliaSelect.innerHTML = `<option value="">Selecione a família responsável</option>${items.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}</option>`).join("")}`;
       if(items.some(item => item.id === selectedFamilyId)) encomendaFamiliaSelect.value = selectedFamilyId;
+    }
+    if(vendaFamiliaSelect){
+      const selectedFamilyId = vendaFamiliaSelect.value;
+      vendaFamiliaSelect.innerHTML = `<option value="">Sem família cadastrada</option>${items.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}</option>`).join("")}`;
+      if(items.some(item => item.id === selectedFamilyId)) vendaFamiliaSelect.value = selectedFamilyId;
+      syncVendaFamilyField();
     }
 
     if(!items.length){
@@ -1372,7 +1544,7 @@ async function loadAll(){
     refreshBtn.textContent = "Atualizando...";
   }
   try{
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadReunioes(), loadFamilias(), loadMetas()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas()]);
     updateLastSync();
   }finally{
     if(refreshBtn){
@@ -1386,6 +1558,10 @@ refreshBtn?.addEventListener("click", loadAll);
 updatePreviewCompra();
 updatePreviewVenda();
 updatePreviewEncomenda();
+if(relatorioMes && !relatorioMes.value){
+  const now = new Date();
+  relatorioMes.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
 resetFamiliaForm();
 renderRecipes();
 renderCraft();

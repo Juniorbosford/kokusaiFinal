@@ -1070,3 +1070,70 @@ table.craft-result-table{min-width:650px}
   .order-items-grid,.order-item-fields{grid-template-columns:1fr}
   .secret-input-row{grid-template-columns:1fr}
 }
+
+/* Relatório mensal de vendas por família/gangue */
+.field[hidden]{display:none}
+.report-filter-card{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:18px 28px;
+  align-items:end;
+}
+.report-filter-copy h3{margin:6px 0 8px;font-size:1.3rem;letter-spacing:-.025em}
+.report-filter-copy>p:last-child{margin:0;color:var(--muted);line-height:1.55;max-width:720px}
+.report-filter-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.report-filter-actions .field{min-width:190px}
+.report-filter-actions button{min-height:46px}
+.report-feedback{grid-column:1/-1;margin-top:0}
+.report-stats-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+.report-stat-card{min-height:142px}
+.report-stat-card strong{font-size:1.65rem}
+.report-stat-highlight{border-color:rgba(49,208,131,.26);background:linear-gradient(180deg,rgba(49,208,131,.11),rgba(255,255,255,.022))}
+.report-stat-warning{border-color:rgba(240,184,75,.25);background:linear-gradient(180deg,rgba(240,184,75,.09),rgba(255,255,255,.022))}
+.report-podium{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:end;min-height:0}
+.report-podium-card{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  min-width:0;
+  padding:22px 18px;
+  border-radius:20px;
+  border:1px solid var(--line);
+  background:linear-gradient(160deg,rgba(255,255,255,.065),rgba(255,255,255,.018));
+  box-shadow:0 18px 42px rgba(0,0,0,.23);
+}
+.report-position-1{order:2;padding-top:30px;border-color:rgba(240,184,75,.38);background:linear-gradient(160deg,rgba(240,184,75,.14),rgba(255,255,255,.022));transform:translateY(-10px)}
+.report-position-2{order:1;border-color:rgba(190,202,218,.27)}
+.report-position-3{order:3;border-color:rgba(194,115,70,.32)}
+.report-medal{position:absolute;top:13px;right:14px;font-size:1.3rem}
+.report-family-icon{display:grid;place-items:center;width:52px;height:52px;margin-bottom:10px;border-radius:16px;border:1px solid var(--line);background:rgba(0,0,0,.18);font-size:1.55rem}
+.report-podium-card>strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:1.05rem}
+.report-podium-card p{margin:9px 0 5px;color:#fff;font-size:1.3rem;font-weight:900;letter-spacing:-.035em}
+.report-podium-card small{color:var(--muted);font-weight:700}
+.report-empty{grid-column:1/-1;padding:34px;text-align:center;border:1px dashed var(--line);border-radius:18px;color:var(--muted);background:rgba(255,255,255,.02)}
+.report-table-wrap{overflow-x:auto}
+.report-table{min-width:960px;table-layout:auto}
+.report-table th,.report-table td{white-space:nowrap}
+.report-table th:nth-child(2),.report-table td:nth-child(2){min-width:190px}
+.report-rank{display:inline-grid;place-items:center;min-width:38px;min-height:32px;padding:0 8px;border-radius:10px;background:rgba(255,255,255,.055);border:1px solid var(--line);font-weight:900}
+.report-money{color:#c9ffe4;font-size:.94rem}
+
+@media(max-width:1400px){
+  .report-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:900px){
+  .report-filter-card{grid-template-columns:1fr;align-items:stretch}
+  .report-filter-actions{justify-content:flex-start}
+  .report-feedback{grid-column:1}
+  .report-stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .report-table{min-width:0}
+  .report-table th,.report-table td{white-space:normal}
+}
+@media(max-width:620px){
+  .report-filter-actions{display:grid;grid-template-columns:1fr}
+  .report-filter-actions .field,.report-filter-actions button{width:100%}
+  .report-stats-grid,.report-podium{grid-template-columns:1fr}
+  .report-position-1,.report-position-2,.report-position-3{order:initial;transform:none}
+}
