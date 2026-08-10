@@ -1962,6 +1962,39 @@ def build_venda_rows_from_encomenda(item, entregue_em=None):
     return rows
 
 
+def move_encomenda_to_vendas(worksheet, row_index, encomenda_item, entregue_em=None):
+    """Grava a venda e só então remove a encomenda da aba ativa.
+
+    A operação é idempotente: se uma tentativa anterior tiver criado a venda,
+    a próxima apenas confirma as linhas existentes e conclui a exclusão da
+    encomenda. Isso evita tanto duplicidade quanto uma entrega "pela metade".
+    """
+    vendas_worksheet = get_vendas_worksheet()
+    venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=entregue_em)
+    venda_ids = [str(venda_row[0]) for venda_row in venda_rows]
+
+    existing_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet, force=True)
+    existing_ids = {sheet_cell(existing_row, 0) for existing_row in existing_rows[1:]}
+    for venda_row in venda_rows:
+        if venda_row[0] not in existing_ids:
+            vendas_worksheet.append_row(venda_row, value_input_option="RAW")
+            existing_ids.add(venda_row[0])
+
+    # Confirma no Google Sheets que todas as vendas foram persistidas antes
+    # de apagar a encomenda. Sem essa confirmação ela continua disponível
+    # para uma nova tentativa, sem perder o pedido.
+    invalidate_values_cache(VENDAS_WORKSHEET_NAME)
+    persisted_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet, force=True)
+    persisted_ids = {sheet_cell(persisted_row, 0) for persisted_row in persisted_rows[1:]}
+    missing_ids = [venda_id for venda_id in venda_ids if venda_id not in persisted_ids]
+    if missing_ids:
+        raise RuntimeError("Não foi possível confirmar a venda no Google Sheets. A encomenda foi mantida para nova tentativa.")
+
+    worksheet.delete_rows(row_index)
+    invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+    return venda_ids
+
+
 def worksheet_has_record_id(worksheet, registro_id):
     rows = cached_get_all_values(worksheet.title, worksheet, force=True)
     return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
@@ -2967,6 +3000,11 @@ def list_encomendas():
         orders = []
         for row in latest_data_rows(rows):
             order = normalize_encomenda(row)
+            # Entregas antigas que já foram marcadas como concluídas não devem
+            # permanecer na aba ativa. As novas são excluídas fisicamente ao
+            # virar venda; este filtro também corrige os registros legados.
+            if order["entregue"] == "Sim":
+                continue
             family = families_by_id.get(str(order.get("familia_id") or "").strip())
             if family:
                 order["familia_nome"] = family["nome"]
@@ -3192,22 +3230,13 @@ def update_encomenda(registro_id):
             if entregue == "Sim":
                 entregue_em = format_timestamp()
                 encomenda_item["entregue_em"] = entregue_em
-                vendas_worksheet = get_vendas_worksheet()
-                venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=entregue_em)
-                existing_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet, force=True)
-                existing_ids = {sheet_cell(existing_row, 0) for existing_row in existing_rows[1:]}
-                for venda_row in venda_rows:
-                    if venda_row[0] not in existing_ids:
-                        vendas_worksheet.append_row(venda_row, value_input_option="RAW")
-                        existing_ids.add(venda_row[0])
-                worksheet.delete_rows(row_index)
-                invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+                venda_ids = move_encomenda_to_vendas(worksheet, row_index, encomenda_item, entregue_em)
                 return jsonify({
                     "ok": True,
                     "message": "Encomenda atualizada, entregue e movida para Vendas.",
                     "id": registro_id,
                     "moved_to_vendas": True,
-                    "venda_ids": [venda_row[0] for venda_row in venda_rows],
+                    "venda_ids": venda_ids,
                 })
 
             worksheet.update(
@@ -3304,21 +3333,7 @@ def update_encomenda_entrega(registro_id):
             encomenda_item["familia_nome"] = family["nome"]
             encomenda_item["familia_icone"] = family["icone"]
 
-            vendas_worksheet = get_vendas_worksheet()
-            venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=entregue_em)
-            venda_ids = [venda_row[0] for venda_row in venda_rows]
-
-            # Se a gravação da venda tiver ocorrido e a exclusão da encomenda falhar,
-            # uma nova tentativa apenas conclui a exclusão, sem duplicar a venda.
-            existing_rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, vendas_worksheet, force=True)
-            existing_ids = {sheet_cell(existing_row, 0) for existing_row in existing_rows[1:]}
-            for venda_row in venda_rows:
-                if venda_row[0] not in existing_ids:
-                    vendas_worksheet.append_row(venda_row, value_input_option="RAW")
-                    existing_ids.add(venda_row[0])
-
-            worksheet.delete_rows(row_index)
-            invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME, VENDAS_WORKSHEET_NAME)
+            venda_ids = move_encomenda_to_vendas(worksheet, row_index, encomenda_item, entregue_em)
             log_info(f"Encomenda movida para Vendas. Encomenda={registro_id} Vendas={','.join(venda_ids)}")
 
         return jsonify({
