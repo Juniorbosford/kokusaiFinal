@@ -344,8 +344,11 @@
 
             <form id="encomendaForm" class="form-grid">
               <div class="field">
-                <label for="e_quem_pediu">Quem pediu</label>
-                <input id="e_quem_pediu" list="familiasDatalist" placeholder="Ex.: Nome (fac)" required />
+                <label for="e_familia_id">Família / gangue</label>
+                <select id="e_familia_id" required>
+                  <option value="">Selecione a família responsável</option>
+                </select>
+                <small class="field-help">Toda encomenda fica vinculada ao cadastro da família.</small>
               </div>
 
               <div class="field field-full">
@@ -579,20 +582,33 @@
                 <label for="f_preco_compra">Valor deles para a Kokusai</label>
                 <textarea id="f_preco_compra" placeholder="Ex.: Materiais, produtos e valores comprados desta família"></textarea>
               </div>
-              <div class="field field-full">
-                <label for="f_contato">Contato</label>
+              <div class="field">
+                <label for="f_contato">Contato 1</label>
                 <div class="secret-input-row">
-                  <input id="f_contato" type="password" autocomplete="off" placeholder="Digite o contato da família" />
+                  <input id="f_contato" type="password" autocomplete="off" placeholder="Primeiro contato" />
                   <button type="button" class="secondary-btn compact-btn" id="toggleFamilyContact">Mostrar</button>
                 </div>
               </div>
+              <div class="field">
+                <label for="f_contato_2">Contato 2</label>
+                <div class="secret-input-row">
+                  <input id="f_contato_2" type="password" autocomplete="off" placeholder="Segundo contato" />
+                  <button type="button" class="secondary-btn compact-btn" id="toggleFamilyContact2">Mostrar</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="f_flyer_url">Flyer 1 (opcional)</label>
+                <input id="f_flyer_url" type="url" placeholder="https://.../flyer-1.png" />
+              </div>
+              <div class="field">
+                <label for="f_flyer_url_2">Flyer 2 (opcional)</label>
+                <input id="f_flyer_url_2" type="url" placeholder="https://.../flyer-2.png" />
+              </div>
               <div class="field field-full">
-                <label for="f_flyer_url">Imagem do flyer (opcional)</label>
-                <input id="f_flyer_url" type="url" placeholder="https://.../flyer.png" />
-                <small class="field-help">Cole um novo link para adicionar ou substituir a imagem atual.</small>
+                <small class="field-help">Cole até dois links de imagem. Você pode adicionar, substituir ou remover cada um na edição.</small>
                 <label class="check-line" for="f_flyer_oculto">
                   <input id="f_flyer_oculto" type="checkbox" />
-                  <span>Ocultar o flyer atual</span>
+                  <span>Ocultar os flyers atuais</span>
                 </label>
               </div>
               <div class="field field-full">
@@ -638,7 +654,7 @@
             <p class="eyebrow">Salas de Meta</p>
             <h3>Controle semanal por pessoa</h3>
           </div>
-          <p>Cada membro envia as próprias fotos em uma sala privada. Aqui você acompanha todos os envios, confere os comprovantes e confirma o pagamento.</p>
+          <p>Os comprovantes são enviados de sexta até quarta às 23:59. Na quinta-feira, o admin confere todos, marca quem pagou e finaliza a semana.</p>
         </div>
 
         <section class="panel-card meta-admin-summary-card">
@@ -651,9 +667,16 @@
             <div class="meta-kpi-grid">
               <div><span>Salas</span><strong id="metaTotal">0</strong></div>
               <div><span>Pagas</span><strong id="metaPagas">0</strong></div>
-              <div><span>Enviadas</span><strong id="metaEnviadas">0</strong></div>
-              <div><span>Pendentes</span><strong id="metaPendentes">0</strong></div>
+              <div><span>Não pagas</span><strong id="metaNaoPagas">0</strong></div>
+              <div><span>A revisar</span><strong id="metaPendentes">0</strong></div>
             </div>
+          </div>
+          <div class="meta-week-close-panel">
+            <div>
+              <span id="metaCycleStatus">Carregando ciclo...</span>
+              <small id="metaCycleDeadline">Prazo: quarta-feira às 23:59</small>
+            </div>
+            <button type="button" class="primary-btn" id="finalizeMetaWeekBtn" disabled>Finalizar semana e baixar TXT</button>
           </div>
           <div class="feedback" id="metasFeedback">Selecione uma sala para conferir os comprovantes da semana.</div>
         </section>

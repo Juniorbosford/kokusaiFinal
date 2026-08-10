@@ -21,6 +21,7 @@ const refreshBtn = document.getElementById("refreshBtn");
 const form = document.getElementById("compraForm");
 const vendaForm = document.getElementById("vendaForm");
 const encomendaForm = document.getElementById("encomendaForm");
+const encomendaFamiliaSelect = document.getElementById("e_familia_id");
 const encomendaSubmitBtn = document.getElementById("encomendaSubmitBtn");
 const encomendaCancelEditBtn = document.getElementById("encomendaCancelEditBtn");
 const reuniaoForm = document.getElementById("reuniaoForm");
@@ -37,6 +38,7 @@ const familiaFeedback = document.getElementById("familiaFeedback");
 const familiaSubmitBtn = document.getElementById("familiaSubmitBtn");
 const familiaCancelEditBtn = document.getElementById("familiaCancelEditBtn");
 const toggleFamilyContactBtn = document.getElementById("toggleFamilyContact");
+const toggleFamilyContact2Btn = document.getElementById("toggleFamilyContact2");
 const familiasGrid = document.getElementById("familiasGrid");
 const familiasDatalist = document.getElementById("familiasDatalist");
 let familiaEmEdicaoId = null;
@@ -51,8 +53,12 @@ const metasFeedback = document.getElementById("metasFeedback");
 const metaRoomsGrid = document.getElementById("metaRoomsGrid");
 const metaRoomsSearch = document.getElementById("metaRoomsSearch");
 const metaRoomDetail = document.getElementById("metaRoomDetail");
+const finalizeMetaWeekBtn = document.getElementById("finalizeMetaWeekBtn");
+const metaCycleStatus = document.getElementById("metaCycleStatus");
+const metaCycleDeadline = document.getElementById("metaCycleDeadline");
 let metaRoomsCache = [];
 let selectedMetaRoomUserId = null;
+let activeMetaWeek = null;
 const craftForm = document.getElementById("craftForm");
 const craftInputs = document.querySelectorAll("[data-craft-input]");
 const craftTable = document.getElementById("craftTable");
@@ -223,11 +229,11 @@ function paymentBadge(value){
   return `<span class="status-badge ${isPaid ? "success" : "pending"}">${isPaid ? "SIM" : "NÃO"}</span>`;
 }
 
-function updateMetaCounters(total=0, pagos=0, pendentes=0, confirmados=0, semanaLabel="--", enviados=0){
+function updateMetaCounters(total=0, pagos=0, pendentes=0, confirmados=0, semanaLabel="--", naoPagos=0){
   setText("metaTotal", integer(total));
   setText("metaPagas", integer(pagos));
   setText("metaPendentes", integer(pendentes));
-  setText("metaEnviadas", integer(enviados));
+  setText("metaNaoPagas", integer(naoPagos));
   setText("statMetasPagas", integer(pagos));
   setText("statMetasPendentes", integer(pendentes));
   setText("metaSemanaAtual", semanaLabel || "--");
@@ -326,6 +332,16 @@ function resetEncomendaForm(){
   setText("encomendaFormTitle", "Dados da encomenda");
 }
 
+function familyForOrder(item){
+  const familyId = String(item?.familia_id || "").trim();
+  if(familyId){
+    const byId = familiasCache.find(family => family.id === familyId);
+    if(byId) return byId;
+  }
+  const orderName = normalizeFamilyFlyerKey(item?.familia_nome || item?.quem_pediu);
+  return familiasCache.find(family => normalizeFamilyFlyerKey(family.nome) === orderName) || null;
+}
+
 function iniciarEdicaoEncomenda(id){
   const item = encomendasCache.find(encomenda => encomenda.id === id);
   if(!item || !encomendaForm) return;
@@ -333,9 +349,10 @@ function iniciarEdicaoEncomenda(id){
   const itens = Array.isArray(item.itens) ? item.itens : [];
   const l85 = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "l85");
   const seringa = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "seringa");
+  const family = familyForOrder(item);
 
   encomendaEmEdicaoId = id;
-  document.getElementById("e_quem_pediu").value = item.quem_pediu || "";
+  if(encomendaFamiliaSelect) encomendaFamiliaSelect.value = family?.id || item.familia_id || "";
   document.getElementById("e_l85_quantidade").value = l85?.quantidade || "";
   document.getElementById("e_l85_valor").value = l85?.valor_unitario ?? "";
   document.getElementById("e_seringa_quantidade").value = seringa?.quantidade || "";
@@ -363,7 +380,7 @@ function iniciarEdicaoEncomenda(id){
   if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar alterações";
   if(encomendaCancelEditBtn) encomendaCancelEditBtn.hidden = false;
   setText("encomendaFormKicker", "Editar encomenda");
-  setText("encomendaFormTitle", item.quem_pediu || "Atualizar encomenda");
+  setText("encomendaFormTitle", family ? `${family.icone || "🤝"} ${family.nome}` : (item.familia_nome || item.quem_pediu || "Atualizar encomenda"));
   setFeedback(encomendaFeedback, "Edite os campos e clique em Salvar alterações.");
   encomendaForm.scrollIntoView({behavior:"smooth", block:"start"});
 }
@@ -437,6 +454,11 @@ vendaForm?.addEventListener("submit", async (e) => {
 
 encomendaForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const familiaId = inputValue("e_familia_id").trim();
+  if(!familiaId){
+    setFeedback(encomendaFeedback, "Selecione a família ou gangue responsável pela encomenda.", true);
+    return;
+  }
   const itens = [
     {
       produto:"L85",
@@ -464,7 +486,7 @@ encomendaForm?.addEventListener("submit", async (e) => {
   }
 
   const payload = {
-    quem_pediu: inputValue("e_quem_pediu").trim(),
+    familia_id: familiaId,
     itens,
     para_quando: inputValue("e_para_quando").trim(),
     quem_negociou: inputValue("e_quem_negociou").trim(),
@@ -663,7 +685,10 @@ function resetFamiliaForm(){
   if(mercado) mercado.value = "Aberto";
   const contato = document.getElementById("f_contato");
   if(contato) contato.type = "password";
+  const contato2 = document.getElementById("f_contato_2");
+  if(contato2) contato2.type = "password";
   if(toggleFamilyContactBtn) toggleFamilyContactBtn.textContent = "Mostrar";
+  if(toggleFamilyContact2Btn) toggleFamilyContact2Btn.textContent = "Mostrar";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Adicionar Família/Gangue";
   if(familiaCancelEditBtn) familiaCancelEditBtn.hidden = true;
   setText("familiaFormKicker", "Novo cadastro");
@@ -680,7 +705,9 @@ function iniciarEdicaoFamilia(id){
   document.getElementById("f_preco_venda").value = item.preco_venda_para_familia || "";
   document.getElementById("f_preco_compra").value = item.preco_compra_da_familia || "";
   document.getElementById("f_contato").value = item.contato || "";
+  document.getElementById("f_contato_2").value = item.contato_2 || "";
   document.getElementById("f_flyer_url").value = item.flyer_url || "";
+  document.getElementById("f_flyer_url_2").value = item.flyer_url_2 || "";
   document.getElementById("f_flyer_oculto").checked = Boolean(item.flyer_oculto);
   document.getElementById("f_observacao").value = item.observacao || "";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Salvar alterações";
@@ -696,17 +723,24 @@ familiaCancelEditBtn?.addEventListener("click", () => {
   setFeedback(familiaFeedback, "Edição cancelada.");
 });
 
-toggleFamilyContactBtn?.addEventListener("click", () => {
-  const input = document.getElementById("f_contato");
+function toggleSecretFamilyInput(inputId, button){
+  const input = document.getElementById(inputId);
   if(!input) return;
   const showing = input.type === "text";
   input.type = showing ? "password" : "text";
-  toggleFamilyContactBtn.textContent = showing ? "Mostrar" : "Esconder";
-});
+  if(button) button.textContent = showing ? "Mostrar" : "Esconder";
+}
+
+toggleFamilyContactBtn?.addEventListener("click", () => toggleSecretFamilyInput("f_contato", toggleFamilyContactBtn));
+toggleFamilyContact2Btn?.addEventListener("click", () => toggleSecretFamilyInput("f_contato_2", toggleFamilyContact2Btn));
 
 onInput("f_flyer_url", () => {
   const hidden = document.getElementById("f_flyer_oculto");
   if(hidden && inputValue("f_flyer_url").trim()) hidden.checked = false;
+});
+onInput("f_flyer_url_2", () => {
+  const hidden = document.getElementById("f_flyer_oculto");
+  if(hidden && inputValue("f_flyer_url_2").trim()) hidden.checked = false;
 });
 
 familiaForm?.addEventListener("submit", async (event) => {
@@ -718,7 +752,9 @@ familiaForm?.addEventListener("submit", async (event) => {
     preco_venda_para_familia: inputValue("f_preco_venda").trim(),
     preco_compra_da_familia: inputValue("f_preco_compra").trim(),
     contato: inputValue("f_contato").trim(),
+    contato_2: inputValue("f_contato_2").trim(),
     flyer_url: inputValue("f_flyer_url").trim(),
+    flyer_url_2: inputValue("f_flyer_url_2").trim(),
     flyer_oculto: Boolean(document.getElementById("f_flyer_oculto")?.checked),
     observacao: inputValue("f_observacao").trim(),
   };
@@ -750,7 +786,9 @@ function familyPayloadFromItem(item, overrides = {}){
     preco_venda_para_familia:item?.preco_venda_para_familia || "",
     preco_compra_da_familia:item?.preco_compra_da_familia || "",
     contato:item?.contato || "",
+    contato_2:item?.contato_2 || "",
     flyer_url:item?.flyer_url || "",
+    flyer_url_2:item?.flyer_url_2 || "",
     flyer_oculto:Boolean(item?.flyer_oculto),
     observacao:item?.observacao || "",
     ...overrides,
@@ -760,8 +798,8 @@ function familyPayloadFromItem(item, overrides = {}){
 familiasGrid?.addEventListener("click", async (event) => {
   const contactButton = event.target.closest("[data-toggle-family-contact]");
   if(contactButton){
-    const card = contactButton.closest(".family-card");
-    const value = card?.querySelector("[data-family-contact-value]");
+    const contact = contactButton.closest(".family-contact");
+    const value = contact?.querySelector("[data-family-contact-value]");
     if(!value) return;
     const willShow = value.hidden;
     value.hidden = !willShow;
@@ -779,18 +817,18 @@ familiasGrid?.addEventListener("click", async (event) => {
   if(flyerButton && canWrite){
     const id = flyerButton.dataset.removerFlyer;
     const item = familiasCache.find(familia => familia.id === id);
-    if(!item || !window.confirm(`Remover o flyer de ${item.nome}? Você poderá adicionar outra imagem depois em Editar.`)) return;
+    if(!item || !window.confirm(`Remover os flyers de ${item.nome}? Você poderá adicionar outras imagens depois em Editar.`)) return;
     flyerButton.disabled = true;
     try{
       const {res, data} = await fetchJson(`/api/familias/${encodeURIComponent(id)}`, {
         method:"PUT",
         headers:csrfHeaders({"Content-Type":"application/json"}),
-        body:JSON.stringify(familyPayloadFromItem(item, {flyer_url:"", flyer_oculto:true})),
+        body:JSON.stringify(familyPayloadFromItem(item, {flyer_url:"", flyer_url_2:"", flyer_oculto:true})),
       });
-      setFeedback(familiaFeedback, data.message || (res.ok ? "Flyer removido." : "Erro ao remover flyer."), !res.ok);
+      setFeedback(familiaFeedback, data.message || (res.ok ? "Flyers removidos." : "Erro ao remover flyers."), !res.ok);
       if(res.ok) await loadFamilias();
     }catch(error){
-      setFeedback(familiaFeedback, `Falha ao remover flyer: ${error.message}`, true);
+      setFeedback(familiaFeedback, `Falha ao remover flyers: ${error.message}`, true);
     }finally{
       flyerButton.disabled = false;
     }
@@ -951,7 +989,7 @@ async function loadResumo(){
     document.getElementById("statValorCompras").textContent = currency(dc.valor_movimentado ?? 0);
     document.getElementById("statValorVendas").textContent = currency(dv.valor_movimentado ?? 0);
     document.getElementById("statValorEncomendas").textContent = currency(de.valor_movimentado ?? 0);
-    updateMetaCounters(dm.total ?? 0, dm.pagos ?? 0, dm.pendentes ?? 0, dm.confirmados ?? 0, dm.semana_label ?? "--", dm.enviados ?? 0);
+    updateMetaCounters(dm.total ?? 0, dm.pagos ?? 0, dm.faltam_confirmar ?? 0, dm.confirmados ?? 0, dm.semana_label ?? "--", dm.nao_pagos ?? 0);
   }catch{}
 }
 
@@ -1022,16 +1060,21 @@ async function loadEncomendas(){
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
       return;
     }
-    setTableContent(encomendasTable, data.map(item => `
-      <tr>
+    setTableContent(encomendasTable, data.map(item => {
+      const family = familyForOrder(item);
+      const familyName = family?.nome || item.familia_nome || item.quem_pediu || "Família não vinculada";
+      const familyIcon = family?.icone || item.familia_icone || "🤝";
+      const linked = Boolean(family?.id || item.familia_id);
+      return `<tr>
         <td>${escapeHtml(item.data)}</td>
-        <td>${escapeHtml(item.quem_pediu)}</td>
+        <td><span class="order-family-chip ${linked ? "" : "unlinked"}"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span></td>
         <td>${escapeHtml(item.o_que_pediu)}</td>
         <td>${escapeHtml(item.para_quando)}</td>
         <td>${escapeHtml(item.quem_negociou)}</td>
         <td>${currency(item.valor)}</td>
         <td>${deliveryControl(item)}</td>
-      </tr>`).join(""));
+      </tr>`;
+    }).join(""));
   }catch(error){
     encomendasCache = [];
     setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`);
@@ -1058,6 +1101,11 @@ async function loadFamilias(){
     if(familiasDatalist){
       familiasDatalist.innerHTML = items.map(item => `<option value="${escapeHtml(item.nome)}"></option>`).join("");
     }
+    if(encomendaFamiliaSelect){
+      const selectedFamilyId = encomendaFamiliaSelect.value;
+      encomendaFamiliaSelect.innerHTML = `<option value="">Selecione a família responsável</option>${items.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}</option>`).join("")}`;
+      if(items.some(item => item.id === selectedFamilyId)) encomendaFamiliaSelect.value = selectedFamilyId;
+    }
 
     if(!items.length){
       familiasGrid.innerHTML = '<div class="family-empty">Nenhuma família ou gangue cadastrada.</div>';
@@ -1067,10 +1115,13 @@ async function loadFamilias(){
     familiasGrid.innerHTML = items.map(item => {
       const closed = item.mercado === "Fechado";
       const localFlyers = getLocalFamilyFlyers(item);
-      const flyerUrls = item.flyer_oculto ? [] : (item.flyer_url ? [item.flyer_url] : localFlyers);
+      const configuredFlyers = [item.flyer_url, item.flyer_url_2].filter(Boolean);
+      const flyerUrls = item.flyer_oculto ? [] : (configuredFlyers.length ? configuredFlyers : localFlyers);
       const flyer = flyerUrls.length
         ? `<div class="family-flyer ${flyerUrls.length > 1 ? "family-flyer-multiple" : ""}">${flyerUrls.map((url, index) => `<img data-family-flyer src="${escapeHtml(url)}" alt="Flyer ${index + 1} de ${escapeHtml(item.nome)}" referrerpolicy="no-referrer" />`).join("")}</div>`
         : `<div class="family-flyer family-flyer-empty"><span>${escapeHtml(item.icone || "🤝")}</span><small>Sem flyer vinculado</small></div>`;
+      const contacts = [item.contato, item.contato_2].filter(Boolean);
+      const contactsHtml = contacts.length ? `<div class="family-contacts">${contacts.map((contact, index) => `<div class="family-contact"><button type="button" class="family-contact-toggle" data-toggle-family-contact>Mostrar contato ${index + 1}</button><span data-family-contact-value hidden>${escapeHtml(contact)}</span></div>`).join("")}</div>` : "";
       return `<article class="family-card ${closed ? "closed" : "open"}">
         ${flyer}
         <div class="family-card-content">
@@ -1082,9 +1133,9 @@ async function loadFamilias(){
             <div><span>Nosso valor para a família</span><p>${escapeHtml(item.preco_venda_para_familia || "Não informado")}</p></div>
             <div><span>Valor deles para a Kokusai</span><p>${escapeHtml(item.preco_compra_da_familia || "Não informado")}</p></div>
           </div>
-          ${item.contato ? `<div class="family-contact"><button type="button" class="family-contact-toggle" data-toggle-family-contact>Mostrar contato</button><span data-family-contact-value hidden>${escapeHtml(item.contato)}</span></div>` : ""}
+          ${contactsHtml}
           ${item.observacao ? `<p class="family-note">${escapeHtml(item.observacao)}</p>` : ""}
-          ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">✏️ Editar dados/flyer</button>${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyer</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
+          ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">✏️ Editar dados/flyers</button>${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
         </div>
       </article>`;
     }).join("");
@@ -1092,8 +1143,13 @@ async function loadFamilias(){
     familiasGrid.querySelectorAll("img[data-family-flyer]").forEach(image => {
       image.addEventListener("error", () => {
         const container = image.closest(".family-flyer");
-        if(container) container.innerHTML = '<span>🖼️</span><small>Flyer indisponível</small>';
-        container?.classList.add("family-flyer-empty");
+        image.remove();
+        if(container && !container.querySelector("img[data-family-flyer]")){
+          container.innerHTML = '<span>🖼️</span><small>Flyers indisponíveis</small>';
+          container.classList.add("family-flyer-empty");
+        }else{
+          container?.classList.remove("family-flyer-multiple");
+        }
       }, {once:true});
     });
   }catch(error){
@@ -1143,7 +1199,7 @@ function metaStatusClass(status){
   const value = String(status || "Pendente").toLowerCase();
   if(value === "pago") return "paid";
   if(value === "enviado") return "sent";
-  if(value === "recusado") return "rejected";
+  if(value === "recusado" || value === "não pago" || value === "nao pago") return "rejected";
   return "pending";
 }
 
@@ -1169,7 +1225,8 @@ async function loadMetaRoomDetail(userId){
   renderMetaRooms();
   metaRoomDetail.innerHTML = '<div class="meta-empty-state">Carregando sala...</div>';
   try{
-    const {res, data} = await fetchJson(`/api/meta-rooms/${encodeURIComponent(userId)}`);
+    const weekQuery = activeMetaWeek?.semana_inicio ? `?week_start=${encodeURIComponent(activeMetaWeek.semana_inicio)}` : "";
+    const {res, data} = await fetchJson(`/api/meta-rooms/${encodeURIComponent(userId)}${weekQuery}`);
     if(!res.ok){ metaRoomDetail.innerHTML = `<div class="meta-empty-state">${escapeHtml(data.error || "Erro ao abrir sala.")}</div>`; return; }
     const submission = data.submission || {};
     const photos = Array.isArray(data.photos) ? data.photos : [];
@@ -1180,6 +1237,10 @@ async function loadMetaRoomDetail(userId){
     const historyHtml = history.length
       ? history.map(item => `<tr><td>${escapeHtml(item.week_start)} até ${escapeHtml(item.week_end)}</td><td>${integer(item.photo_count || 0)}</td><td><span class="meta-status-badge ${metaStatusClass(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.reviewed_at || "—")}</td></tr>`).join("")
       : '<tr><td colspan="4">Nenhum histórico ainda.</td></tr>';
+    const reviewAllowed = Boolean(activeMetaWeek?.review_mode && !activeMetaWeek?.closed);
+    const reviewPanel = reviewAllowed
+      ? `<div class="meta-review-panel"><label for="metaAdminNote">Observação para o membro</label><textarea id="metaAdminNote" placeholder="Opcional: orientação ou justificativa">${escapeHtml(submission.admin_note || "")}</textarea><div class="meta-review-actions"><button type="button" class="meta-review-paid" data-meta-review="Pago" data-submission-id="${escapeHtml(submission.id)}">✓ Marcar pago</button><button type="button" class="meta-review-rejected" data-meta-review="Não pago" data-submission-id="${escapeHtml(submission.id)}">✕ Marcar não pago</button><button type="button" class="meta-review-pending" data-meta-review="Pendente" data-submission-id="${escapeHtml(submission.id)}">Voltar para pendente</button></div></div>`
+      : `<div class="meta-empty-state compact">${activeMetaWeek?.closed ? "Esta semana já foi finalizada e está bloqueada." : "A conferência será liberada após quarta-feira às 23:59."}</div>`;
 
     metaRoomDetail.innerHTML = `
       <div class="meta-room-detail-head">
@@ -1188,7 +1249,7 @@ async function loadMetaRoomDetail(userId){
       </div>
       <div class="meta-detail-week"><span>Semana</span><strong>${escapeHtml(submission.week_start)} até ${escapeHtml(submission.week_end)}</strong><small>${integer(photos.length)} foto(s) enviada(s)</small></div>
       ${photosHtml}
-      ${canWrite ? `<div class="meta-review-panel"><label for="metaAdminNote">Observação para o membro</label><textarea id="metaAdminNote" placeholder="Opcional: motivo da recusa, orientação ou observação">${escapeHtml(submission.admin_note || "")}</textarea><div class="meta-review-actions"><button type="button" class="meta-review-paid" data-meta-review="Pago" data-submission-id="${escapeHtml(submission.id)}">✓ Marcar pago</button><button type="button" class="meta-review-pending" data-meta-review="Pendente" data-submission-id="${escapeHtml(submission.id)}">Voltar para pendente</button><button type="button" class="meta-review-rejected" data-meta-review="Recusado" data-submission-id="${escapeHtml(submission.id)}">Recusar</button></div></div>` : (submission.admin_note ? `<p class="family-note">Observação: ${escapeHtml(submission.admin_note)}</p>` : "")}
+      ${canWrite ? reviewPanel : (submission.admin_note ? `<p class="family-note">Observação: ${escapeHtml(submission.admin_note)}</p>` : "")}
       <div class="meta-detail-history"><div class="panel-head"><div><p class="panel-kicker">Histórico</p><h3>Semanas anteriores</h3></div></div><div class="table-wrap"><table class="responsive-table"><thead><tr><th>Semana</th><th>Fotos</th><th>Status</th><th>Revisado</th></tr></thead><tbody>${historyHtml}</tbody></table></div></div>`;
   }catch(error){
     metaRoomDetail.innerHTML = `<div class="meta-empty-state">Falha ao abrir sala: ${escapeHtml(error.message)}</div>`;
@@ -1206,7 +1267,8 @@ metaRoomDetail?.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-meta-review]");
   if(!button || !canWrite) return;
   const status = button.dataset.metaReview;
-  if(status === "Pago" && !window.confirm("Confirmar que esta meta foi paga? Depois disso o membro não poderá alterar as fotos desta semana.")) return;
+  if(status === "Pago" && !window.confirm("Confirmar que esta pessoa pagou a meta da semana?")) return;
+  if(status === "Não pago" && !window.confirm("Confirmar que esta pessoa não pagou a meta da semana?")) return;
   const buttons = metaRoomDetail.querySelectorAll("[data-meta-review]");
   buttons.forEach(item => item.disabled = true);
   try{
@@ -1223,6 +1285,43 @@ metaRoomDetail?.addEventListener("click", async (event) => {
   finally{ buttons.forEach(item => item.disabled = false); }
 });
 
+finalizeMetaWeekBtn?.addEventListener("click", async () => {
+  if(!activeMetaWeek?.semana_inicio || !activeMetaWeek?.can_finalize) return;
+  if(!window.confirm(`Finalizar a semana ${activeMetaWeek.semana_label}? Os resultados serão bloqueados e um TXT será baixado neste computador.`)) return;
+  finalizeMetaWeekBtn.disabled = true;
+  finalizeMetaWeekBtn.textContent = "Gerando log...";
+  try{
+    const response = await fetch("/api/meta-weeks/finalize", {
+      method:"POST",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify({week_start:activeMetaWeek.semana_inicio}),
+    });
+    if(!response.ok){
+      const data = await parseResponse(response);
+      throw new Error(data.error || "Não foi possível finalizar a semana.");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = filenameMatch?.[1] || `kokusai-metas-${activeMetaWeek.semana_inicio.replaceAll("/", "-")}.txt`;
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+    setFeedback(metasFeedback, "Semana finalizada. O log TXT foi baixado neste computador.");
+    selectedMetaRoomUserId = null;
+    await Promise.all([loadMetas(), loadResumo()]);
+  }catch(error){
+    setFeedback(metasFeedback, error.message, true);
+    finalizeMetaWeekBtn.disabled = false;
+    finalizeMetaWeekBtn.textContent = "Finalizar semana e baixar TXT";
+  }
+});
+
 async function loadMetas(){
   if(!metaRoomsGrid) return;
   try{
@@ -1233,9 +1332,31 @@ async function loadMetas(){
       return;
     }
     metaRoomsCache = Array.isArray(data.rooms) ? data.rooms : [];
+    activeMetaWeek = data.week || null;
     const pagos = metaRoomsCache.filter(room => room.status === "Pago").length;
-    const enviados = metaRoomsCache.filter(room => room.status === "Enviado").length;
-    updateMetaCounters(metaRoomsCache.length, pagos, Math.max(metaRoomsCache.length - pagos, 0), pagos, data.week?.semana_label || "--", enviados);
+    const naoPagos = metaRoomsCache.filter(room => room.status === "Não pago").length;
+    const pendingReviews = metaRoomsCache.filter(room => !["Pago", "Não pago"].includes(room.status)).length;
+    updateMetaCounters(metaRoomsCache.length, pagos, pendingReviews, pagos, data.week?.semana_label || "--", naoPagos);
+    if(metaCycleDeadline) metaCycleDeadline.textContent = `Pagamento até ${data.week?.prazo_pagamento || "quarta-feira às 23:59"} • conferência em ${data.week?.data_conferencia || "quinta-feira"}`;
+    if(metaCycleStatus){
+      if(data.week?.closed){
+        metaCycleStatus.textContent = `Semana finalizada em ${data.week.closure?.closed_at || "--"} por ${data.week.closure?.closed_by || "admin"}`;
+      }else if(data.week?.review_mode){
+        metaCycleStatus.textContent = pendingReviews ? `Conferência aberta: faltam revisar ${pendingReviews} pessoa(s)` : "Conferência concluída: semana pronta para finalizar";
+      }else{
+        metaCycleStatus.textContent = "Período aberto para envio dos comprovantes";
+      }
+    }
+    if(finalizeMetaWeekBtn){
+      finalizeMetaWeekBtn.disabled = !data.week?.can_finalize;
+      finalizeMetaWeekBtn.textContent = data.week?.closed
+        ? "Semana finalizada"
+        : data.week?.review_mode && pendingReviews
+          ? `Revise ${pendingReviews} pessoa(s)`
+          : data.week?.review_mode
+            ? "Finalizar semana e baixar TXT"
+            : "Fechamento disponível na quinta";
+    }
     renderMetaRooms();
     if(selectedMetaRoomUserId && metaRoomsCache.some(room => room.user_id === selectedMetaRoomUserId)){
       await loadMetaRoomDetail(selectedMetaRoomUserId);

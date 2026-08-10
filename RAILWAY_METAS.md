@@ -46,8 +46,11 @@ Cada pessoa deve receber somente a própria linha. No banco ficam apenas hashes 
 
 ## 5. Funcionamento semanal
 
-- Quarta-feira é o início da semana por padrão (`META_RESET_WEEKDAY=2`).
-- Ao iniciar uma nova semana, o sistema cria uma nova sala semanal para cada membro.
+- Sexta-feira é o início da semana por padrão (`META_RESET_WEEKDAY=4`).
+- Os comprovantes podem ser enviados de sexta-feira até quarta-feira às 23:59.
+- Quinta-feira é reservada à conferência e ao fechamento do admin.
+- Ao finalizar, o navegador baixa um TXT e o fechamento também fica registrado no PostgreSQL.
+- Na sexta-feira o sistema cria uma nova sala semanal para cada membro.
 - Fotos e status das semanas anteriores continuam no histórico.
 - Uma semana marcada `Pago` fica bloqueada para alteração de fotos pelo membro.
 - Fotos aceitas: JPG, PNG e WEBP, até 10 MB por arquivo.

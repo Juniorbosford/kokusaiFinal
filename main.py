@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, date, timezone
 from functools import wraps
 import unicodedata
 from urllib.parse import urlparse
-from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_file
+from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_file, Response
 import gspread
 from google.oauth2.service_account import Credentials
 from meta_members import META_MEMBERS
@@ -54,7 +54,7 @@ HISTORICO_METAS_WORKSHEET_NAME = os.getenv("HISTORICO_METAS_WORKSHEET_NAME", "Hi
 REUNIOES_WORKSHEET_NAME = os.getenv("REUNIOES_WORKSHEET_NAME", "Reunioes")
 FAMILIAS_WORKSHEET_NAME = os.getenv("FAMILIAS_WORKSHEET_NAME", "Familias")
 LEGACY_FLYERS_WORKSHEET_NAME = os.getenv("FLYERS_WORKSHEET_NAME", "Flyers")
-META_RESET_WEEKDAY = int(os.getenv("META_RESET_WEEKDAY", "2"))  # 0=segunda, 2=quarta
+META_RESET_WEEKDAY = int(os.getenv("META_RESET_WEEKDAY", "4"))  # 4=sexta-feira
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 APP_UTC_OFFSET_HOURS = int(os.getenv("APP_UTC_OFFSET_HOURS", "-3"))
 
@@ -164,6 +164,9 @@ ENCOMENDAS_HEADERS = [
     "observacao",
     "entregue_em",
     "itens_json",
+    "familia_id",
+    "familia_nome",
+    "familia_icone",
 ]
 META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
 META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
@@ -181,6 +184,8 @@ FAMILIAS_HEADERS = [
     "atualizado_em",
     "contato",
     "flyer_oculto",
+    "contato_2",
+    "flyer_url_2",
 ]
 DEFAULT_FAMILIAS = [
     {
@@ -253,17 +258,42 @@ def meta_week_start(today=None):
 
 
 def meta_week_end(start_date):
-    return start_date + timedelta(days=6)
+    # A sala abre na sexta e recebe comprovantes até quarta-feira.
+    return start_date + timedelta(days=5)
 
 
 def meta_week_payload(start_date=None):
     start_date = start_date or meta_week_start()
     end_date = meta_week_end(start_date)
+    review_date = start_date + timedelta(days=6)
+    current_date = now_local().date()
+    if start_date <= current_date <= end_date:
+        phase = "open"
+    elif current_date == review_date:
+        phase = "review"
+    elif current_date < start_date:
+        phase = "upcoming"
+    else:
+        phase = "closed"
     return {
         "semana_inicio": format_date_br(start_date),
         "semana_fim": format_date_br(end_date),
         "semana_label": f"{format_date_br(start_date)} até {format_date_br(end_date)}",
+        "prazo_pagamento": f"{format_date_br(end_date)} 23:59",
+        "data_conferencia": format_date_br(review_date),
+        "proxima_semana": format_date_br(start_date + timedelta(days=7)),
+        "fase": phase,
+        "envios_abertos": phase == "open",
     }
+
+
+def meta_submission_uploads_open(submission, current_dt=None):
+    current_dt = current_dt or now_local()
+    start_date = parse_date_br(submission.get("week_start"))
+    end_date = parse_date_br(submission.get("week_end"))
+    if not start_date or not end_date:
+        return False
+    return start_date <= current_dt.date() <= end_date
 
 
 def verify_password(password, password_hash):
@@ -406,8 +436,24 @@ def ensure_meta_database_ready():
                     FOREIGN KEY(user_id) REFERENCES meta_users(id)
                 )
                 """,
+                """
+                CREATE TABLE IF NOT EXISTS meta_week_closures (
+                    id TEXT PRIMARY KEY,
+                    week_start TEXT UNIQUE NOT NULL,
+                    week_end TEXT NOT NULL,
+                    payment_deadline TEXT NOT NULL,
+                    review_date TEXT NOT NULL,
+                    closed_at TEXT NOT NULL,
+                    closed_by TEXT NOT NULL,
+                    total_count INTEGER NOT NULL,
+                    paid_count INTEGER NOT NULL,
+                    unpaid_count INTEGER NOT NULL,
+                    log_text TEXT NOT NULL
+                )
+                """,
                 "CREATE INDEX IF NOT EXISTS idx_meta_submissions_week ON meta_submissions(week_start)",
                 "CREATE INDEX IF NOT EXISTS idx_meta_photos_submission ON meta_photos(submission_id)",
+                "CREATE INDEX IF NOT EXISTS idx_meta_closures_week ON meta_week_closures(week_start)",
             ]
             for statement in statements:
                 cursor.execute(statement)
@@ -487,12 +533,16 @@ def ensure_current_meta_submissions():
 
 def get_current_meta_submission(user_id):
     week = ensure_current_meta_submissions()
+    return get_meta_submission(user_id, week["semana_inicio"])
+
+
+def get_meta_submission(user_id, week_start):
     return meta_query_one(
         """
         SELECT id, user_id, week_start, week_end, status, admin_note, submitted_at, reviewed_at, reviewed_by, created_at
         FROM meta_submissions WHERE user_id = ? AND week_start = ?
         """,
-        (user_id, week["semana_inicio"]),
+        (user_id, week_start),
     )
 
 
@@ -506,8 +556,8 @@ def get_meta_photos(submission_id):
     )
 
 
-def get_meta_room_history(user_id, limit=12):
-    current_week = meta_week_payload()["semana_inicio"]
+def get_meta_room_history(user_id, exclude_week_start=None, limit=12):
+    excluded_week = exclude_week_start or meta_week_payload()["semana_inicio"]
     return meta_query_all(
         """
         SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at, s.reviewed_at,
@@ -517,8 +567,53 @@ def get_meta_room_history(user_id, limit=12):
         ORDER BY substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2) DESC
         LIMIT ?
         """,
-        (user_id, current_week, int(limit)),
+        (user_id, excluded_week, int(limit)),
     )
+
+
+def get_meta_week_closure(week_start):
+    return meta_query_one(
+        """
+        SELECT id, week_start, week_end, payment_deadline, review_date, closed_at, closed_by,
+               total_count, paid_count, unpaid_count, log_text
+        FROM meta_week_closures WHERE week_start = ?
+        """,
+        (week_start,),
+    )
+
+
+def get_admin_meta_week():
+    """Prioriza a última semana vencida ainda não finalizada; caso contrário mostra a atual."""
+    current_week = ensure_current_meta_submissions()
+    rows = meta_query_all("SELECT DISTINCT week_start, week_end FROM meta_submissions")
+    today = now_local().date()
+    reviewable = []
+    for row in rows:
+        start_date = parse_date_br(row.get("week_start"))
+        end_date = parse_date_br(row.get("week_end"))
+        if start_date and end_date and end_date < today:
+            reviewable.append((end_date, start_date, row))
+
+    target_week = current_week
+    if reviewable:
+        _, latest_start, latest_row = max(reviewable, key=lambda item: item[0])
+        if not get_meta_week_closure(latest_row["week_start"]):
+            target_week = meta_week_payload(latest_start)
+
+    closure = get_meta_week_closure(target_week["semana_inicio"])
+    target_end = parse_date_br(target_week["semana_fim"])
+    review_mode = bool(target_end and target_end < today and not closure)
+    return {
+        **target_week,
+        "review_mode": review_mode,
+        "closed": bool(closure),
+        "closure": {
+            "closed_at": closure["closed_at"],
+            "closed_by": closure["closed_by"],
+            "paid_count": int(closure["paid_count"] or 0),
+            "unpaid_count": int(closure["unpaid_count"] or 0),
+        } if closure else None,
+    }
 
 
 def meta_bucket_configured():
@@ -1170,6 +1265,8 @@ def build_family_row(data, registro_id=None, criado_em=None):
         now,
         str(data.get("contato") or "").strip(),
         "Sim" if normalize_flag(data.get("flyer_oculto")) else "Não",
+        str(data.get("contato_2") or "").strip(),
+        str(data.get("flyer_url_2") or "").strip(),
     ]
 
 
@@ -1275,7 +1372,7 @@ def upsert_family_from_meeting(name, icon=""):
                 changed = True
             if changed:
                 padded[9] = format_timestamp()
-                worksheet.update(f"A{row_index}:L{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
+                worksheet.update(f"A{row_index}:N{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
                 invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
             return padded[0] or family_id_from_name(canonical_name), False
 
@@ -1567,6 +1664,8 @@ def normalize_encomenda(row):
     item = row_to_dict(row, ENCOMENDAS_HEADERS)
     item["entregue"] = validate_yes_no(item.get("entregue")) or "Não"
     item["itens"] = parse_encomenda_items_json(item.get("itens_json"))
+    item["familia_nome"] = str(item.get("familia_nome") or item.get("quem_pediu") or "").strip()
+    item["familia_icone"] = str(item.get("familia_icone") or "").strip()
     item.pop("itens_json", None)
     return item
 
@@ -1747,6 +1846,23 @@ def normalize_family(row):
     return item
 
 
+def get_family_snapshot(family_id):
+    """Resolve a família no servidor para não confiar no nome enviado pelo navegador."""
+    clean_id = clean_text(family_id, "Família/gangue", max_length=80, required=True)
+    worksheet = get_familias_worksheet()
+    row_index, row = find_row_by_id(worksheet, clean_id)
+    if not row_index:
+        raise ValueError("Selecione uma família/gangue cadastrada.")
+    family = normalize_family(row)
+    if not str(family.get("nome") or "").strip():
+        raise ValueError("A família/gangue selecionada não possui um cadastro válido.")
+    return {
+        "id": str(family.get("id") or clean_id).strip(),
+        "nome": str(family.get("nome") or "").strip(),
+        "icone": str(family.get("icone") or "").strip(),
+    }
+
+
 def normalize_reuniao(row):
     item = row_to_dict(row, REUNIOES_HEADERS)
     item["gangue"] = canonical_family_name(item.get("gangue"))
@@ -1849,13 +1965,22 @@ def health():
     })
 
 
-def build_meta_room_payload(user_id):
+def build_meta_room_payload(user_id, week_start=None):
     member = get_meta_member_by_id(user_id)
     if not member:
         raise ValueError("Membro não encontrado.")
-    submission = get_current_meta_submission(user_id)
+    if week_start:
+        submission = get_meta_submission(user_id, week_start)
+    else:
+        submission = get_current_meta_submission(user_id)
+    if not submission:
+        raise ValueError("Sala semanal não encontrada.")
     photos = get_meta_photos(submission["id"])
-    history = get_meta_room_history(user_id)
+    history = get_meta_room_history(user_id, exclude_week_start=submission["week_start"])
+    start_date = parse_date_br(submission["week_start"])
+    schedule = meta_week_payload(start_date) if start_date else {}
+    closure = get_meta_week_closure(submission["week_start"])
+    uploads_open = meta_submission_uploads_open(submission) and not closure
     return {
         "member": {
             "id": member["id"],
@@ -1863,6 +1988,11 @@ def build_meta_room_payload(user_id):
             "display_name": member["display_name"],
         },
         "submission": submission,
+        "schedule": {
+            **schedule,
+            "envios_abertos": uploads_open,
+            "closed": bool(closure),
+        },
         "photos": [serialize_meta_photo(photo) for photo in photos],
         "history": history,
         "limits": {
@@ -1895,8 +2025,13 @@ def upload_meta_room_photo():
     try:
         user = get_current_user()
         submission = get_current_meta_submission(user["user_id"])
-        if submission["status"] == "Pago":
-            return error_response("A meta desta semana já foi marcada como paga e está bloqueada para novos envios.", 409)
+        if not meta_submission_uploads_open(submission) or get_meta_week_closure(submission["week_start"]):
+            return error_response(
+                f"O prazo desta meta terminou em {submission['week_end']} às 23:59. A quinta-feira é reservada para conferência.",
+                409,
+            )
+        if submission["status"] in {"Pago", "Não pago"}:
+            return error_response("Esta meta já foi revisada pela administração.", 409)
 
         current_photos = get_meta_photos(submission["id"])
         if len(current_photos) >= META_MAX_PHOTOS_PER_WEEK:
@@ -1940,7 +2075,7 @@ def delete_meta_room_photo(photo_id):
         user = get_current_user()
         photo = meta_query_one(
             """
-            SELECT p.id, p.object_key, p.submission_id, p.user_id, s.status, s.week_start
+            SELECT p.id, p.object_key, p.submission_id, p.user_id, s.status, s.week_start, s.week_end
             FROM meta_photos p JOIN meta_submissions s ON s.id = p.submission_id
             WHERE p.id = ? AND p.user_id = ?
             """,
@@ -1951,8 +2086,10 @@ def delete_meta_room_photo(photo_id):
         current_week = meta_week_payload()["semana_inicio"]
         if photo["week_start"] != current_week:
             return error_response("Fotos de semanas anteriores fazem parte do histórico e não podem ser removidas.", 409)
-        if photo["status"] == "Pago":
-            return error_response("Esta semana já foi marcada como paga.", 409)
+        if not meta_submission_uploads_open(photo) or get_meta_week_closure(photo["week_start"]):
+            return error_response("O prazo terminou na quarta-feira às 23:59 e as fotos estão bloqueadas para conferência.", 409)
+        if photo["status"] in {"Pago", "Não pago"}:
+            return error_response("Esta meta já foi revisada pela administração.", 409)
 
         delete_meta_photo_object(photo["object_key"])
         meta_execute("DELETE FROM meta_photos WHERE id = ?", (photo_id,))
@@ -2003,7 +2140,7 @@ def meta_photo_file(photo_id):
 @require_admin
 def list_meta_rooms():
     try:
-        week = ensure_current_meta_submissions()
+        week = get_admin_meta_week()
         rooms = meta_query_all(
             """
             SELECT u.id AS user_id, u.username, u.display_name, s.id AS submission_id,
@@ -2016,6 +2153,9 @@ def list_meta_rooms():
             """,
             (week["semana_inicio"],),
         )
+        pending_reviews = sum(1 for room in rooms if room["status"] not in {"Pago", "Não pago"})
+        week["pending_reviews"] = pending_reviews
+        week["can_finalize"] = bool(week.get("review_mode") and pending_reviews == 0 and rooms)
         return jsonify({"week": week, "rooms": rooms})
     except Exception as error:
         log_error("Falha ao listar salas de meta", error)
@@ -2026,7 +2166,8 @@ def list_meta_rooms():
 @require_admin
 def admin_meta_room_detail(user_id):
     try:
-        return jsonify(build_meta_room_payload(user_id))
+        week_start = str(request.args.get("week_start") or "").strip()
+        return jsonify(build_meta_room_payload(user_id, week_start=week_start or None))
     except ValueError as error:
         return error_response(str(error), 404)
     except Exception as error:
@@ -2042,15 +2183,22 @@ def review_meta_room(submission_id):
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
         status = str(data.get("status") or "").strip().capitalize()
-        if status not in {"Pago", "Pendente", "Recusado"}:
-            return error_response("Status deve ser Pago, Pendente ou Recusado.", 400)
+        if status not in {"Pago", "Não pago", "Pendente"}:
+            return error_response("Status deve ser Pago, Não pago ou Pendente.", 400)
 
         submission = meta_query_one(
-            "SELECT id, user_id FROM meta_submissions WHERE id = ?",
+            "SELECT id, user_id, week_start, week_end FROM meta_submissions WHERE id = ?",
             (submission_id,),
         )
         if not submission:
             return error_response("Sala semanal não encontrada.", 404)
+        if get_meta_week_closure(submission["week_start"]):
+            return error_response("Esta semana já foi finalizada e está bloqueada.", 409)
+        if meta_submission_uploads_open(submission):
+            return error_response(
+                f"A conferência será liberada após {submission['week_end']} às 23:59.",
+                409,
+            )
         if status == "Pago":
             photo_count = meta_query_one(
                 "SELECT COUNT(*) AS total FROM meta_photos WHERE submission_id = ?",
@@ -2080,6 +2228,120 @@ def review_meta_room(submission_id):
         return error_response(str(error), 400)
     except Exception as error:
         log_error("Falha ao revisar sala de meta", error)
+        return error_response(str(error))
+
+
+def meta_week_log_response(log_text, week_start):
+    filename = f"kokusai-metas-{str(week_start).replace('/', '-')}.txt"
+    response = Response("\ufeff" + str(log_text), content_type="text/plain; charset=utf-8")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.post("/api/meta-weeks/finalize")
+@require_admin
+def finalize_meta_week():
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return error_response("JSON inválido.", 400)
+        week_start = str(data.get("week_start") or "").strip()
+        start_date = parse_date_br(week_start)
+        if not start_date:
+            return error_response("Semana inválida.", 400)
+
+        existing_closure = get_meta_week_closure(week_start)
+        if existing_closure:
+            return meta_week_log_response(existing_closure["log_text"], week_start)
+
+        submissions = meta_query_all(
+            """
+            SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at,
+                   s.reviewed_at, s.reviewed_by, u.display_name, u.username,
+                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count
+            FROM meta_submissions s
+            JOIN meta_users u ON u.id = s.user_id
+            WHERE s.week_start = ? AND u.role = 'member' AND u.active = 1
+            ORDER BY u.display_name ASC
+            """,
+            (week_start,),
+        )
+        if not submissions:
+            return error_response("Nenhuma sala encontrada para essa semana.", 404)
+
+        week_end = str(submissions[0]["week_end"] or "").strip()
+        end_date = parse_date_br(week_end)
+        if not end_date or end_date >= now_local().date():
+            return error_response(f"A semana só pode ser finalizada após {week_end} às 23:59.", 409)
+
+        pending = [row["display_name"] for row in submissions if row["status"] not in {"Pago", "Não pago"}]
+        if pending:
+            preview = ", ".join(pending[:5])
+            suffix = "..." if len(pending) > 5 else ""
+            return error_response(
+                f"Revise todas as pessoas antes de finalizar. Faltam {len(pending)}: {preview}{suffix}",
+                409,
+            )
+
+        closed_at = format_timestamp()
+        admin = get_current_user()
+        paid_count = sum(1 for row in submissions if row["status"] == "Pago")
+        unpaid_count = len(submissions) - paid_count
+        schedule = meta_week_payload(start_date)
+        lines = [
+            "KOKUSAI - LOG DE FECHAMENTO DAS METAS",
+            "=" * 48,
+            f"Período: {week_start} até {week_end}",
+            f"Prazo para pagamento: {schedule['prazo_pagamento']}",
+            f"Dia de conferência: {schedule['data_conferencia']}",
+            f"Finalizado em: {closed_at}",
+            f"Finalizado por: {admin['display_name']} (@{admin['username']})",
+            "",
+            "RESUMO",
+            f"Total de membros: {len(submissions)}",
+            f"Pagaram: {paid_count}",
+            f"Não pagaram: {unpaid_count}",
+            "",
+            "DETALHAMENTO",
+            "-" * 48,
+        ]
+        for index, row in enumerate(submissions, start=1):
+            note = " ".join(str(row.get("admin_note") or "").split()) or "Sem observação"
+            lines.extend([
+                f"{index:02d}. {row['display_name']} (@{row['username']})",
+                f"    Resultado: {str(row['status']).upper()}",
+                f"    Fotos enviadas: {int(row['photo_count'] or 0)}",
+                f"    Enviado em: {row['submitted_at'] or 'Não enviou comprovante'}",
+                f"    Revisado em: {row['reviewed_at'] or 'Não informado'}",
+                f"    Revisado por: {row['reviewed_by'] or admin['username']}",
+                f"    Observação: {note}",
+                "",
+            ])
+        log_text = "\r\n".join(lines).rstrip() + "\r\n"
+
+        try:
+            meta_execute(
+                """
+                INSERT INTO meta_week_closures (
+                    id, week_start, week_end, payment_deadline, review_date, closed_at, closed_by,
+                    total_count, paid_count, unpaid_count, log_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(week_start) DO NOTHING
+                """,
+                (
+                    f"META-CLOSE-{uuid.uuid4().hex}", week_start, week_end, schedule["prazo_pagamento"],
+                    schedule["data_conferencia"], closed_at, admin["username"], len(submissions),
+                    paid_count, unpaid_count, log_text,
+                ),
+            )
+        except Exception:
+            raise
+
+        closure = get_meta_week_closure(week_start)
+        return meta_week_log_response(closure["log_text"] if closure else log_text, week_start)
+    except Exception as error:
+        log_error("Falha ao finalizar semana de metas", error)
         return error_response(str(error))
 
 
@@ -2285,7 +2547,22 @@ def list_encomendas():
     try:
         worksheet = get_encomendas_worksheet()
         rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, worksheet)
-        return jsonify([normalize_encomenda(row) for row in latest_data_rows(rows)])
+        family_worksheet = get_familias_worksheet()
+        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
+        families_by_id = {
+            str(family.get("id") or "").strip(): family
+            for family in (normalize_family(row) for row in family_rows[1:])
+            if str(family.get("id") or "").strip()
+        }
+        orders = []
+        for row in latest_data_rows(rows):
+            order = normalize_encomenda(row)
+            family = families_by_id.get(str(order.get("familia_id") or "").strip())
+            if family:
+                order["familia_nome"] = family["nome"]
+                order["familia_icone"] = family.get("icone") or ""
+            orders.append(order)
+        return jsonify(orders)
 
     except Exception as e:
         log_error("Falha em /api/encomendas [GET]", e)
@@ -2297,7 +2574,7 @@ def list_encomendas():
 def create_encomenda():
     try:
         data = request.get_json(silent=True)
-        required_fields = ["quem_pediu", "para_quando", "quem_negociou", "entregue"]
+        required_fields = ["familia_id", "para_quando", "quem_negociou", "entregue"]
 
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
@@ -2339,7 +2616,8 @@ def create_encomenda():
             entregue = "Não"
 
         try:
-            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            family = get_family_snapshot(data.get("familia_id"))
+            quem_pediu = family["nome"]
             para_quando = clean_text_field(data, "para_quando", "Para quando")
             quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
             observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
@@ -2361,6 +2639,9 @@ def create_encomenda():
             "observacao": observacao,
             "entregue_em": agora if entregue == "Sim" else "",
             "itens_json": itens_json,
+            "familia_id": family["id"],
+            "familia_nome": family["nome"],
+            "familia_icone": family["icone"],
         }
 
         if entregue == "Sim":
@@ -2394,6 +2675,9 @@ def create_encomenda():
             observacao,
             "",
             itens_json,
+            family["id"],
+            family["nome"],
+            family["icone"],
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -2419,14 +2703,15 @@ def update_encomenda(registro_id):
         if not isinstance(data, dict):
             return error_response("JSON inválido.", 400)
 
-        required_fields = ["quem_pediu", "para_quando", "quem_negociou", "entregue"]
+        required_fields = ["familia_id", "para_quando", "quem_negociou", "entregue"]
         missing = [field for field in required_fields if str(data.get(field, "")).strip() == ""]
         if missing:
             return error_response(f"Campos obrigatórios ausentes: {', '.join(missing)}", 400)
 
         try:
             items, valor = validate_encomenda_items(data.get("itens"))
-            quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
+            family = get_family_snapshot(data.get("familia_id"))
+            quem_pediu = family["nome"]
             para_quando = clean_text_field(data, "para_quando", "Para quando")
             quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
             observacao = clean_text_field(
@@ -2464,6 +2749,9 @@ def update_encomenda(registro_id):
                 "observacao": observacao,
                 "entregue_em": "",
                 "itens_json": itens_json,
+                "familia_id": family["id"],
+                "familia_nome": family["nome"],
+                "familia_icone": family["icone"],
             }
 
             if entregue == "Sim":
@@ -2488,7 +2776,7 @@ def update_encomenda(registro_id):
                 })
 
             worksheet.update(
-                f"A{row_index}:K{row_index}",
+                f"A{row_index}:N{row_index}",
                 [[
                     registro_id,
                     original_date,
@@ -2501,6 +2789,9 @@ def update_encomenda(registro_id):
                     observacao,
                     "",
                     itens_json,
+                    family["id"],
+                    family["nome"],
+                    family["icone"],
                 ]],
                 value_input_option="RAW",
             )
@@ -2559,6 +2850,20 @@ def update_encomenda_entrega(registro_id):
             encomenda_item = row_to_dict(row, ENCOMENDAS_HEADERS)
             encomenda_item["entregue"] = "Sim"
             encomenda_item["entregue_em"] = entregue_em
+
+            family_id = str(encomenda_item.get("familia_id") or "").strip()
+            if not family_id:
+                return error_response(
+                    "Antes de confirmar a entrega, clique em Editar e selecione a família/gangue responsável.",
+                    409,
+                )
+            try:
+                family = get_family_snapshot(family_id)
+            except ValueError as validation_error:
+                return error_response(str(validation_error), 409)
+            encomenda_item["quem_pediu"] = family["nome"]
+            encomenda_item["familia_nome"] = family["nome"]
+            encomenda_item["familia_icone"] = family["icone"]
 
             vendas_worksheet = get_vendas_worksheet()
             venda_rows = build_venda_rows_from_encomenda(encomenda_item, entregue_em=entregue_em)
@@ -2822,9 +3127,13 @@ def validate_family_payload(data):
         data, "preco_compra_da_familia", "Preço de compra da família",
         max_length=MAX_OBSERVATION_LENGTH, required=False,
     )
-    flyer_url = clean_optional_http_url(data.get("flyer_url"), "Link do flyer")
+    flyer_url = clean_optional_http_url(data.get("flyer_url"), "Link do flyer 1")
+    flyer_url_2 = clean_optional_http_url(data.get("flyer_url_2"), "Link do flyer 2")
     contact = clean_text_field(
-        data, "contato", "Contato", max_length=200, required=False,
+        data, "contato", "Contato 1", max_length=200, required=False,
+    )
+    contact_2 = clean_text_field(
+        data, "contato_2", "Contato 2", max_length=200, required=False,
     )
     flyer_hidden = normalize_flag(data.get("flyer_oculto"))
     observation = clean_text_field(
@@ -2837,7 +3146,9 @@ def validate_family_payload(data):
         "preco_venda_para_familia": sale_price,
         "preco_compra_da_familia": purchase_price,
         "flyer_url": flyer_url,
+        "flyer_url_2": flyer_url_2,
         "contato": contact,
+        "contato_2": contact_2,
         "flyer_oculto": flyer_hidden,
         "observacao": observation,
     }
@@ -2898,7 +3209,7 @@ def update_familia(registro_id):
 
             padded = list(row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(row))
             updated = build_family_row(payload, registro_id=padded[0], criado_em=padded[1])
-            worksheet.update(f"A{row_index}:L{row_index}", [updated], value_input_option="RAW")
+            worksheet.update(f"A{row_index}:N{row_index}", [updated], value_input_option="RAW")
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
 
         return jsonify({"ok": True, "message": "Família/gangue atualizada com sucesso."})
@@ -2917,6 +3228,20 @@ def delete_familia(registro_id):
             if not row_index:
                 return error_response("Família/gangue não encontrada.", 404)
             name = canonical_family_name(sheet_cell(row, 2))
+
+            encomendas_worksheet = get_encomendas_worksheet()
+            encomendas_rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, encomendas_worksheet, force=True)
+            family_id_index = ENCOMENDAS_HEADERS.index("familia_id")
+            linked_orders = sum(
+                1 for order_row in encomendas_rows[1:]
+                if str(sheet_cell(order_row, family_id_index)).strip() == registro_id
+            )
+            if linked_orders:
+                return error_response(
+                    f"{name} possui {linked_orders} encomenda(s) pendente(s). Edite ou conclua essas encomendas antes de remover a família.",
+                    409,
+                )
+
             worksheet.delete_rows(row_index)
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
         return jsonify({"ok": True, "message": f"{name} foi removida da aba Famílias."})
@@ -2942,7 +3267,7 @@ def list_metas():
 @require_staff
 def resumo_metas():
     try:
-        week = ensure_current_meta_submissions()
+        week = get_admin_meta_week()
         rows = meta_query_all(
             "SELECT status FROM meta_submissions WHERE week_start = ?",
             (week["semana_inicio"],),
@@ -2950,16 +3275,18 @@ def resumo_metas():
         total = len(rows)
         pagos = sum(1 for row in rows if row["status"] == "Pago")
         enviados = sum(1 for row in rows if row["status"] == "Enviado")
-        recusados = sum(1 for row in rows if row["status"] == "Recusado")
+        nao_pagos = sum(1 for row in rows if row["status"] in {"Não pago", "Recusado"})
+        a_revisar = sum(1 for row in rows if row["status"] not in {"Pago", "Não pago", "Recusado"})
 
         return jsonify({
             "total": total,
             "pagos": pagos,
-            "pendentes": max(total - pagos, 0),
+            "pendentes": a_revisar,
             "enviados": enviados,
-            "recusados": recusados,
+            "nao_pagos": nao_pagos,
+            "recusados": nao_pagos,
             "confirmados": pagos,
-            "faltam_confirmar": max(total - pagos, 0),
+            "faltam_confirmar": a_revisar,
             "semana_inicio": week["semana_inicio"],
             "semana_fim": week["semana_fim"],
             "semana_label": week["semana_label"],

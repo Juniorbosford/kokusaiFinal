@@ -22,12 +22,20 @@ function setMemberStatus(status){
   if(!badge) return;
   const normalized = String(status || "Pendente").toLowerCase();
   badge.textContent = status || "Pendente";
-  badge.className = `meta-status-badge ${normalized === "pago" ? "paid" : normalized === "enviado" ? "sent" : normalized === "recusado" ? "rejected" : "pending"}`;
+  badge.className = `meta-status-badge ${normalized === "pago" ? "paid" : normalized === "enviado" ? "sent" : ["recusado", "não pago", "nao pago"].includes(normalized) ? "rejected" : "pending"}`;
+}
+
+function memberStatusClass(status){
+  const normalized = String(status || "").toLowerCase();
+  if(normalized === "pago") return "pago";
+  if(["recusado", "não pago", "nao pago"].includes(normalized)) return "recusado";
+  if(normalized === "enviado") return "enviado";
+  return "pendente";
 }
 
 function renderCurrentPhotos(room){
   const photos = room.photos || [];
-  const locked = room.submission?.status === "Pago";
+  const locked = !room.schedule?.envios_abertos || ["Pago", "Não pago"].includes(room.submission?.status);
   document.getElementById("memberPhotoCounter").textContent = `${photos.length}/${room.limits?.max_photos || 5} fotos enviadas`;
   if(!photos.length){
     photoGrid.innerHTML = '<div class="meta-empty-state">Você ainda não enviou fotos nesta semana.</div>';
@@ -37,7 +45,7 @@ function renderCurrentPhotos(room){
     <article class="member-photo-card">
       <a href="${memberEscape(photo.url)}" target="_blank" rel="noopener"><img src="${memberEscape(photo.url)}" alt="Comprovante ${index + 1}" /></a>
       <div><span>Foto ${index + 1}</span><small>${memberEscape(photo.created_at || "")}</small></div>
-      ${locked ? '<span class="photo-locked">Meta paga</span>' : `<button type="button" data-delete-member-photo="${memberEscape(photo.id)}">Remover</button>`}
+      ${locked ? '<span class="photo-locked">Envios encerrados</span>' : `<button type="button" data-delete-member-photo="${memberEscape(photo.id)}">Remover</button>`}
     </article>`).join("");
 }
 
@@ -50,7 +58,7 @@ function renderHistory(history){
     <tr>
       <td>${memberEscape(item.week_start)} até ${memberEscape(item.week_end)}</td>
       <td>${Number(item.photo_count || 0)}</td>
-      <td><span class="history-status status-${memberEscape(String(item.status || "").toLowerCase())}">${memberEscape(item.status)}</span></td>
+      <td><span class="history-status status-${memberStatusClass(item.status)}">${memberEscape(item.status)}</span></td>
       <td>${memberEscape(item.reviewed_at || "—")}</td>
     </tr>`).join("");
 }
@@ -76,10 +84,18 @@ async function loadMemberRoom(){
       noteBox.hidden = true;
       noteBox.textContent = "";
     }
-    const locked = data.submission.status === "Pago";
+    const locked = !data.schedule?.envios_abertos || ["Pago", "Não pago"].includes(data.submission.status);
     photoInput.disabled = locked;
     uploadBtn.disabled = locked;
-    if(locked) memberFeedback("Meta confirmada como paga. Esta semana está encerrada para novos envios.");
+    if(locked){
+      if(data.schedule?.closed){
+        memberFeedback("Esta semana foi finalizada pela administração.");
+      }else{
+        memberFeedback(`Envios encerrados em ${data.schedule?.prazo_pagamento || "quarta-feira às 23:59"}. A meta está em conferência.`);
+      }
+    }else{
+      memberFeedback(`Envios abertos até ${data.schedule?.prazo_pagamento || "quarta-feira às 23:59"}.`);
+    }
   }catch(error){
     memberFeedback(error.message, true);
   }
@@ -110,7 +126,7 @@ uploadBtn?.addEventListener("click", async () => {
   }catch(error){
     memberFeedback(error.message, true);
   }finally{
-    if(currentRoom?.submission?.status !== "Pago"){
+    if(currentRoom?.schedule?.envios_abertos && !["Pago", "Não pago"].includes(currentRoom?.submission?.status)){
       uploadBtn.disabled = false;
       photoInput.disabled = false;
     }

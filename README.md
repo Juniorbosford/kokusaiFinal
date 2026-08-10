@@ -53,8 +53,10 @@ A antiga lista de metas foi transformada em **Salas de Meta** semanais e privada
 
 - Cada membro possui usuário e senha próprios e é redirecionado para `/minha-meta`.
 - O membro vê somente a própria sala, envia fotos da semana e consulta seu histórico.
-- O administrador vê todas as salas, abre os comprovantes e marca cada semana como `Pago`, `Pendente` ou `Recusado`.
-- A semana nova é criada automaticamente usando o mesmo dia de virada configurado em `META_RESET_WEEKDAY` (quarta-feira por padrão), sem apagar o histórico anterior.
+- O administrador vê todas as salas, abre os comprovantes e marca cada pessoa como `Pago` ou `Não pago`.
+- A sala abre na sexta-feira, recebe comprovantes até quarta às 23:59 e fica disponível para conferência na quinta-feira.
+- Ao finalizar a conferência, o resultado é bloqueado, fica salvo no PostgreSQL e um log TXT é baixado automaticamente no computador do admin.
+- Na sexta-feira, a nova semana é criada automaticamente sem apagar o histórico anterior.
 - Dados de usuários/status ficam no PostgreSQL e as imagens ficam em Bucket privado no Railway.
 - Em desenvolvimento local, o módulo usa SQLite e `data/meta_uploads` automaticamente.
 
@@ -94,8 +96,9 @@ Consulte `SECURITY_REVIEW.md` antes de publicar alterações no GitHub/Railway.
 
 - Uma única encomenda pode conter **L85** e **Seringa**, cada uma com quantidade e valor unitário próprios. O total é calculado pela soma dos dois produtos.
 - Encomendas pendentes podem ser **editadas por completo** no mesmo formulário: cliente, produtos, quantidades, valores, prazo, negociador, status e observação.
+- Toda encomenda nova ou editada fica vinculada a uma família cadastrada por ID e exibe o **emoji + nome da gangue** no histórico.
 - Ao confirmar a entrega de um pedido combinado, cada produto é registrado corretamente na aba `Vendas`.
 - Compras possuem **Justificativa (opcional)** e o texto aparece no histórico.
-- Famílias possuem um campo específico de **contato**, mascarado por padrão na interface.
+- Famílias possuem até **dois contatos**, mascarados por padrão, e até **dois flyers** exibidos lado a lado.
 - O campo de venda para a família é exibido como **Nosso valor para esta família**, permitindo manter tabelas especiais como Aura e Distrito.
 - Flyers podem ser substituídos por URL, ocultados e removidos pela própria aba de Famílias.
