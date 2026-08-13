@@ -54,7 +54,9 @@ HISTORICO_METAS_WORKSHEET_NAME = os.getenv("HISTORICO_METAS_WORKSHEET_NAME", "Hi
 REUNIOES_WORKSHEET_NAME = os.getenv("REUNIOES_WORKSHEET_NAME", "Reunioes")
 FAMILIAS_WORKSHEET_NAME = os.getenv("FAMILIAS_WORKSHEET_NAME", "Familias")
 LEGACY_FLYERS_WORKSHEET_NAME = os.getenv("FLYERS_WORKSHEET_NAME", "Flyers")
-META_RESET_WEEKDAY = int(os.getenv("META_RESET_WEEKDAY", "4"))  # 4=sexta-feira
+# O ciclo de metas é fixo: sexta-feira 00:00 até quarta-feira 23:59.
+# Quinta-feira fica exclusivamente para a conferência do administrador.
+META_RESET_WEEKDAY = 4  # datetime.weekday(): 4 = sexta-feira
 APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/Sao_Paulo")
 APP_UTC_OFFSET_HOURS = int(os.getenv("APP_UTC_OFFSET_HOURS", "-3"))
 
@@ -407,6 +409,133 @@ def meta_member_id(username):
     return f"META-USER-{digest}"
 
 
+def canonical_meta_week_dates(week_start):
+    """Converte ciclos antigos para o calendário sexta-feira–quarta-feira."""
+    start_date = parse_date_br(week_start)
+    if not start_date:
+        return None
+    days_until_friday = (META_RESET_WEEKDAY - start_date.weekday()) % 7
+    canonical_start = start_date + timedelta(days=days_until_friday)
+    canonical_end = meta_week_end(canonical_start)
+    return format_date_br(canonical_start), format_date_br(canonical_end)
+
+
+def migrate_legacy_meta_weeks(connection):
+    """Une semanas do calendário antigo sem perder fotos já enviadas.
+
+    A versão anterior chegou a criar ciclos de quarta a terça. Quando o ciclo
+    correto de sexta a quarta foi ativado, alguns membros ficaram com fotos em
+    duas submissões diferentes da mesma semana. Esta migração move todas as
+    fotos para o ciclo canônico e remove somente a submissão duplicada.
+    """
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT id, user_id, week_start, week_end, status, admin_note,
+               submitted_at, reviewed_at, reviewed_by, created_at
+        FROM meta_submissions
+        """
+    )
+    submissions = meta_rows_from_cursor(cursor)
+    migrated = 0
+    status_priority = {"Pendente": 0, "Enviado": 1, "Recusado": 2, "Não pago": 3, "Pago": 4}
+
+    for legacy in submissions:
+        canonical = canonical_meta_week_dates(legacy.get("week_start"))
+        if not canonical:
+            continue
+        canonical_start, canonical_end = canonical
+        if legacy.get("week_start") == canonical_start and legacy.get("week_end") == canonical_end:
+            continue
+
+        cursor.execute(
+            meta_sql(
+                """
+                SELECT id, status, admin_note, submitted_at, reviewed_at, reviewed_by, created_at
+                FROM meta_submissions WHERE user_id = ? AND week_start = ? AND id <> ?
+                """
+            ),
+            (legacy["user_id"], canonical_start, legacy["id"]),
+        )
+        existing_rows = meta_rows_from_cursor(cursor)
+        target = existing_rows[0] if existing_rows else None
+
+        if target:
+            target_status = str(target.get("status") or "Pendente")
+            legacy_status = str(legacy.get("status") or "Pendente")
+            merged_status = (
+                legacy_status
+                if status_priority.get(legacy_status, 0) > status_priority.get(target_status, 0)
+                else target_status
+            )
+            cursor.execute(
+                meta_sql(
+                    """
+                    UPDATE meta_submissions
+                    SET week_end = ?, status = ?, admin_note = ?, submitted_at = ?,
+                        reviewed_at = ?, reviewed_by = ?
+                    WHERE id = ?
+                    """
+                ),
+                (
+                    canonical_end,
+                    merged_status,
+                    target.get("admin_note") or legacy.get("admin_note") or "",
+                    target.get("submitted_at") or legacy.get("submitted_at"),
+                    target.get("reviewed_at") or legacy.get("reviewed_at"),
+                    target.get("reviewed_by") or legacy.get("reviewed_by"),
+                    target["id"],
+                ),
+            )
+            cursor.execute(
+                meta_sql("UPDATE meta_photos SET submission_id = ? WHERE submission_id = ?"),
+                (target["id"], legacy["id"]),
+            )
+            cursor.execute(meta_sql("DELETE FROM meta_submissions WHERE id = ?"), (legacy["id"],))
+        else:
+            cursor.execute(
+                meta_sql("UPDATE meta_submissions SET week_start = ?, week_end = ? WHERE id = ?"),
+                (canonical_start, canonical_end, legacy["id"]),
+            )
+        migrated += 1
+
+    # Logs já finalizados também recebem as datas canônicas. O texto do log é
+    # preservado, trocando apenas o período antigo pelo novo.
+    cursor.execute(
+        """
+        SELECT id, week_start, week_end, payment_deadline, review_date, log_text
+        FROM meta_week_closures
+        """
+    )
+    closures = meta_rows_from_cursor(cursor)
+    for closure in closures:
+        canonical = canonical_meta_week_dates(closure.get("week_start"))
+        if not canonical:
+            continue
+        canonical_start, canonical_end = canonical
+        if closure.get("week_start") == canonical_start and closure.get("week_end") == canonical_end:
+            continue
+        cursor.execute(meta_sql("SELECT id FROM meta_week_closures WHERE week_start = ?"), (canonical_start,))
+        if meta_rows_from_cursor(cursor):
+            continue
+        review_date = format_date_br(parse_date_br(canonical_end) + timedelta(days=1))
+        log_text = str(closure.get("log_text") or "")
+        log_text = log_text.replace(str(closure.get("week_start") or ""), canonical_start)
+        log_text = log_text.replace(str(closure.get("week_end") or ""), canonical_end)
+        cursor.execute(
+            meta_sql(
+                """
+                UPDATE meta_week_closures
+                SET week_start = ?, week_end = ?, payment_deadline = ?, review_date = ?, log_text = ?
+                WHERE id = ?
+                """
+            ),
+            (canonical_start, canonical_end, f"{canonical_end} 23:59", review_date, log_text, closure["id"]),
+        )
+
+    return migrated
+
+
 def ensure_meta_database_ready():
     global _meta_db_ready
     if _meta_db_ready:
@@ -498,8 +627,11 @@ def ensure_meta_database_ready():
                     member["password_hash"],
                     created_at,
                 ))
+            migrated_weeks = migrate_legacy_meta_weeks(connection)
             connection.commit()
             _meta_db_ready = True
+            if migrated_weeks:
+                log_info(f"Semanas antigas de meta migradas para sexta–quarta: {migrated_weeks}")
         except Exception:
             connection.rollback()
             raise
@@ -2400,7 +2532,12 @@ def meta_room():
 def current_meta_room():
     try:
         user = get_current_user()
-        return jsonify(build_meta_room_payload(user["user_id"]))
+        response = jsonify(build_meta_room_payload(user["user_id"]))
+        # As URLs das fotos são temporárias e a quantidade muda após cada
+        # envio; esta resposta nunca deve ser reutilizada pelo navegador.
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
     except Exception as error:
         log_error("Falha ao carregar sala individual de meta", error)
         return error_response(str(error))
@@ -2447,7 +2584,15 @@ def upload_meta_room_photo():
             "UPDATE meta_submissions SET status = 'Enviado', submitted_at = ? WHERE id = ?",
             (created_at, submission["id"]),
         )
-        return jsonify({"ok": True, "message": "Foto enviada para sua sala com sucesso.", "photo_id": photo_id}), 201
+        photos = get_meta_photos(submission["id"])
+        response = jsonify({
+            "ok": True,
+            "message": "Foto enviada para sua sala com sucesso.",
+            "photo_id": photo_id,
+            "photos": [serialize_meta_photo(photo) for photo in photos],
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 201
     except ValueError as error:
         return error_response(str(error), 400)
     except Exception as error:

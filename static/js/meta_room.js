@@ -90,7 +90,7 @@ function renderHistory(history){
 
 async function loadMemberRoom(){
   try{
-    const response = await fetch("/api/meta-room");
+    const response = await fetch(`/api/meta-room?at=${Date.now()}`, {cache:"no-store"});
     const data = await response.json();
     if(!response.ok) throw new Error(data.error || "Não foi possível carregar sua sala.");
     currentRoom = data;
@@ -179,6 +179,10 @@ uploadBtn?.addEventListener("click", async () => {
       const response = await fetch("/api/meta-room/photos", {method:"POST", headers:{"X-CSRF-Token":memberCsrfToken}, body});
       const data = await response.json();
       if(!response.ok) throw new Error(data.error || "Falha ao enviar uma das fotos.");
+      if(Array.isArray(data.photos) && currentRoom){
+        currentRoom.photos = data.photos;
+        renderCurrentPhotos(currentRoom);
+      }
     }
     photoInput.value = "";
     updateSelectedPhotos([]);
