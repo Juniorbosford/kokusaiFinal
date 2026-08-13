@@ -49,8 +49,6 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 COMPRAS_WORKSHEET_NAME = os.getenv("COMPRAS_WORKSHEET_NAME", "Compras")
 VENDAS_WORKSHEET_NAME = os.getenv("VENDAS_WORKSHEET_NAME", "Vendas")
 ENCOMENDAS_WORKSHEET_NAME = os.getenv("ENCOMENDAS_WORKSHEET_NAME", "Encomendas")
-METAS_WORKSHEET_NAME = os.getenv("METAS_WORKSHEET_NAME", "Pagamento de Metas")
-HISTORICO_METAS_WORKSHEET_NAME = os.getenv("HISTORICO_METAS_WORKSHEET_NAME", "Historico Metas")
 REUNIOES_WORKSHEET_NAME = os.getenv("REUNIOES_WORKSHEET_NAME", "Reunioes")
 FAMILIAS_WORKSHEET_NAME = os.getenv("FAMILIAS_WORKSHEET_NAME", "Familias")
 LEGACY_FLYERS_WORKSHEET_NAME = os.getenv("FLYERS_WORKSHEET_NAME", "Flyers")
@@ -70,6 +68,8 @@ META_BUCKET_REGION = (os.getenv("REGION") or os.getenv("AWS_DEFAULT_REGION") or 
 META_BUCKET_ACCESS_KEY = (os.getenv("ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID") or "").strip()
 META_BUCKET_SECRET_KEY = (os.getenv("SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip()
 META_LOCAL_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "meta_uploads")
+FLYER_LOCAL_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "flyer_uploads")
+BUCKET_REFERENCE_PREFIX = "kokusai-bucket://"
 META_MAX_FILE_BYTES = int(os.getenv("META_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
 META_MAX_PHOTOS_PER_WEEK = int(os.getenv("META_MAX_PHOTOS_PER_WEEK", "5"))
 META_ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
@@ -84,13 +84,12 @@ _meta_storage_client_cache = {"client": None}
 # O Google Sheets cobra cada leitura da API; antes o painel fazia várias leituras
 # ao mesmo tempo ao abrir a tela. Com cache, a tela reaproveita os dados por alguns segundos.
 SHEETS_CACHE_SECONDS = int(os.getenv("SHEETS_CACHE_SECONDS", "45"))
-SHEETS_META_MAINTENANCE_SECONDS = int(os.getenv("SHEETS_META_MAINTENANCE_SECONDS", "300"))
+SHEETS_MAINTENANCE_SECONDS = int(os.getenv("SHEETS_MAINTENANCE_SECONDS", "300"))
 _sheets_lock = threading.RLock()
 _gsheet_client_cache = {"client": None}
 _spreadsheet_cache = {"spreadsheet": None}
 _worksheet_cache = {}
 _values_cache = {}
-_meta_maintenance_cache = {"checked_at": 0}
 _familias_maintenance_cache = {"checked_at": 0}
 
 # Proteções simples contra abuso. Como o app roda em poucos usuários,
@@ -119,39 +118,6 @@ AUTH_USERS = {
     },
 }
 
-
-DEFAULT_META_NAMES = [
-    "Astrid",
-    "Ayanna",
-    "Cecilia",
-    "Dulce",
-    "GB",
-    "Gohan",
-    "Harper",
-    "Hinata",
-    "João",
-    "Junior (Azulzin)",
-    "Kyotaka",
-    "Lara Salles",
-    "Larissa",
-    "Liam",
-    "Lipe",
-    "Lucas Diaz",
-    "Lucas Ricci",
-    "Matheus",
-    "Max",
-    "Mia",
-    "Mina",
-    "Morgan",
-    "Nanami",
-    "Ricardo",
-    "Semente",
-    "Viny",
-    "Yan (Gordin)",
-    "Yara",
-    "Yori",
-    "Wanda",
-]
 
 COMPRAS_HEADERS = [
     "id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade",
@@ -194,8 +160,6 @@ ENCOMENDAS_HEADERS = [
     "valor_base",
     "acrescimo_dinheiro_sujo",
 ]
-META_HEADERS = ["id", "nome", "pago", "atualizado_em", "semana_inicio", "semana_fim", "confirmado"]
-META_HISTORY_HEADERS = ["semana_inicio", "semana_fim", "fechado_em", "id", "nome", "pago", "atualizado_em"]
 REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em"]
 FAMILIAS_HEADERS = [
     "id",
@@ -772,12 +736,12 @@ def get_admin_meta_week():
     }
 
 
-def meta_bucket_configured():
+def storage_bucket_configured():
     return all([META_BUCKET_NAME, META_BUCKET_ENDPOINT, META_BUCKET_ACCESS_KEY, META_BUCKET_SECRET_KEY])
 
 
-def get_meta_storage_client():
-    if not meta_bucket_configured():
+def get_storage_client():
+    if not storage_bucket_configured():
         return None
     if _meta_storage_client_cache.get("client") is not None:
         return _meta_storage_client_cache["client"]
@@ -796,15 +760,15 @@ def get_meta_storage_client():
     return client
 
 
-def prepare_meta_image(upload):
+def prepare_image_upload(upload, label="imagem"):
     if not upload or not upload.filename:
-        raise ValueError("Selecione uma foto para enviar.")
+        raise ValueError(f"Selecione uma {label} para enviar.")
 
     raw = upload.stream.read(META_MAX_FILE_BYTES + 1)
     if len(raw) > META_MAX_FILE_BYTES:
-        raise ValueError("A foto ultrapassa o limite de 10 MB.")
+        raise ValueError(f"A {label} ultrapassa o limite de 10 MB.")
     if not raw:
-        raise ValueError("A foto enviada está vazia.")
+        raise ValueError(f"A {label} enviada está vazia.")
 
     try:
         from PIL import Image, ImageOps
@@ -837,13 +801,13 @@ def prepare_meta_image(upload):
     except ValueError:
         raise
     except Exception as error:
-        raise ValueError("Não foi possível ler essa imagem. Tente enviar outra foto.") from error
+        raise ValueError(f"Não foi possível ler essa {label}. Tente enviar outro arquivo.") from error
 
 
 def store_meta_photo(upload, user_id, week_start):
-    image_bytes = prepare_meta_image(upload)
+    image_bytes = prepare_image_upload(upload, "foto")
     object_key = f"metas/{user_id}/{week_start.replace('/', '-')}/{uuid.uuid4().hex}.webp"
-    client = get_meta_storage_client()
+    client = get_storage_client()
     if client:
         client.put_object(Bucket=META_BUCKET_NAME, Key=object_key, Body=image_bytes, ContentType="image/webp")
     else:
@@ -862,7 +826,7 @@ def store_meta_photo(upload, user_id, week_start):
 
 
 def delete_meta_photo_object(object_key):
-    client = get_meta_storage_client()
+    client = get_storage_client()
     if client:
         client.delete_object(Bucket=META_BUCKET_NAME, Key=object_key)
         return
@@ -872,7 +836,7 @@ def delete_meta_photo_object(object_key):
 
 
 def meta_photo_access_url(photo):
-    client = get_meta_storage_client()
+    client = get_storage_client()
     if client:
         return client.generate_presigned_url(
             "get_object",
@@ -891,6 +855,80 @@ def serialize_meta_photo(photo):
         "created_at": photo["created_at"],
         "url": meta_photo_access_url(photo),
     }
+
+
+def bucket_reference(object_key):
+    return f"{BUCKET_REFERENCE_PREFIX}{str(object_key or '').lstrip('/')}"
+
+
+def bucket_key_from_reference(value):
+    reference = str(value or "").strip()
+    if not reference.startswith(BUCKET_REFERENCE_PREFIX):
+        return ""
+    return reference[len(BUCKET_REFERENCE_PREFIX):].lstrip("/")
+
+
+def family_flyer_storage_path(object_key):
+    local_root = os.path.abspath(FLYER_LOCAL_UPLOAD_DIR)
+    local_path = os.path.abspath(os.path.join(local_root, *str(object_key).split("/")))
+    if not local_path.startswith(local_root + os.sep):
+        raise ValueError("Referência de flyer inválida.")
+    return local_path
+
+
+def store_family_flyer(upload, family_id, slot):
+    image_bytes = prepare_image_upload(upload, "imagem do flyer")
+    clean_family_id = re.sub(r"[^A-Za-z0-9_-]+", "-", str(family_id or "")).strip("-")
+    if not clean_family_id:
+        raise ValueError("Família inválida para armazenar o flyer.")
+    object_key = f"flyers/{clean_family_id}/slot-{int(slot)}/{uuid.uuid4().hex}.webp"
+    client = get_storage_client()
+    if client:
+        client.put_object(
+            Bucket=META_BUCKET_NAME,
+            Key=object_key,
+            Body=image_bytes,
+            ContentType="image/webp",
+            CacheControl="private, max-age=3600",
+        )
+    else:
+        if IS_RAILWAY:
+            raise RuntimeError("Bucket de imagens não configurado no Railway.")
+        local_path = family_flyer_storage_path(object_key)
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as file_handle:
+            file_handle.write(image_bytes)
+    return bucket_reference(object_key)
+
+
+def delete_family_flyer_reference(reference):
+    object_key = bucket_key_from_reference(reference)
+    if not object_key or not object_key.startswith("flyers/"):
+        return
+    client = get_storage_client()
+    if client:
+        client.delete_object(Bucket=META_BUCKET_NAME, Key=object_key)
+        return
+    local_path = family_flyer_storage_path(object_key)
+    if os.path.isfile(local_path):
+        os.remove(local_path)
+
+
+def family_flyer_access_url(reference, family_id, slot):
+    value = str(reference or "").strip()
+    object_key = bucket_key_from_reference(value)
+    if not object_key:
+        return value
+    if not object_key.startswith("flyers/"):
+        return ""
+    client = get_storage_client()
+    if client:
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": META_BUCKET_NAME, "Key": object_key},
+            ExpiresIn=3600,
+        )
+    return url_for("family_flyer_file", registro_id=family_id, slot=int(slot))
 
 
 def get_current_user():
@@ -1354,14 +1392,19 @@ def family_id_from_name(name):
     return f"KKSF-{digest}"
 
 
-def clean_optional_http_url(value, field_name="Link do flyer"):
-    url = clean_text(value, field_name, max_length=1000, required=False)
-    if not url:
+def clean_optional_image_reference(value, field_name="Flyer"):
+    reference = clean_text(value, field_name, max_length=1000, required=False)
+    if not reference:
         return ""
-    parsed = urlparse(url)
+    object_key = bucket_key_from_reference(reference)
+    if object_key:
+        if not object_key.startswith("flyers/"):
+            raise ValueError(f"{field_name} possui uma referência de armazenamento inválida.")
+        return bucket_reference(object_key)
+    parsed = urlparse(reference)
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{field_name} deve ser um link http ou https válido.")
-    return url
+        raise ValueError(f"{field_name} deve ser uma imagem enviada ou um link http/https válido.")
+    return reference
 
 
 def get_familias_worksheet(ensure_ready=True):
@@ -1486,7 +1529,7 @@ def ensure_familias_ready(worksheet, force=False):
 def _ensure_familias_ready_locked(worksheet, force=False):
     now = time.time()
     with _sheets_lock:
-        if not force and now - _familias_maintenance_cache.get("checked_at", 0) < SHEETS_META_MAINTENANCE_SECONDS:
+        if not force and now - _familias_maintenance_cache.get("checked_at", 0) < SHEETS_MAINTENANCE_SECONDS:
             return
 
     rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
@@ -1594,177 +1637,6 @@ def upsert_family_from_meeting(name, icon=""):
         return row[0], True
 
 
-def get_metas_worksheet():
-    worksheet = get_or_create_worksheet(METAS_WORKSHEET_NAME, META_HEADERS)
-    ensure_metas_ready(worksheet)
-    return worksheet
-
-
-def get_historico_metas_worksheet():
-    return get_or_create_worksheet(HISTORICO_METAS_WORKSHEET_NAME, META_HISTORY_HEADERS)
-
-
-def ensure_metas_ready(worksheet, force=False):
-    now = time.time()
-    with _sheets_lock:
-        if not force and now - _meta_maintenance_cache.get("checked_at", 0) < SHEETS_META_MAINTENANCE_SECONDS:
-            return
-        _meta_maintenance_cache["checked_at"] = now
-
-    seed_metas_if_empty(worksheet)
-    ensure_metas_schema(worksheet)
-    ensure_current_meta_week(worksheet)
-
-
-def seed_metas_if_empty(worksheet):
-    try:
-        rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-        if len(rows) > 1:
-            return
-
-        agora = format_timestamp()
-        week = meta_week_payload()
-        seed_rows = [
-            [f"META-{index:03d}", nome, "Não", agora, week["semana_inicio"], week["semana_fim"], "Não"]
-            for index, nome in enumerate(DEFAULT_META_NAMES, start=1)
-        ]
-        if seed_rows:
-            worksheet.append_rows(seed_rows, value_input_option="RAW")
-            invalidate_values_cache(worksheet.title)
-            log_info(f"Aba de metas populada com {len(seed_rows)} nomes iniciais.")
-    except Exception as e:
-        log_error("Erro ao popular aba de metas", e)
-        raise
-
-
-def ensure_metas_schema(worksheet):
-    rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-    if len(rows) <= 1:
-        return
-
-    week = meta_week_payload()
-    updated_rows = []
-    changed = False
-
-    for index, row in enumerate(rows[1:], start=1):
-        padded = list(row[:len(META_HEADERS)]) + [""] * max(0, len(META_HEADERS) - len(row))
-        nome = str(padded[1] or "").strip() if len(padded) > 1 else ""
-        if not nome:
-            updated_rows.append(padded[:len(META_HEADERS)])
-            continue
-
-        if not str(padded[0] or "").strip():
-            padded[0] = f"META-{index:03d}"
-            changed = True
-        if validate_yes_no(padded[2]) is None:
-            padded[2] = "Não"
-            changed = True
-        else:
-            normalized = validate_yes_no(padded[2])
-            if padded[2] != normalized:
-                padded[2] = normalized
-                changed = True
-        if not str(padded[3] or "").strip():
-            padded[3] = format_timestamp()
-            changed = True
-        if not str(padded[4] or "").strip():
-            padded[4] = week["semana_inicio"]
-            changed = True
-        if not str(padded[5] or "").strip():
-            padded[5] = week["semana_fim"]
-            changed = True
-        if validate_yes_no(padded[6]) is None:
-            padded[6] = "Não"
-            changed = True
-
-        updated_rows.append(padded[:len(META_HEADERS)])
-
-    if changed and updated_rows:
-        worksheet.update(f"A2:G{len(updated_rows) + 1}", updated_rows, value_input_option="RAW")
-        invalidate_values_cache(worksheet.title)
-        log_info("Aba de metas atualizada para o formato semanal.")
-
-
-def ensure_current_meta_week(worksheet):
-    rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-    registros = active_meta_rows(rows)
-    if not registros:
-        return
-
-    stored_start = parse_date_br(registros[0][4] if len(registros[0]) > 4 else "")
-    current_start = meta_week_start()
-
-    if stored_start and stored_start < current_start:
-        log_info("Virada semanal detectada. Salvando histórico e resetando metas.")
-        archive_and_reset_metas(worksheet, target_start_date=current_start)
-
-
-def archive_and_reset_metas(worksheet, target_start_date=None):
-    rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-    registros = active_meta_rows(rows)
-    if not registros:
-        return meta_week_payload(target_start_date or meta_week_start())
-
-    fechado_em = format_timestamp()
-    history_rows = []
-    for row in registros:
-        semana_inicio = row[4] if len(row) > 4 and row[4] else meta_week_payload()["semana_inicio"]
-        semana_fim = row[5] if len(row) > 5 and row[5] else meta_week_payload()["semana_fim"]
-        history_rows.append([
-            semana_inicio,
-            semana_fim,
-            fechado_em,
-            row[0] if len(row) > 0 else "",
-            row[1] if len(row) > 1 else "",
-            validate_yes_no(row[2] if len(row) > 2 else "Não") or "Não",
-            row[3] if len(row) > 3 else "",
-        ])
-
-    if history_rows:
-        historico = get_historico_metas_worksheet()
-        historico.append_rows(history_rows, value_input_option="RAW")
-        invalidate_values_cache(historico.title)
-
-    if target_start_date is None:
-        current_stored_start = parse_date_br(registros[0][4] if len(registros[0]) > 4 else "") or meta_week_start()
-        target_start_date = current_stored_start + timedelta(days=7)
-
-    week = meta_week_payload(target_start_date)
-    reset_rows = []
-    for row in registros:
-        reset_rows.append([
-            row[0] if len(row) > 0 and row[0] else f"META-{len(reset_rows) + 1:03d}",
-            row[1] if len(row) > 1 else "",
-            "Não",
-            fechado_em,
-            week["semana_inicio"],
-            week["semana_fim"],
-            "Não",
-        ])
-
-    worksheet.update(f"A2:G{len(reset_rows) + 1}", reset_rows, value_input_option="RAW")
-    invalidate_values_cache(worksheet.title)
-    return week
-
-
-def maybe_close_week_if_all_confirmed(worksheet, rows=None):
-    rows = rows if rows is not None else cached_get_all_values(worksheet.title, worksheet, force=True)
-    registros = active_meta_rows(rows)
-    if not registros:
-        return False, None
-
-    all_confirmed = all(
-        len(row) > 6 and str(row[6]).strip().lower() in ["sim", "s"]
-        for row in registros
-    )
-    if not all_confirmed:
-        return False, None
-
-    current_start = parse_date_br(registros[0][4] if len(registros[0]) > 4 else "") or meta_week_start()
-    next_week = archive_and_reset_metas(worksheet, target_start_date=current_start + timedelta(days=7))
-    return True, next_week
-
-
 def validate_yes_no(value):
     normalized = str(value or "").strip().lower()
     if normalized in ["sim", "s"]:
@@ -1827,10 +1699,6 @@ def encomendas_summary(rows):
         "pendentes": max(len(registros) - entregues, 0),
     })
     return resumo
-
-
-def active_meta_rows(rows):
-    return [row for row in rows[1:] if len(row) > 1 and str(row[1]).strip()]
 
 
 def validate_numeric_fields(data, required_fields):
@@ -2127,16 +1995,15 @@ def move_encomenda_to_vendas(worksheet, row_index, encomenda_item, entregue_em=N
     return venda_ids
 
 
-def worksheet_has_record_id(worksheet, registro_id):
-    rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-    return any(sheet_cell(row, 0) == registro_id for row in rows[1:])
-
-
 def normalize_family(row):
     item = row_to_dict(row, FAMILIAS_HEADERS)
     item["nome"] = canonical_family_name(item.get("nome"))
     item["mercado"] = normalize_market_status(item.get("mercado"))
     item["flyer_oculto"] = normalize_flag(item.get("flyer_oculto"))
+    for slot, field in ((1, "flyer_url"), (2, "flyer_url_2")):
+        stored_reference = str(item.get(field) or "").strip()
+        item[f"{field}_stored"] = stored_reference
+        item[field] = family_flyer_access_url(stored_reference, item.get("id"), slot)
     return item
 
 
@@ -2397,19 +2264,6 @@ def normalize_reuniao(row):
     return item
 
 
-def normalize_meta(row):
-    confirmado = str(sheet_cell(row, 6, "Não")).strip().lower() in ["sim", "s"]
-    return {
-        "id": sheet_cell(row, 0),
-        "nome": sheet_cell(row, 1),
-        "pago": validate_yes_no(sheet_cell(row, 2, "Não")) or "Não",
-        "atualizado_em": sheet_cell(row, 3),
-        "semana_inicio": sheet_cell(row, 4),
-        "semana_fim": sheet_cell(row, 5),
-        "confirmado": confirmado,
-    }
-
-
 @app.get("/")
 @require_login
 def home():
@@ -2655,7 +2509,7 @@ def meta_photo_file(photo_id):
             return error_response("Você não tem acesso a esta foto.", 403)
         if user["role"] not in {"member", "admin"}:
             return error_response("Somente o dono da sala e o administrador podem acessar esta foto.", 403)
-        if meta_bucket_configured():
+        if storage_bucket_configured():
             return redirect(meta_photo_access_url(photo))
 
         local_root = os.path.abspath(META_LOCAL_UPLOAD_DIR)
@@ -2898,10 +2752,8 @@ def debug_config():
         "compras_worksheet": COMPRAS_WORKSHEET_NAME,
         "vendas_worksheet": VENDAS_WORKSHEET_NAME,
         "encomendas_worksheet": ENCOMENDAS_WORKSHEET_NAME,
-        "metas_worksheet": METAS_WORKSHEET_NAME,
-        "historico_metas_worksheet": HISTORICO_METAS_WORKSHEET_NAME,
         "meta_database_configured": bool(META_DATABASE_URL) or not IS_RAILWAY,
-        "meta_bucket_configured": meta_bucket_configured(),
+        "storage_bucket_configured": storage_bucket_configured(),
         "credentials_present": bool(credentials_json),
         "service_account_email": client_email,
     })
@@ -3694,6 +3546,29 @@ def cancelar_reuniao(registro_id):
         return error_response(str(e))
 
 
+@app.get("/familias/<registro_id>/flyer/<int:slot>")
+@require_staff
+def family_flyer_file(registro_id, slot):
+    try:
+        if slot not in {1, 2}:
+            return error_response("Flyer inválido.", 404)
+        worksheet = get_familias_worksheet()
+        row_index, row = find_row_by_id(worksheet, registro_id)
+        if not row_index:
+            return error_response("Família/gangue não encontrada.", 404)
+        field_index = FAMILIAS_HEADERS.index("flyer_url" if slot == 1 else "flyer_url_2")
+        object_key = bucket_key_from_reference(sheet_cell(row, field_index))
+        if not object_key or not object_key.startswith("flyers/"):
+            return error_response("Flyer não encontrado.", 404)
+        local_path = family_flyer_storage_path(object_key)
+        if not os.path.isfile(local_path):
+            return error_response("Arquivo do flyer não encontrado.", 404)
+        return send_file(local_path, mimetype="image/webp", max_age=0)
+    except Exception as error:
+        log_error("Falha ao servir flyer da família", error)
+        return error_response(str(error))
+
+
 @app.get("/api/familias")
 @require_staff
 def list_familias():
@@ -3702,10 +3577,75 @@ def list_familias():
         rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet)
         familias = [normalize_family(row) for row in rows[1:] if str(sheet_cell(row, 2)).strip()]
         familias.sort(key=lambda item: normalized_lookup_key(item.get("nome")))
-        return jsonify(familias)
+        response = jsonify(familias)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return response
     except Exception as e:
         log_error("Falha em /api/familias [GET]", e)
         return error_response(str(e))
+
+
+@app.post("/api/familias/<registro_id>/flyers")
+@require_admin
+def upload_familia_flyer(registro_id):
+    new_reference = ""
+    try:
+        try:
+            slot = int(request.form.get("slot") or 0)
+        except (TypeError, ValueError):
+            slot = 0
+        if slot not in {1, 2}:
+            return error_response("Escolha o espaço 1 ou 2 para o flyer.", 400)
+
+        upload = request.files.get("flyer")
+        new_reference = store_family_flyer(upload, registro_id, slot)
+        old_reference = ""
+
+        try:
+            with _sheets_lock:
+                worksheet = get_familias_worksheet()
+                row_index, row = find_row_by_id(worksheet, registro_id)
+                if not row_index:
+                    delete_family_flyer_reference(new_reference)
+                    return error_response("Família/gangue não encontrada.", 404)
+
+                padded = list(row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(row))
+                field_name = "flyer_url" if slot == 1 else "flyer_url_2"
+                field_index = FAMILIAS_HEADERS.index(field_name)
+                old_reference = str(padded[field_index] or "").strip()
+                padded[field_index] = new_reference
+                padded[FAMILIAS_HEADERS.index("flyer_oculto")] = "Não"
+                padded[FAMILIAS_HEADERS.index("atualizado_em")] = format_timestamp()
+                worksheet.update(
+                    f"A{row_index}:N{row_index}",
+                    [padded[:len(FAMILIAS_HEADERS)]],
+                    value_input_option="RAW",
+                )
+                invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+        except Exception:
+            delete_family_flyer_reference(new_reference)
+            raise
+
+        if old_reference and old_reference != new_reference:
+            try:
+                delete_family_flyer_reference(old_reference)
+            except Exception as cleanup_error:
+                log_error("Flyer antigo não pôde ser removido do Bucket", cleanup_error)
+
+        response = jsonify({
+            "ok": True,
+            "message": f"Flyer {slot} armazenado permanentemente.",
+            "slot": slot,
+            "flyer_url": family_flyer_access_url(new_reference, registro_id, slot),
+            "flyer_url_stored": new_reference,
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response, 201
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha ao armazenar flyer da família", error)
+        return error_response(str(error))
 
 
 def validate_family_payload(data):
@@ -3726,8 +3666,8 @@ def validate_family_payload(data):
         data, "preco_compra_da_familia", "Preço de compra da família",
         max_length=MAX_OBSERVATION_LENGTH, required=False,
     )
-    flyer_url = clean_optional_http_url(data.get("flyer_url"), "Link do flyer 1")
-    flyer_url_2 = clean_optional_http_url(data.get("flyer_url_2"), "Link do flyer 2")
+    flyer_url = clean_optional_image_reference(data.get("flyer_url"), "Flyer 1")
+    flyer_url_2 = clean_optional_image_reference(data.get("flyer_url_2"), "Flyer 2")
     contact = clean_text_field(
         data, "contato", "Contato 1", max_length=200, required=False,
     )
@@ -3786,6 +3726,7 @@ def create_familia():
 @app.put("/api/familias/<registro_id>")
 @require_admin
 def update_familia(registro_id):
+    replaced_flyers = []
     try:
         try:
             payload = validate_family_payload(request.get_json(silent=True))
@@ -3808,9 +3749,20 @@ def update_familia(registro_id):
 
             padded = list(row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(row))
             updated = build_family_row(payload, registro_id=padded[0], criado_em=padded[1])
+            for field_name in ("flyer_url", "flyer_url_2"):
+                field_index = FAMILIAS_HEADERS.index(field_name)
+                old_reference = str(padded[field_index] or "").strip()
+                new_reference = str(updated[field_index] or "").strip()
+                if old_reference != new_reference:
+                    replaced_flyers.append(old_reference)
             worksheet.update(f"A{row_index}:N{row_index}", [updated], value_input_option="RAW")
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
 
+        for reference in replaced_flyers:
+            try:
+                delete_family_flyer_reference(reference)
+            except Exception as cleanup_error:
+                log_error("Flyer substituído não pôde ser removido do Bucket", cleanup_error)
         return jsonify({"ok": True, "message": "Família/gangue atualizada com sucesso."})
     except Exception as e:
         log_error("Falha em /api/familias/<id> [PUT]", e)
@@ -3820,6 +3772,7 @@ def update_familia(registro_id):
 @app.delete("/api/familias/<registro_id>")
 @require_admin
 def delete_familia(registro_id):
+    flyer_references = []
     try:
         with _sheets_lock:
             worksheet = get_familias_worksheet()
@@ -3827,6 +3780,10 @@ def delete_familia(registro_id):
             if not row_index:
                 return error_response("Família/gangue não encontrada.", 404)
             name = canonical_family_name(sheet_cell(row, 2))
+            flyer_references = [
+                sheet_cell(row, FAMILIAS_HEADERS.index("flyer_url")),
+                sheet_cell(row, FAMILIAS_HEADERS.index("flyer_url_2")),
+            ]
 
             encomendas_worksheet = get_encomendas_worksheet()
             encomendas_rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, encomendas_worksheet, force=True)
@@ -3843,22 +3800,14 @@ def delete_familia(registro_id):
 
             worksheet.delete_rows(row_index)
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+        for reference in flyer_references:
+            try:
+                delete_family_flyer_reference(reference)
+            except Exception as cleanup_error:
+                log_error("Flyer da família removida não pôde ser apagado do Bucket", cleanup_error)
         return jsonify({"ok": True, "message": f"{name} foi removida da aba Famílias."})
     except Exception as e:
         log_error("Falha em /api/familias/<id> [DELETE]", e)
-        return error_response(str(e))
-
-
-@app.get("/api/metas")
-@require_staff
-def list_metas():
-    try:
-        worksheet = get_metas_worksheet()
-        rows = cached_get_all_values(METAS_WORKSHEET_NAME, worksheet)
-        return jsonify([normalize_meta(row) for row in active_meta_rows(rows)])
-
-    except Exception as e:
-        log_error("Falha em /api/metas [GET]", e)
         return error_response(str(e))
 
 
@@ -3893,144 +3842,6 @@ def resumo_metas():
 
     except Exception as e:
         log_error("Falha em /api/resumo-metas", e)
-        return error_response(str(e))
-
-
-@app.post("/api/metas")
-@require_admin
-def create_meta():
-    try:
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return error_response("JSON inválido.", 400)
-
-        try:
-            nome = clean_text_field(data, "nome", "Nome")
-        except ValueError as validation_error:
-            return error_response(str(validation_error), 400)
-        pago = validate_yes_no(data.get("pago", "Não")) or "Não"
-
-        worksheet = get_metas_worksheet()
-        rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-        nomes_existentes = {row[1].strip().lower() for row in rows[1:] if len(row) > 1 and row[1].strip()}
-        if nome.lower() in nomes_existentes:
-            return error_response("Esse nome já está na lista de metas.", 409)
-
-        agora = format_timestamp()
-        semana_inicio = rows[1][4] if len(rows) > 1 and len(rows[1]) > 4 and rows[1][4] else meta_week_payload()["semana_inicio"]
-        semana_fim = rows[1][5] if len(rows) > 1 and len(rows[1]) > 5 and rows[1][5] else meta_week_payload()["semana_fim"]
-        registro_id = generate_record_id("META")
-        worksheet.append_row([registro_id, nome, pago, agora, semana_inicio, semana_fim, "Sim"], value_input_option="RAW")
-        invalidate_values_cache(METAS_WORKSHEET_NAME)
-
-        return jsonify({
-            "ok": True,
-            "message": "Nome adicionado na lista de metas.",
-            "id": registro_id,
-        }), 201
-
-    except Exception as e:
-        log_error("Falha em /api/metas [POST]", e)
-        return error_response(str(e))
-
-
-@app.post("/api/metas/<registro_id>/status")
-@require_admin
-def update_meta_status(registro_id):
-    try:
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return error_response("JSON inválido.", 400)
-
-        pago = validate_yes_no(data.get("pago"))
-        if not pago:
-            return error_response("O pagamento deve ser somente 'Sim' ou 'Não'.", 400)
-
-        worksheet = get_metas_worksheet()
-        rows = cached_get_all_values(METAS_WORKSHEET_NAME, worksheet, force=True)
-        row_index = None
-        row = None
-        for index, current_row in enumerate(rows[1:], start=2):
-            if len(current_row) > 0 and current_row[0] == registro_id:
-                row_index = index
-                row = current_row
-                break
-
-        if not row_index:
-            return error_response("Nome não encontrado na lista de metas.", 404)
-
-        agora = format_timestamp()
-        semana_inicio = row[4] if len(row) > 4 and row[4] else meta_week_payload()["semana_inicio"]
-        semana_fim = row[5] if len(row) > 5 and row[5] else meta_week_payload()["semana_fim"]
-        worksheet.update(f"C{row_index}:G{row_index}", [[pago, agora, semana_inicio, semana_fim, "Sim"]], value_input_option="RAW")
-        invalidate_values_cache(METAS_WORKSHEET_NAME)
-
-        updated_rows = deepcopy(rows)
-        while len(updated_rows[row_index - 1]) < len(META_HEADERS):
-            updated_rows[row_index - 1].append("")
-        updated_rows[row_index - 1][2:7] = [pago, agora, semana_inicio, semana_fim, "Sim"]
-        week_closed, next_week = maybe_close_week_if_all_confirmed(worksheet, rows=updated_rows)
-
-        return jsonify({
-            "ok": True,
-            "message": "Semana fechada e a próxima semana foi aberta." if week_closed else "Status de pagamento atualizado.",
-            "id": registro_id,
-            "pago": pago,
-            "atualizado_em": agora,
-            "week_closed": week_closed,
-            "next_week": next_week,
-        })
-
-    except Exception as e:
-        log_error("Falha em /api/metas/<id>/status [POST]", e)
-        return error_response(str(e))
-
-
-@app.delete("/api/metas/<registro_id>")
-@require_admin
-def delete_meta(registro_id):
-    try:
-        worksheet = get_metas_worksheet()
-        row_index, row = find_row_by_id(worksheet, registro_id)
-        if not row_index:
-            return error_response("Nome não encontrado na lista de metas.", 404)
-
-        nome = row[1] if len(row) > 1 else registro_id
-        worksheet.delete_rows(row_index)
-        invalidate_values_cache(METAS_WORKSHEET_NAME)
-
-        return jsonify({
-            "ok": True,
-            "message": f"{nome} removido da lista de metas.",
-            "id": registro_id,
-        })
-
-    except Exception as e:
-        log_error("Falha em /api/metas/<id> [DELETE]", e)
-        return error_response(str(e))
-
-
-@app.post("/api/metas/fechar-semana")
-@require_admin
-def fechar_semana_metas():
-    try:
-        worksheet = get_metas_worksheet()
-        rows = cached_get_all_values(worksheet.title, worksheet, force=True)
-        registros = active_meta_rows(rows)
-        if not registros:
-            return error_response("Nenhum nome cadastrado para fechar a semana.", 400)
-
-        current_start = parse_date_br(registros[0][4] if len(registros[0]) > 4 else "") or meta_week_start()
-        next_week = archive_and_reset_metas(worksheet, target_start_date=current_start + timedelta(days=7))
-
-        return jsonify({
-            "ok": True,
-            "message": "Semana salva no histórico e próxima semana aberta.",
-            "next_week": next_week,
-        })
-
-    except Exception as e:
-        log_error("Falha em /api/metas/fechar-semana [POST]", e)
         return error_response(str(e))
 
 

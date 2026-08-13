@@ -1,126 +1,154 @@
-# Kokusai
+# KOKUSAI
 
-## Estrutura correta
-- main.py
-- requirements.txt
-- templates/index.html
-- static/css/style.css
-- static/js/app.js
-- static/images/kokusai-logo.webp
+Painel interno para compras, vendas, encomendas, famílias, reuniões, relatórios, craft e salas semanais de meta.
 
-## Como rodar localmente
+## Estrutura do projeto
+
+```text
+kokusaiFinal/
+├── main.py                 # Aplicação Flask, APIs e regras de negócio
+├── meta_members.py         # Membros e hashes de acesso das salas de meta
+├── requirements.txt        # Dependências Python
+├── Procfile                # Comando de inicialização do Railway
+├── scripts/
+│   └── generate_password_hash.py
+├── templates/
+│   ├── index.html          # Painel do administrador
+│   ├── login.html
+│   └── meta_room.html      # Sala individual do membro
+└── static/
+    ├── css/style.css
+    ├── js/app.js
+    ├── js/meta_room.js
+    └── images/
+```
+
+Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não devem ser publicados. Eles já estão cobertos pelo `.gitignore`.
+
+## Onde os dados ficam
+
+- **Google Sheets:** compras, vendas, encomendas, famílias e reuniões.
+- **PostgreSQL:** usuários das metas, semanas, status, histórico e fechamentos.
+- **Railway Bucket privado:** fotos das metas e flyers enviados pelo painel.
+- **SQLite + `data/meta_uploads` e `data/flyer_uploads`:** alternativa automática somente para desenvolvimento local.
+
+## Fluxo semanal das metas
+
+- **Sexta-feira às 00:00:** abre uma nova semana.
+- **Sexta até quarta-feira às 23:59:** membros podem enviar e remover suas fotos.
+- **Quinta-feira:** somente o administrador `kokusai` confere e marca `Pago` ou `Não pago`.
+- Depois que todos forem avaliados, o administrador finaliza a semana e recebe o log em TXT.
+- **Sexta-feira seguinte:** a próxima semana abre automaticamente.
+- Cada membro vê todas as próprias fotos; o administrador vê todas as salas.
+- Ciclos antigos são migrados automaticamente para o calendário sexta–quarta sem apagar fotos.
+- As fotos permanecem no Bucket após atualizações e deploys e continuam disponíveis no histórico semanal.
+
+## Persistência dos flyers
+
+- O formulário de Famílias aceita dois arquivos de imagem, além dos links externos opcionais.
+- Imagens enviadas pelo formulário são convertidas para WEBP e armazenadas permanentemente no Bucket.
+- O Google Sheets guarda uma referência estável; o site gera um link temporário novo sempre que carrega as famílias.
+- Substituir ou remover um flyer também remove do Bucket apenas o arquivo que deixou de ser usado.
+- Flyers incluídos dentro de `static/images/flyers` continuam fazendo parte do próprio projeto.
+
+## Executar localmente
+
+Requer Python 3.11 ou superior.
+
 ```bash
+python -m venv .venv
+```
+
+No Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python main.py
 ```
 
-## Como publicar
-- não envie `service_account.json` para o GitHub
-- use `GOOGLE_CREDENTIALS_JSON` no Railway
+Abra `http://localhost:5000`.
 
+Sem `DATABASE_URL`, o projeto cria automaticamente:
 
-## Debug
-- A rota `/api/debug-config` fica bloqueada por padrão. Ative somente temporariamente com `ENABLE_DEBUG_CONFIG=true`.
-- Erros internos aparecem de forma resumida no navegador e detalhados apenas nos logs do Railway/terminal.
+```text
+data/kokusai_metas.db
+data/meta_uploads/
+data/flyer_uploads/
+```
 
-## Autenticação adicionada
+## Publicar no Railway
 
-Esta versão inclui dois níveis de acesso:
+O Railway usa o `Procfile` da raiz para iniciar o Gunicorn. Não é necessário Replit, Nix ou Dockerfile.
 
-- `kokusai`: administrador com acesso total.
-- `member`: contas individuais das Salas de Meta; cada pessoa vê apenas a própria sala e não acessa o painel operacional.
+### Variáveis obrigatórias
 
-As senhas são validadas por hash PBKDF2-SHA256. Consulte `LOGIN_RAILWAY.md` para configurar `SECRET_KEY`, cookies seguros no Railway e troca de senha.
+```text
+SECRET_KEY=chave_grande_e_aleatoria
+SESSION_COOKIE_SECURE=true
+SPREADSHEET_ID=id_da_planilha
+GOOGLE_CREDENTIALS_JSON=json_completo_da_service_account
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+BUCKET=${{Bucket.BUCKET}}
+ENDPOINT=${{Bucket.ENDPOINT}}
+REGION=${{Bucket.REGION}}
+ACCESS_KEY_ID=${{Bucket.ACCESS_KEY_ID}}
+SECRET_ACCESS_KEY=${{Bucket.SECRET_ACCESS_KEY}}
+```
 
-## Sistema de craft
+Troque `Postgres` e `Bucket` se os serviços tiverem outros nomes no projeto Railway.
 
-A aba **Craft** foi adicionada abaixo de **Encomendas**.
+### Variáveis opcionais
 
-Ela calcula automaticamente os materiais necessários para:
+```text
+KOKUSAI_PASSWORD_HASH=hash_do_administrador
+APP_TIMEZONE=America/Sao_Paulo
+META_MAX_PHOTOS_PER_WEEK=5
+META_MAX_FILE_BYTES=10485760
+SHEETS_CACHE_SECONDS=45
+SHEETS_MAINTENANCE_SECONDS=300
+```
 
-- L85
-- Peça de arma pesada
-- Corpo de rifle
-- Seringa de crack
-- Maçarico
-- Rastreador ilegal
+O ciclo da meta é fixo em sexta–quarta e não depende mais de variável de dia da semana.
 
-O cálculo é feito no navegador e não salva nada na planilha. O usuário `kokusai` pode preencher as quantidades e o campo **Tenho** para ver quanto falta.
+## Trocar a senha do administrador
 
-## Pagamento de metas
+Execute:
 
-A antiga lista de metas foi transformada em **Salas de Meta** semanais e privadas.
+```bash
+python scripts/generate_password_hash.py
+```
 
-- Cada membro possui usuário e senha próprios e é redirecionado para `/minha-meta`.
-- O membro vê somente a própria sala, envia fotos da semana e consulta seu histórico.
-- O envio aceita JPG/JPEG, PNG e WEBP, inclusive fotos cujo navegador não informa o tipo MIME corretamente; basta clicar ou arrastar as imagens para a área de upload.
-- O administrador vê todas as salas, abre os comprovantes e marca cada pessoa como `Pago` ou `Não pago`.
-- A sala abre na sexta-feira, recebe comprovantes até quarta às 23:59 e fica disponível para conferência na quinta-feira.
-- Ao finalizar a conferência, o resultado é bloqueado, fica salvo no PostgreSQL e um log TXT é baixado automaticamente no computador do admin.
-- Na sexta-feira, a nova semana é criada automaticamente sem apagar o histórico anterior.
-- Dados de usuários/status ficam no PostgreSQL e as imagens ficam em Bucket privado no Railway.
-- Em desenvolvimento local, o módulo usa SQLite e `data/meta_uploads` automaticamente.
+Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo deploy. Nunca salve a senha em texto puro no GitHub.
 
-Consulte `RAILWAY_METAS.md` para configurar PostgreSQL e Bucket no Railway. As credenciais iniciais dos membros ficam em `CREDENCIAIS_METAS.txt`, arquivo ignorado pelo Git.
+## Regras principais
 
-## Fluxo de encomendas e vendas
-
-- Encomendas pendentes permanecem na aba **Encomendas**.
-- Ao clicar em **Confirmar entrega**, o registro é criado na aba **Vendas** e removido de **Encomendas**.
-- Uma encomenda cadastrada inicialmente como já entregue é registrada diretamente em **Vendas**.
-- Pedidos escritos como `15 L85` ou `15x L85` são convertidos para produto `L85` e quantidade `15`. Sem quantidade explícita, o sistema usa quantidade `1`.
-- A conversão usa um ID estável para evitar venda duplicada caso a exclusão da encomenda precise ser tentada novamente.
-- O vínculo com a família é preservado quando a encomenda vira venda, inclusive em pedidos combinados com mais de um produto.
-
-## Relatório mensal por gangue
-
-- A aba **Relatórios** permite selecionar um mês e gera o ranking das famílias que mais compraram.
-- Vendas diretas podem ser vinculadas a uma família cadastrada; compradores avulsos continuam permitidos.
-- O ranking soma somente vendas concluídas e mostra total gasto, quantidade de compras, encomendas entregues, encomendas pendentes, valor ainda pendente e itens comprados.
-- Uma encomenda com L85 e Seringa conta como uma única compra, embora os valores dos dois produtos sejam somados normalmente.
-- Vendas sem família ficam fora do ranking e aparecem em um indicador separado para facilitar a correção dos próximos registros.
-- O relatório exibido pode ser baixado como arquivo TXT pelo navegador.
-- Registros antigos também entram no ranking quando o nome do comprador corresponde exatamente a uma família cadastrada.
-
-## Dinheiro limpo e dinheiro sujo
-
-- Compras, vendas e encomendas possuem a opção **Tipo de dinheiro**.
-- **Dinheiro limpo** mantém o valor calculado normalmente.
-- **Dinheiro sujo** acrescenta automaticamente **30%** sobre o valor base.
-- A prévia mostra o valor base, o acréscimo e o total antes de salvar.
-- A planilha guarda separadamente `tipo_dinheiro`, `valor_base` e `acrescimo_dinheiro_sujo`, enquanto `valor_total`/`valor` recebe o valor final.
-- Quando uma encomenda em dinheiro sujo é entregue, os 30% são preservados ao converter os produtos em vendas.
-- O histórico identifica visualmente o tipo de dinheiro usado em cada movimentação.
-
-## Layout responsivo
-
-Os formulários e históricos agora usam toda a largura disponível. Em telas menores, as linhas das tabelas viram cartões, evitando barras de rolagem horizontal nas abas Compras, Vendas, Encomendas, Relatórios, Metas e Craft.
-
+- Encomendas pendentes permanecem em **Encomendas**.
+- Ao confirmar a entrega, cada produto é registrado em **Vendas** e a encomenda sai da lista ativa.
+- A conversão usa IDs estáveis para não duplicar vendas após uma falha parcial.
+- Toda encomenda é vinculada a uma família cadastrada.
+- O ranking mensal aceita somente famílias existentes no cadastro atual.
+- Dinheiro sujo adiciona automaticamente 30% ao valor base.
+- Uma encomenda pode combinar L85 e Seringa, preservando quantidade e valor de cada produto.
+- Famílias aceitam dois contatos ocultos e dois flyers.
 
 ## Segurança
 
-Consulte `SECURITY_REVIEW.md` antes de publicar alterações no GitHub/Railway.
+- Não publique `service_account.json`, `.env`, `CREDENCIAIS_METAS.txt` ou a pasta `data`.
+- Use uma `SECRET_KEY` forte no Railway.
+- O Bucket deve continuar privado; o sistema gera links temporários após validar o usuário.
+- A rota `/api/debug-config` permanece desligada, salvo quando `ENABLE_DEBUG_CONFIG=true` for configurado temporariamente.
+- Se uma chave da conta de serviço Google tiver sido exposta, revogue-a no Google Cloud e crie outra.
 
-## Famílias e gangues
+## Verificação rápida antes do deploy
 
-- A antiga área de **Flyers** foi reorganizada como **Famílias**.
-- O cadastro permite informar nome, ícone, mercado aberto/fechado, preço de venda para a família, preço de compra da família, observações e um link opcional para a imagem do flyer.
-- **Aura** e **Cartel** são incluídos automaticamente. Registros antigos chamados **Bandoleros** são exibidos e migrados como **Cartel**.
-- Ao finalizar uma reunião, a gangue/família é incluída automaticamente na aba **Famílias**, sem duplicar cadastros.
-- Caso exista uma aba antiga chamada `Flyers` na planilha, o sistema tenta importar os cadastros reconhecendo os cabeçalhos mais comuns.
+```bash
+python -m py_compile main.py meta_members.py
+```
 
-## Cancelamento de encomendas
+Se o Node.js estiver instalado:
 
-- Encomendas pendentes agora possuem o botão **Cancelar**.
-- Ao confirmar o cancelamento, o registro é apagado imediatamente da aba `Encomendas` e não é enviado para `Vendas`.
-
-## Pedidos combinados e gestão de famílias
-
-- Uma única encomenda pode conter **L85** e **Seringa**, cada uma com quantidade e valor unitário próprios. O total é calculado pela soma dos dois produtos.
-- Encomendas pendentes podem ser **editadas por completo** no mesmo formulário: cliente, produtos, quantidades, valores, prazo, negociador, status e observação.
-- Toda encomenda nova ou editada fica vinculada a uma família cadastrada por ID e exibe o **emoji + nome da gangue** no histórico.
-- Ao confirmar a entrega de um pedido combinado, cada produto é registrado corretamente na aba `Vendas`.
-- Compras possuem **Justificativa (opcional)** e o texto aparece no histórico.
-- Famílias possuem até **dois contatos**, mascarados por padrão, e até **dois flyers** exibidos lado a lado.
-- O campo de venda para a família é exibido como **Nosso valor para esta família**, permitindo manter tabelas especiais como Aura e Distrito.
-- Flyers podem ser substituídos por URL, ocultados e removidos pela própria aba de Famílias.
+```bash
+node --check static/js/app.js
+node --check static/js/meta_room.js
+```

@@ -745,10 +745,23 @@ function resetFamiliaForm(){
   if(contato2) contato2.type = "password";
   if(toggleFamilyContactBtn) toggleFamilyContactBtn.textContent = "Mostrar";
   if(toggleFamilyContact2Btn) toggleFamilyContact2Btn.textContent = "Mostrar";
+  const flyerUrl1 = document.getElementById("f_flyer_url");
+  const flyerUrl2 = document.getElementById("f_flyer_url_2");
+  if(flyerUrl1) flyerUrl1.placeholder = "Opcional: https://.../flyer-1.png";
+  if(flyerUrl2) flyerUrl2.placeholder = "Opcional: https://.../flyer-2.png";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Adicionar Família/Gangue";
   if(familiaCancelEditBtn) familiaCancelEditBtn.hidden = true;
   setText("familiaFormKicker", "Novo cadastro");
   setText("familiaFormTitle", "Adicionar Família/Gangue");
+}
+
+function storedFamilyFlyer(item, slot){
+  const field = slot === 1 ? "flyer_url" : "flyer_url_2";
+  return String(item?.[`${field}_stored`] || item?.[field] || "").trim();
+}
+
+function isStoredBucketFlyer(value){
+  return String(value || "").startsWith("kokusai-bucket://");
 }
 
 function iniciarEdicaoFamilia(id){
@@ -762,8 +775,14 @@ function iniciarEdicaoFamilia(id){
   document.getElementById("f_preco_compra").value = item.preco_compra_da_familia || "";
   document.getElementById("f_contato").value = item.contato || "";
   document.getElementById("f_contato_2").value = item.contato_2 || "";
-  document.getElementById("f_flyer_url").value = item.flyer_url || "";
-  document.getElementById("f_flyer_url_2").value = item.flyer_url_2 || "";
+  const storedFlyer1 = storedFamilyFlyer(item, 1);
+  const storedFlyer2 = storedFamilyFlyer(item, 2);
+  const flyerUrl1 = document.getElementById("f_flyer_url");
+  const flyerUrl2 = document.getElementById("f_flyer_url_2");
+  flyerUrl1.value = isStoredBucketFlyer(storedFlyer1) ? "" : storedFlyer1;
+  flyerUrl2.value = isStoredBucketFlyer(storedFlyer2) ? "" : storedFlyer2;
+  flyerUrl1.placeholder = isStoredBucketFlyer(storedFlyer1) ? "Flyer 1 já armazenado no Bucket" : "Opcional: https://.../flyer-1.png";
+  flyerUrl2.placeholder = isStoredBucketFlyer(storedFlyer2) ? "Flyer 2 já armazenado no Bucket" : "Opcional: https://.../flyer-2.png";
   document.getElementById("f_flyer_oculto").checked = Boolean(item.flyer_oculto);
   document.getElementById("f_observacao").value = item.observacao || "";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Salvar alterações";
@@ -799,8 +818,29 @@ onInput("f_flyer_url_2", () => {
   if(hidden && inputValue("f_flyer_url_2").trim()) hidden.checked = false;
 });
 
+async function uploadFamilyFlyerFile(familyId, slot, file){
+  if(!file) return null;
+  const body = new FormData();
+  body.append("slot", String(slot));
+  body.append("flyer", file);
+  const response = await fetch(`/api/familias/${encodeURIComponent(familyId)}/flyers`, {
+    method:"POST",
+    headers:csrfHeaders(),
+    body,
+  });
+  const data = await parseResponse(response);
+  if(!response.ok) throw new Error(data.error || `Não foi possível armazenar o Flyer ${slot}.`);
+  return data;
+}
+
 familiaForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const editing = Boolean(familiaEmEdicaoId);
+  const currentFamily = editing ? familiasCache.find(item => item.id === familiaEmEdicaoId) : null;
+  const flyerFile1 = document.getElementById("f_flyer_file")?.files?.[0] || null;
+  const flyerFile2 = document.getElementById("f_flyer_file_2")?.files?.[0] || null;
+  const typedFlyerUrl1 = inputValue("f_flyer_url").trim();
+  const typedFlyerUrl2 = inputValue("f_flyer_url_2").trim();
   const payload = {
     nome: inputValue("f_nome").trim(),
     icone: inputValue("f_icone").trim(),
@@ -809,13 +849,12 @@ familiaForm?.addEventListener("submit", async (event) => {
     preco_compra_da_familia: inputValue("f_preco_compra").trim(),
     contato: inputValue("f_contato").trim(),
     contato_2: inputValue("f_contato_2").trim(),
-    flyer_url: inputValue("f_flyer_url").trim(),
-    flyer_url_2: inputValue("f_flyer_url_2").trim(),
+    flyer_url: typedFlyerUrl1 || (editing ? storedFamilyFlyer(currentFamily, 1) : ""),
+    flyer_url_2: typedFlyerUrl2 || (editing ? storedFamilyFlyer(currentFamily, 2) : ""),
     flyer_oculto: Boolean(document.getElementById("f_flyer_oculto")?.checked),
     observacao: inputValue("f_observacao").trim(),
   };
 
-  const editing = Boolean(familiaEmEdicaoId);
   const url = editing ? `/api/familias/${encodeURIComponent(familiaEmEdicaoId)}` : "/api/familias";
   try{
     setFeedback(familiaFeedback, editing ? "Salvando alterações..." : "Adicionando família/gangue...");
@@ -826,7 +865,21 @@ familiaForm?.addEventListener("submit", async (event) => {
     });
     setFeedback(familiaFeedback, data.message || (res.ok ? "Cadastro salvo." : "Erro ao salvar cadastro."), !res.ok);
     if(res.ok){
-      resetFamiliaForm();
+      const familyId = data.id || familiaEmEdicaoId;
+      try{
+        if(flyerFile1){
+          setFeedback(familiaFeedback, "Cadastro salvo. Armazenando Flyer 1 no Bucket...");
+          await uploadFamilyFlyerFile(familyId, 1, flyerFile1);
+        }
+        if(flyerFile2){
+          setFeedback(familiaFeedback, `${flyerFile1 ? "Flyer 1 pronto. " : ""}Armazenando Flyer 2 no Bucket...`);
+          await uploadFamilyFlyerFile(familyId, 2, flyerFile2);
+        }
+        setFeedback(familiaFeedback, flyerFile1 || flyerFile2 ? "Cadastro e flyers armazenados permanentemente." : (data.message || "Cadastro salvo."));
+        resetFamiliaForm();
+      }catch(uploadError){
+        setFeedback(familiaFeedback, `O cadastro foi salvo, mas houve falha no upload: ${uploadError.message}`, true);
+      }
       await loadFamilias();
     }
   }catch(error){
@@ -843,8 +896,8 @@ function familyPayloadFromItem(item, overrides = {}){
     preco_compra_da_familia:item?.preco_compra_da_familia || "",
     contato:item?.contato || "",
     contato_2:item?.contato_2 || "",
-    flyer_url:item?.flyer_url || "",
-    flyer_url_2:item?.flyer_url_2 || "",
+    flyer_url:storedFamilyFlyer(item, 1),
+    flyer_url_2:storedFamilyFlyer(item, 2),
     flyer_oculto:Boolean(item?.flyer_oculto),
     observacao:item?.observacao || "",
     ...overrides,

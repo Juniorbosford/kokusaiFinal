@@ -1,7 +1,11 @@
 .env
+.env.*
 __pycache__/
 *.pyc
+*.log
+*.zip
 service_account.json
 .venv/
 data/
 CREDENCIAIS_METAS.txt
+.DS_Store

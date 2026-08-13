@@ -719,15 +719,23 @@
                 </div>
               </div>
               <div class="field">
-                <label for="f_flyer_url">Flyer 1 (opcional)</label>
-                <input id="f_flyer_url" type="url" placeholder="https://.../flyer-1.png" />
+                <label for="f_flyer_file">Flyer 1 — enviar imagem</label>
+                <input id="f_flyer_file" type="file" accept="image/jpeg,image/jpg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
               </div>
               <div class="field">
-                <label for="f_flyer_url_2">Flyer 2 (opcional)</label>
-                <input id="f_flyer_url_2" type="url" placeholder="https://.../flyer-2.png" />
+                <label for="f_flyer_file_2">Flyer 2 — enviar imagem</label>
+                <input id="f_flyer_file_2" type="file" accept="image/jpeg,image/jpg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+              </div>
+              <div class="field">
+                <label for="f_flyer_url">Flyer 1 — link externo alternativo</label>
+                <input id="f_flyer_url" type="url" placeholder="Opcional: https://.../flyer-1.png" />
+              </div>
+              <div class="field">
+                <label for="f_flyer_url_2">Flyer 2 — link externo alternativo</label>
+                <input id="f_flyer_url_2" type="url" placeholder="Opcional: https://.../flyer-2.png" />
               </div>
               <div class="field field-full">
-                <small class="field-help">Cole até dois links de imagem. Você pode adicionar, substituir ou remover cada um na edição.</small>
+                <small class="field-help">Prefira enviar os arquivos: eles serão guardados permanentemente no Bucket e não desaparecerão após atualizações. Os links externos continuam disponíveis como alternativa.</small>
                 <label class="check-line" for="f_flyer_oculto">
                   <input id="f_flyer_oculto" type="checkbox" />
                   <span>Ocultar os flyers atuais</span>
@@ -946,6 +954,6 @@
   </div>
 
   <datalist id="familiasDatalist"></datalist>
-  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260813-bucket-imagens"></script>
 </body>
 </html>
