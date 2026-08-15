@@ -159,6 +159,7 @@ ENCOMENDAS_HEADERS = [
     "tipo_dinheiro",
     "valor_base",
     "acrescimo_dinheiro_sujo",
+    "prioridade",
 ]
 REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em"]
 FAMILIAS_HEADERS = [
@@ -1745,6 +1746,12 @@ def normalize_encomenda(row):
     item["itens"] = parse_encomenda_items_json(item.get("itens_json"))
     item["familia_nome"] = str(item.get("familia_nome") or item.get("quem_pediu") or "").strip()
     item["familia_icone"] = str(item.get("familia_icone") or "").strip()
+    item["prioridade"] = normalize_flag(item.get("prioridade"))
+    deadline = parse_encomenda_deadline(item.get("para_quando"), item.get("data"))
+    item["prazo_iso"] = deadline.isoformat(timespec="minutes") if deadline else ""
+    item["para_quando_exibicao"] = (
+        deadline.strftime("%d/%m/%Y às %H:%M") if deadline else str(item.get("para_quando") or "").strip()
+    )
     item.pop("itens_json", None)
     return apply_payment_defaults(item, "valor")
 
@@ -2040,6 +2047,65 @@ def parse_record_datetime(value):
         return datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
+
+
+def parse_encomenda_deadline(value, created_at=None):
+    """Converte o prazo da encomenda em data ordenável, inclusive formatos antigos."""
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+
+    parsed = parse_record_datetime(raw_value)
+    if parsed:
+        # Datas sem horário representam o fim daquele dia.
+        if not re.search(r"(?:T|\s)\d{1,2}:\d{2}", raw_value):
+            parsed = parsed.replace(hour=23, minute=59, second=0, microsecond=0)
+        if parsed.tzinfo:
+            parsed = parsed.astimezone(now_local().tzinfo).replace(tzinfo=None)
+        return parsed
+
+    # Compatibilidade: "15/08 - 21h", "15/08 21:30" e variações.
+    match = re.search(
+        r"(?<!\d)(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?"
+        r"(?:\D+?(\d{1,2})(?::|h)(\d{2})?)?",
+        raw_value,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    created = parse_record_datetime(created_at) or now_local().replace(tzinfo=None)
+    if created.tzinfo:
+        created = created.astimezone(now_local().tzinfo).replace(tzinfo=None)
+    day, month = int(match.group(1)), int(match.group(2))
+    raw_year = match.group(3)
+    year = int(raw_year) if raw_year else created.year
+    if year < 100:
+        year += 2000
+    hour = int(match.group(4)) if match.group(4) is not None else 23
+    minute = int(match.group(5)) if match.group(5) is not None else (0 if match.group(4) is not None else 59)
+
+    try:
+        deadline = datetime(year, month, day, hour, minute)
+    except ValueError:
+        return None
+
+    # Um pedido criado no fim do ano para janeiro pertence ao ano seguinte.
+    if not raw_year and deadline < created - timedelta(days=180):
+        try:
+            deadline = deadline.replace(year=year + 1)
+        except ValueError:
+            return None
+    return deadline
+
+
+def encomenda_sort_key(item):
+    deadline = parse_encomenda_deadline(item.get("para_quando"), item.get("data")) or datetime.max
+    created = parse_record_datetime(item.get("data")) or datetime.max
+    if created.tzinfo:
+        created = created.astimezone(now_local().tzinfo).replace(tzinfo=None)
+    # Prioridade manual vence; dentro de cada grupo, o prazo mais próximo vem primeiro.
+    return (0 if normalize_flag(item.get("prioridade")) else 1, deadline, created)
 
 
 def report_month_payload(value):
@@ -2585,13 +2651,9 @@ def review_meta_room(submission_id):
                 f"A conferência será liberada após {submission['week_end']} às 23:59.",
                 409,
             )
-        if status == "Pago":
-            photo_count = meta_query_one(
-                "SELECT COUNT(*) AS total FROM meta_photos WHERE submission_id = ?",
-                (submission_id,),
-            )
-            if int(photo_count["total"] or 0) == 0:
-                return error_response("Não é possível marcar como paga sem nenhuma foto enviada.", 400)
+
+        # Fotos são comprovantes opcionais. O administrador também pode
+        # confirmar um pagamento verificado por outro meio.
 
         note = clean_text(data.get("admin_note"), "Observação do admin", max_length=500, required=False)
         reviewed_at = format_timestamp()
@@ -3007,6 +3069,7 @@ def list_encomendas():
                 order["familia_nome"] = family["nome"]
                 order["familia_icone"] = family.get("icone") or ""
             orders.append(order)
+        orders.sort(key=encomenda_sort_key)
         return jsonify(orders)
 
     except Exception as e:
@@ -3077,7 +3140,12 @@ def create_encomenda():
             return error_response(str(validation_error), 400)
 
         agora = format_timestamp()
+        deadline = parse_encomenda_deadline(para_quando, agora)
+        if not deadline:
+            return error_response("Informe uma data e um horário válidos para a entrega.", 400)
+        para_quando = deadline.isoformat(timespec="minutes")
         registro_id = generate_record_id("KKSE")
+        prioridade = "Sim" if normalize_flag(data.get("prioridade")) else "Não"
 
         encomenda_item = {
             "id": registro_id,
@@ -3097,6 +3165,7 @@ def create_encomenda():
             "tipo_dinheiro": money_type,
             "valor_base": valor_base,
             "acrescimo_dinheiro_sujo": surcharge,
+            "prioridade": prioridade,
         }
 
         if entregue == "Sim":
@@ -3137,6 +3206,7 @@ def create_encomenda():
             money_type,
             valor_base,
             surcharge,
+            prioridade,
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -3147,6 +3217,7 @@ def create_encomenda():
             "id": registro_id,
             "valor": round(valor, 2),
             "tipo_dinheiro": money_type,
+            "prioridade": prioridade,
             "moved_to_vendas": False,
         }), 201
 
@@ -3180,6 +3251,11 @@ def update_encomenda(registro_id):
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
+        deadline = parse_encomenda_deadline(para_quando)
+        if not deadline:
+            return error_response("Informe uma data e um horário válidos para a entrega.", 400)
+        para_quando = deadline.isoformat(timespec="minutes")
+
         try:
             money_type, valor_base, surcharge, valor = calculate_payment_values(
                 valor_base, data.get("tipo_dinheiro"),
@@ -3193,6 +3269,7 @@ def update_encomenda(registro_id):
 
         o_que_pediu = " + ".join(f'{item["quantidade"]}x {item["produto"]}' for item in items)
         itens_json = json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+        prioridade = "Sim" if normalize_flag(data.get("prioridade")) else "Não"
 
         with _sheets_lock:
             worksheet = get_encomendas_worksheet()
@@ -3222,6 +3299,7 @@ def update_encomenda(registro_id):
                 "tipo_dinheiro": money_type,
                 "valor_base": valor_base,
                 "acrescimo_dinheiro_sujo": surcharge,
+                "prioridade": prioridade,
             }
 
             if entregue == "Sim":
@@ -3237,7 +3315,7 @@ def update_encomenda(registro_id):
                 })
 
             worksheet.update(
-                f"A{row_index}:Q{row_index}",
+                f"A{row_index}:R{row_index}",
                 [[
                     registro_id,
                     original_date,
@@ -3256,6 +3334,7 @@ def update_encomenda(registro_id):
                     money_type,
                     valor_base,
                     surcharge,
+                    prioridade,
                 ]],
                 value_input_option="RAW",
             )
@@ -3267,6 +3346,7 @@ def update_encomenda(registro_id):
             "id": registro_id,
             "valor": round(valor, 2),
             "tipo_dinheiro": money_type,
+            "prioridade": prioridade,
             "moved_to_vendas": False,
         })
     except Exception as e:

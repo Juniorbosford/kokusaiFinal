@@ -392,6 +392,61 @@ function familyForOrder(item){
   return familiasCache.find(family => normalizeFamilyFlyerKey(family.nome) === orderName) || null;
 }
 
+function orderDeadlineTimestamp(item){
+  const rawValue = String(item?.prazo_iso || item?.para_quando || "").trim();
+  if(!rawValue) return Number.NaN;
+  const parsed = new Date(rawValue);
+  return Number.isNaN(parsed.getTime()) ? Number.NaN : parsed.getTime();
+}
+
+function orderDeadlineInputValue(item){
+  const rawValue = String(item?.prazo_iso || item?.para_quando || "").trim();
+  const parsed = new Date(rawValue);
+  if(!rawValue || Number.isNaN(parsed.getTime())) return "";
+  const pad = value => String(value).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+function orderDeadlineHtml(item){
+  const timestamp = orderDeadlineTimestamp(item);
+  const fallback = item?.para_quando_exibicao || item?.para_quando || "Prazo não reconhecido";
+  if(!Number.isFinite(timestamp)) return `<div class="order-deadline-cell"><strong>${escapeHtml(fallback)}</strong><small class="unknown">Sem ordenação automática</small></div>`;
+
+  const deadline = new Date(timestamp);
+  const label = item?.para_quando_exibicao || deadline.toLocaleString("pt-BR", {day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit"});
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const deadlineDay = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const dayDifference = Math.round((deadlineDay - today) / 86400000);
+  let stateClass = "scheduled";
+  let stateLabel = "Agendada";
+  if(timestamp < now.getTime()){
+    stateClass = "overdue";
+    stateLabel = "Prazo vencido";
+  }else if(dayDifference === 0){
+    stateClass = "today";
+    stateLabel = "Entrega hoje";
+  }else if(dayDifference === 1){
+    stateClass = "soon";
+    stateLabel = "Entrega amanhã";
+  }else if(dayDifference <= 3){
+    stateClass = "soon";
+    stateLabel = `Faltam ${dayDifference} dias`;
+  }
+  return `<div class="order-deadline-cell"><strong>${escapeHtml(label)}</strong><small class="${stateClass}">${escapeHtml(stateLabel)}</small></div>`;
+}
+
+function orderPriorityBadge(item, nearestRegularDeadline){
+  if(Boolean(item?.prioridade)) return '<span class="order-priority-badge high"><span>!</span> Prioridade</span>';
+  const timestamp = orderDeadlineTimestamp(item);
+  if(Number.isFinite(timestamp) && timestamp === nearestRegularDeadline){
+    return timestamp < Date.now()
+      ? '<span class="order-priority-badge deadline"><span>◆</span> Prazo vencido</span>'
+      : '<span class="order-priority-badge deadline"><span>◆</span> Próximo prazo</span>';
+  }
+  return '<span class="order-priority-badge normal">Normal</span>';
+}
+
 function iniciarEdicaoEncomenda(id){
   const item = encomendasCache.find(encomenda => encomenda.id === id);
   if(!item || !encomendaForm) return;
@@ -421,11 +476,12 @@ function iniciarEdicaoEncomenda(id){
     }
   }
 
-  document.getElementById("e_para_quando").value = item.para_quando || "";
+  document.getElementById("e_para_quando").value = orderDeadlineInputValue(item);
   document.getElementById("e_quem_negociou").value = item.quem_negociou || "";
   document.getElementById("e_entregue").value = String(item.entregue || "Não").toLowerCase() === "sim" ? "Sim" : "Não";
   document.getElementById("e_tipo_dinheiro").value = String(item.tipo_dinheiro || "Dinheiro limpo").toLowerCase() === "dinheiro sujo" ? "Dinheiro sujo" : "Dinheiro limpo";
   document.getElementById("e_observacao").value = item.observacao || "";
+  document.getElementById("e_prioridade").checked = Boolean(item.prioridade);
   updatePreviewEncomenda();
 
   if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar alterações";
@@ -547,6 +603,7 @@ encomendaForm?.addEventListener("submit", async (e) => {
     quem_negociou: inputValue("e_quem_negociou").trim(),
     entregue: inputValue("e_entregue"),
     tipo_dinheiro: inputValue("e_tipo_dinheiro"),
+    prioridade: Boolean(document.getElementById("e_prioridade")?.checked),
     observacao: inputValue("e_observacao").trim(),
   };
 
@@ -1298,7 +1355,7 @@ relatorioDownloadBtn?.addEventListener("click", () => {
 async function loadEncomendas(){
   if(!encomendasTable) return;
 
-  const colspan = 8;
+  const colspan = 9;
   try{
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
@@ -1311,16 +1368,24 @@ async function loadEncomendas(){
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
       return;
     }
+    const regularDeadlines = data
+      .filter(item => !Boolean(item.prioridade))
+      .map(orderDeadlineTimestamp)
+      .filter(Number.isFinite);
+    const nearestRegularDeadline = regularDeadlines.length ? Math.min(...regularDeadlines) : Number.NaN;
     setTableContent(encomendasTable, data.map(item => {
       const family = familyForOrder(item);
       const familyName = family?.nome || item.familia_nome || item.quem_pediu || "Família não vinculada";
       const familyIcon = family?.icone || item.familia_icone || "🤝";
       const linked = Boolean(family?.id || item.familia_id);
-      return `<tr>
+      const priority = Boolean(item.prioridade);
+      const nextByDeadline = !priority && orderDeadlineTimestamp(item) === nearestRegularDeadline;
+      return `<tr class="${priority ? "order-row-priority" : (nextByDeadline ? "order-row-next" : "")}">
+        <td>${orderPriorityBadge(item, nearestRegularDeadline)}</td>
         <td>${escapeHtml(item.data)}</td>
         <td><span class="order-family-chip ${linked ? "" : "unlinked"}"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span></td>
         <td>${escapeHtml(item.o_que_pediu)}</td>
-        <td>${escapeHtml(item.para_quando)}</td>
+        <td>${orderDeadlineHtml(item)}</td>
         <td>${escapeHtml(item.quem_negociou)}</td>
         <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
         <td>${currency(item.valor)}</td>

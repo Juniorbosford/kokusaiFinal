@@ -500,7 +500,8 @@
 
               <div class="field">
                 <label for="e_para_quando">Pra quando foi combinado</label>
-                <input id="e_para_quando" placeholder="Ex.: 09/04 - 21h" required />
+                <input id="e_para_quando" type="datetime-local" required />
+                <small class="field-help">A lista usa esta data para mostrar primeiro as entregas mais próximas.</small>
               </div>
 
               <div class="field">
@@ -524,6 +525,15 @@
                   <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
                 </select>
               </div>
+
+              <label class="priority-toggle-card field-full" for="e_prioridade">
+                <input id="e_prioridade" type="checkbox" />
+                <span class="priority-toggle-icon">!</span>
+                <span>
+                  <strong>Marcar como prioridade</strong>
+                  <small>Dá destaque vermelho e mantém esta encomenda acima das encomendas comuns.</small>
+                </span>
+              </label>
 
               <div class="field field-full">
                 <label for="e_observacao">Observação</label>
@@ -563,6 +573,7 @@
               <table class="responsive-table encomendas-table">
                 <thead>
                   <tr>
+                    <th>Prioridade</th>
                     <th>Data</th>
                     <th>Quem pediu</th>
                     <th>O que pediu</th>

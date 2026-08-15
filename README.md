@@ -37,6 +37,7 @@ Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não 
 - **Sexta-feira às 00:00:** abre uma nova semana.
 - **Sexta até quarta-feira às 23:59:** membros podem enviar e remover suas fotos.
 - **Quinta-feira:** somente o administrador `kokusai` confere e marca `Pago` ou `Não pago`.
+- As fotos são comprovantes opcionais: o administrador pode marcar `Pago` mesmo quando o membro enviou 0 fotos.
 - Depois que todos forem avaliados, o administrador finaliza a semana e recebe o log em TXT.
 - **Sexta-feira seguinte:** a próxima semana abre automaticamente.
 - Cada membro vê todas as próprias fotos; o administrador vê todas as salas.
@@ -130,6 +131,7 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 - O ranking mensal aceita somente famílias existentes no cadastro atual.
 - Dinheiro sujo adiciona automaticamente 30% ao valor base.
 - Uma encomenda pode combinar L85 e Seringa, preservando quantidade e valor de cada produto.
+- Encomendas aceitam prioridade manual com destaque vermelho e são ordenadas automaticamente pelo prazo mais próximo.
 - Famílias aceitam dois contatos ocultos e dois flyers.
 
 ## Segurança

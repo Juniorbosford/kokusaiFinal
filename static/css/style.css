@@ -1061,6 +1061,40 @@ table.craft-result-table{min-width:650px}
 .order-family-chip>span{display:grid;place-items:center;width:26px;height:26px;flex:0 0 26px;border-radius:8px;background:rgba(255,255,255,.07)}
 .order-family-chip strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem}
 .order-family-chip.unlinked{border-color:rgba(240,184,75,.28);background:rgba(240,184,75,.08);color:#ffecbd}
+.priority-toggle-card{
+  display:flex;
+  align-items:center;
+  gap:13px;
+  padding:15px 16px;
+  border:1px solid rgba(239,68,68,.24);
+  border-radius:15px;
+  background:linear-gradient(135deg,rgba(239,68,68,.09),rgba(255,255,255,.025));
+  cursor:pointer;
+}
+.priority-toggle-card input{width:19px;height:19px;min-height:19px;margin:0;accent-color:#ef4444;flex:0 0 19px}
+.priority-toggle-card>span:last-child{display:grid;gap:4px}
+.priority-toggle-card strong{color:#ffd6d6}
+.priority-toggle-card small{color:var(--muted);line-height:1.4}
+.priority-toggle-icon{display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;border-radius:10px;background:#ef4444;color:#fff;font-weight:950;box-shadow:0 0 20px rgba(239,68,68,.28)}
+.order-row-priority td{background:linear-gradient(90deg,rgba(239,68,68,.105),rgba(239,68,68,.025))}
+.order-row-priority td:first-child{box-shadow:inset 4px 0 0 #ef4444}
+.order-row-priority:hover td{background:linear-gradient(90deg,rgba(239,68,68,.16),rgba(239,68,68,.045))}
+.order-row-next td{background:linear-gradient(90deg,rgba(240,184,75,.065),rgba(240,184,75,.015))}
+.order-priority-badge{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted-strong);font-size:.72rem;font-weight:900;white-space:nowrap}
+.order-priority-badge.high{border-color:rgba(239,68,68,.38);background:rgba(239,68,68,.14);color:#ffd0d0;box-shadow:0 0 18px rgba(239,68,68,.12)}
+.order-priority-badge.high span{display:grid;place-items:center;width:18px;height:18px;border-radius:999px;background:#ef4444;color:#fff}
+.order-priority-badge.deadline{border-color:rgba(240,184,75,.33);background:rgba(240,184,75,.11);color:#ffe7ad}
+.order-priority-badge.normal{opacity:.68}
+.order-deadline-cell{display:grid;gap:5px}
+.order-deadline-cell strong{font-size:.84rem;color:var(--text)}
+.order-deadline-cell small{width:max-content;max-width:100%;padding:4px 7px;border-radius:7px;background:rgba(255,255,255,.055);color:var(--muted);font-size:.67rem;font-weight:850}
+.order-deadline-cell small.overdue{background:rgba(239,68,68,.13);color:#ffbcbc}
+.order-deadline-cell small.today{background:rgba(249,115,22,.15);color:#ffd1ad}
+.order-deadline-cell small.soon{background:rgba(240,184,75,.12);color:#ffe5a3}
+.order-deadline-cell small.unknown{background:rgba(148,163,184,.1);color:#bdc5d1}
+.encomendas-table{table-layout:auto}
+.encomendas-table th:first-child,.encomendas-table td:first-child{min-width:132px}
+.encomendas-table th:nth-child(5),.encomendas-table td:nth-child(5){min-width:170px}
 
 @media(max-width:1180px){
   .families-layout{grid-template-columns:1fr}
@@ -1068,6 +1102,8 @@ table.craft-result-table{min-width:650px}
 }
 @media(max-width:850px){
   .families-grid{grid-template-columns:1fr}
+  .responsive-table tr.order-row-priority{border-color:rgba(239,68,68,.42);box-shadow:inset 4px 0 0 #ef4444}
+  .responsive-table tr.order-row-next{border-color:rgba(240,184,75,.28)}
 }
 @media(max-width:520px){
   .family-counters{justify-content:flex-start}
