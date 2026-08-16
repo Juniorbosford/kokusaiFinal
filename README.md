@@ -43,6 +43,7 @@ Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não 
 - Cada membro vê todas as próprias fotos; o administrador vê todas as salas.
 - Ciclos antigos são migrados automaticamente para o calendário sexta–quarta sem apagar fotos.
 - As fotos permanecem no Bucket após atualizações e deploys e continuam disponíveis no histórico semanal.
+- Membros podem selecionar, arrastar ou colar imagens copiadas com `Ctrl + V`, conferindo as prévias antes do envio.
 
 ## Persistência dos flyers
 
@@ -132,6 +133,7 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 - Dinheiro sujo adiciona automaticamente 30% ao valor base.
 - Uma encomenda pode combinar L85 e Seringa, preservando quantidade e valor de cada produto.
 - Encomendas aceitam prioridade manual com destaque vermelho e são ordenadas automaticamente pelo prazo mais próximo.
+- A lista de encomendas possui busca, filtros rápidos de prazo/prioridade, período personalizado e diferentes ordenações.
 - Famílias aceitam dois contatos ocultos e dois flyers.
 
 ## Segurança

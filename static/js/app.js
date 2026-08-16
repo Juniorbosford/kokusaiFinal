@@ -49,6 +49,13 @@ let familiasCache = [];
 const comprasTable = document.getElementById("comprasTable");
 const vendasTable = document.getElementById("vendasTable");
 const encomendasTable = document.getElementById("encomendasTable");
+const encomendasBusca = document.getElementById("encomendasBusca");
+const encomendasOrdenacao = document.getElementById("encomendasOrdenacao");
+const encomendasDataInicio = document.getElementById("encomendasDataInicio");
+const encomendasDataFim = document.getElementById("encomendasDataFim");
+const encomendasLimparFiltros = document.getElementById("encomendasLimparFiltros");
+const encomendasFilterCount = document.getElementById("encomendasFilterCount");
+const encomendasQuickFilters = document.querySelectorAll("[data-order-filter]");
 const relatorioMes = document.getElementById("relatorioMes");
 const relatorioGerarBtn = document.getElementById("relatorioGerarBtn");
 const relatorioDownloadBtn = document.getElementById("relatorioDownloadBtn");
@@ -58,6 +65,7 @@ const relatorioPodio = document.getElementById("relatorioPodio");
 let ultimoRelatorio = null;
 let encomendaEmEdicaoId = null;
 let encomendasCache = [];
+let encomendasFiltroAtivo = "all";
 const reunioesGrid = document.getElementById("reunioesGrid");
 const metasFeedback = document.getElementById("metasFeedback");
 const metaRoomsGrid = document.getElementById("metaRoomsGrid");
@@ -445,6 +453,166 @@ function orderPriorityBadge(item, nearestRegularDeadline){
       : '<span class="order-priority-badge deadline"><span>◆</span> Próximo prazo</span>';
   }
   return '<span class="order-priority-badge normal">Normal</span>';
+}
+
+function orderCreatedTimestamp(value){
+  const rawValue = String(value || "").trim();
+  const brMatch = rawValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if(brMatch){
+    return new Date(
+      Number(brMatch[3]),
+      Number(brMatch[2]) - 1,
+      Number(brMatch[1]),
+      Number(brMatch[4] || 0),
+      Number(brMatch[5] || 0),
+      Number(brMatch[6] || 0),
+    ).getTime();
+  }
+  const parsed = new Date(rawValue);
+  return Number.isNaN(parsed.getTime()) ? Number.NaN : parsed.getTime();
+}
+
+function orderDateBoundary(value, endOfDay = false){
+  if(!value) return Number.NaN;
+  const parsed = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00"}`);
+  return Number.isNaN(parsed.getTime()) ? Number.NaN : parsed.getTime();
+}
+
+function compareOrderTimestamps(left, right, direction = 1){
+  const leftValid = Number.isFinite(left);
+  const rightValid = Number.isFinite(right);
+  if(!leftValid && !rightValid) return 0;
+  if(!leftValid) return 1;
+  if(!rightValid) return -1;
+  return (left - right) * direction;
+}
+
+function orderMatchesQuickFilter(item, nowTimestamp, todayStart, todayEnd){
+  const deadline = orderDeadlineTimestamp(item);
+  if(encomendasFiltroAtivo === "priority") return Boolean(item.prioridade);
+  if(encomendasFiltroAtivo === "overdue") return Number.isFinite(deadline) && deadline < nowTimestamp;
+  if(encomendasFiltroAtivo === "today") return Number.isFinite(deadline) && deadline >= todayStart && deadline <= todayEnd;
+  if(encomendasFiltroAtivo === "next7"){
+    const sevenDaysEnd = todayEnd + (6 * 86400000);
+    return Number.isFinite(deadline) && deadline >= todayStart && deadline <= sevenDaysEnd;
+  }
+  if(encomendasFiltroAtivo === "undated") return !Number.isFinite(deadline);
+  return true;
+}
+
+function filteredAndSortedOrders(){
+  const searchTerm = normalizeFamilyFlyerKey(encomendasBusca?.value);
+  const startDate = orderDateBoundary(encomendasDataInicio?.value);
+  const endDate = orderDateBoundary(encomendasDataFim?.value, true);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const todayEnd = todayStart + 86400000 - 1;
+
+  const filtered = encomendasCache.filter(item => {
+    const family = familyForOrder(item);
+    const searchable = normalizeFamilyFlyerKey([
+      family?.nome,
+      item.familia_nome,
+      item.quem_pediu,
+      item.o_que_pediu,
+      item.quem_negociou,
+      item.observacao,
+    ].filter(Boolean).join(" "));
+    if(searchTerm && !searchable.includes(searchTerm)) return false;
+    if(!orderMatchesQuickFilter(item, now.getTime(), todayStart, todayEnd)) return false;
+
+    const deadline = orderDeadlineTimestamp(item);
+    if(Number.isFinite(startDate) && (!Number.isFinite(deadline) || deadline < startDate)) return false;
+    if(Number.isFinite(endDate) && (!Number.isFinite(deadline) || deadline > endDate)) return false;
+    return true;
+  });
+
+  const sorting = encomendasOrdenacao?.value || "priority-deadline";
+  return filtered.sort((left, right) => {
+    const leftDeadline = orderDeadlineTimestamp(left);
+    const rightDeadline = orderDeadlineTimestamp(right);
+    const leftCreated = orderCreatedTimestamp(left.data);
+    const rightCreated = orderCreatedTimestamp(right.data);
+
+    if(sorting === "deadline-asc") return compareOrderTimestamps(leftDeadline, rightDeadline, 1) || compareOrderTimestamps(leftCreated, rightCreated, 1);
+    if(sorting === "deadline-desc") return compareOrderTimestamps(leftDeadline, rightDeadline, -1) || compareOrderTimestamps(leftCreated, rightCreated, 1);
+    if(sorting === "created-desc") return compareOrderTimestamps(leftCreated, rightCreated, -1);
+    if(sorting === "created-asc") return compareOrderTimestamps(leftCreated, rightCreated, 1);
+    if(sorting === "family-asc"){
+      const leftName = familyForOrder(left)?.nome || left.familia_nome || left.quem_pediu || "";
+      const rightName = familyForOrder(right)?.nome || right.familia_nome || right.quem_pediu || "";
+      return String(leftName).localeCompare(String(rightName), "pt-BR", {sensitivity:"base"});
+    }
+
+    const priorityDifference = Number(Boolean(right.prioridade)) - Number(Boolean(left.prioridade));
+    return priorityDifference || compareOrderTimestamps(leftDeadline, rightDeadline, 1) || compareOrderTimestamps(leftCreated, rightCreated, 1);
+  });
+}
+
+function updateOrderFilterCount(visible){
+  if(!encomendasFilterCount) return;
+  const total = encomendasCache.length;
+  encomendasFilterCount.textContent = visible === total
+    ? `${total} ${total === 1 ? "encomenda" : "encomendas"}`
+    : `${visible} de ${total} encomendas`;
+}
+
+function renderEncomendas(){
+  if(!encomendasTable) return;
+  const colspan = 9;
+  const items = filteredAndSortedOrders();
+  updateOrderFilterCount(items.length);
+  if(!encomendasCache.length){
+    setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
+    return;
+  }
+  if(!items.length){
+    setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda encontrada com os filtros selecionados.</td></tr>`);
+    return;
+  }
+
+  const regularDeadlines = items
+    .filter(item => !Boolean(item.prioridade))
+    .map(orderDeadlineTimestamp)
+    .filter(Number.isFinite);
+  const nearestRegularDeadline = regularDeadlines.length ? Math.min(...regularDeadlines) : Number.NaN;
+  setTableContent(encomendasTable, items.map(item => {
+    const family = familyForOrder(item);
+    const familyName = family?.nome || item.familia_nome || item.quem_pediu || "Família não vinculada";
+    const familyIcon = family?.icone || item.familia_icone || "🤝";
+    const linked = Boolean(family?.id || item.familia_id);
+    const priority = Boolean(item.prioridade);
+    const nextByDeadline = !priority && orderDeadlineTimestamp(item) === nearestRegularDeadline;
+    return `<tr class="${priority ? "order-row-priority" : (nextByDeadline ? "order-row-next" : "")}">
+      <td>${orderPriorityBadge(item, nearestRegularDeadline)}</td>
+      <td>${escapeHtml(item.data)}</td>
+      <td><span class="order-family-chip ${linked ? "" : "unlinked"}"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span></td>
+      <td>${escapeHtml(item.o_que_pediu)}</td>
+      <td>${orderDeadlineHtml(item)}</td>
+      <td>${escapeHtml(item.quem_negociou)}</td>
+      <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
+      <td>${currency(item.valor)}</td>
+      <td>${deliveryControl(item)}</td>
+    </tr>`;
+  }).join(""));
+}
+
+function setActiveOrderFilter(filterName){
+  encomendasFiltroAtivo = filterName || "all";
+  encomendasQuickFilters.forEach(button => {
+    const active = button.dataset.orderFilter === encomendasFiltroAtivo;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  renderEncomendas();
+}
+
+function clearOrderFilters(){
+  if(encomendasBusca) encomendasBusca.value = "";
+  if(encomendasOrdenacao) encomendasOrdenacao.value = "priority-deadline";
+  if(encomendasDataInicio) encomendasDataInicio.value = "";
+  if(encomendasDataFim) encomendasDataFim.value = "";
+  setActiveOrderFilter("all");
 }
 
 function iniciarEdicaoEncomenda(id){
@@ -1360,43 +1528,27 @@ async function loadEncomendas(){
     const {res, data} = await fetchJson("/api/encomendas");
     if(!res.ok){
       encomendasCache = [];
+      updateOrderFilterCount(0);
       setTableContent(encomendasTable, `<tr><td colspan="${colspan}">${escapeHtml(data.error || "Erro ao carregar encomendas.")}</td></tr>`);
       return;
     }
     encomendasCache = Array.isArray(data) ? data : [];
-    if(!Array.isArray(data) || !data.length){
-      setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Nenhuma encomenda pendente.</td></tr>`);
-      return;
-    }
-    const regularDeadlines = data
-      .filter(item => !Boolean(item.prioridade))
-      .map(orderDeadlineTimestamp)
-      .filter(Number.isFinite);
-    const nearestRegularDeadline = regularDeadlines.length ? Math.min(...regularDeadlines) : Number.NaN;
-    setTableContent(encomendasTable, data.map(item => {
-      const family = familyForOrder(item);
-      const familyName = family?.nome || item.familia_nome || item.quem_pediu || "Família não vinculada";
-      const familyIcon = family?.icone || item.familia_icone || "🤝";
-      const linked = Boolean(family?.id || item.familia_id);
-      const priority = Boolean(item.prioridade);
-      const nextByDeadline = !priority && orderDeadlineTimestamp(item) === nearestRegularDeadline;
-      return `<tr class="${priority ? "order-row-priority" : (nextByDeadline ? "order-row-next" : "")}">
-        <td>${orderPriorityBadge(item, nearestRegularDeadline)}</td>
-        <td>${escapeHtml(item.data)}</td>
-        <td><span class="order-family-chip ${linked ? "" : "unlinked"}"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span></td>
-        <td>${escapeHtml(item.o_que_pediu)}</td>
-        <td>${orderDeadlineHtml(item)}</td>
-        <td>${escapeHtml(item.quem_negociou)}</td>
-        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
-        <td>${currency(item.valor)}</td>
-        <td>${deliveryControl(item)}</td>
-      </tr>`;
-    }).join(""));
+    renderEncomendas();
   }catch(error){
     encomendasCache = [];
+    updateOrderFilterCount(0);
     setTableContent(encomendasTable, `<tr><td colspan="${colspan}">Falha ao carregar encomendas: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
+
+encomendasBusca?.addEventListener("input", renderEncomendas);
+encomendasOrdenacao?.addEventListener("change", renderEncomendas);
+encomendasDataInicio?.addEventListener("change", renderEncomendas);
+encomendasDataFim?.addEventListener("change", renderEncomendas);
+encomendasLimparFiltros?.addEventListener("click", clearOrderFilters);
+encomendasQuickFilters.forEach(button => {
+  button.addEventListener("click", () => setActiveOrderFilter(button.dataset.orderFilter));
+});
 
 
 async function loadFamilias(){

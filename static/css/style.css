@@ -734,10 +734,21 @@ table.craft-result-table{min-width:650px}
 .member-upload-zone{position:relative;display:flex;align-items:center;gap:13px;padding:18px;border:1px dashed rgba(229,49,72,.35);border-radius:16px;background:rgba(229,49,72,.055);transition:border-color .18s ease,background .18s ease,transform .18s ease}
 .member-upload-zone input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .member-upload-zone::before{content:'📷';font-size:1.7rem}.member-upload-zone strong{display:block}.member-upload-zone p{margin:4px 0 0;color:var(--muted);font-size:.82rem;line-height:1.45}
+.member-upload-zone kbd{display:inline-grid;place-items:center;min-width:24px;min-height:22px;padding:0 6px;border:1px solid rgba(255,255,255,.18);border-bottom-width:2px;border-radius:6px;background:rgba(255,255,255,.07);color:var(--text);font:800 .72rem/1 Inter,sans-serif}
 .member-upload-zone:hover,.member-upload-zone:focus-within{border-color:rgba(229,49,72,.62);background:rgba(229,49,72,.085)}
 .member-upload-zone.drag-over{border-color:rgba(49,208,131,.72);background:rgba(49,208,131,.12);transform:translateY(-1px)}
 .member-upload-zone.has-files{border-color:rgba(49,208,131,.42)}
+.member-upload-zone.paste-success{border-color:rgba(49,208,131,.85);background:rgba(49,208,131,.15);box-shadow:0 0 0 4px rgba(49,208,131,.08)}
 .member-upload-zone:has(input:disabled){opacity:.55}.member-upload-zone:has(input:disabled) input{cursor:not-allowed}
+.member-selection-preview{display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:9px;margin-top:12px}
+.member-selection-preview[hidden]{display:none}
+.member-selected-photo{position:relative;overflow:hidden;border:1px solid rgba(49,208,131,.22);border-radius:13px;background:rgba(49,208,131,.045)}
+.member-selected-photo img{width:100%;aspect-ratio:4/3;object-fit:cover;background:#090b10}
+.member-selected-photo>div{display:grid;gap:2px;padding:8px 9px;min-width:0}
+.member-selected-photo strong{font-size:.75rem;color:#c9ffe0}
+.member-selected-photo small{overflow:hidden;color:var(--muted);font-size:.66rem;text-overflow:ellipsis;white-space:nowrap}
+.member-selected-photo>button{position:absolute;top:6px;right:6px;display:grid;place-items:center;width:27px;height:27px;padding:0;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(5,7,10,.84);color:#fff;font-size:1.1rem;font-weight:900;line-height:1;backdrop-filter:blur(8px)}
+.member-selected-photo>button:hover{border-color:rgba(239,68,68,.48);background:rgba(239,68,68,.82)}
 .member-upload-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:13px}.member-upload-actions>span{display:flex;flex-direction:column;gap:3px;color:var(--muted);font-size:.82rem;font-weight:800}.member-upload-actions>span strong{color:var(--muted-strong)}.member-upload-actions>span small{font-size:.72rem;font-weight:700}
 .member-admin-note{margin-top:12px;padding:12px 14px;border-radius:14px;border:1px solid rgba(245,158,11,.22);background:rgba(245,158,11,.07);color:#ffe2aa}.member-admin-note p{margin:5px 0 0;line-height:1.5}
 .member-photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
@@ -1095,10 +1106,35 @@ table.craft-result-table{min-width:650px}
 .encomendas-table{table-layout:auto}
 .encomendas-table th:first-child,.encomendas-table td:first-child{min-width:132px}
 .encomendas-table th:nth-child(5),.encomendas-table td:nth-child(5){min-width:170px}
+.order-filter-panel{
+  display:grid;
+  gap:15px;
+  margin-bottom:18px;
+  padding:17px;
+  border:1px solid var(--line);
+  border-radius:17px;
+  background:linear-gradient(135deg,rgba(255,255,255,.035),rgba(8,10,15,.68));
+}
+.order-filter-top{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.order-filter-top>div{display:grid;gap:4px}
+.order-filter-top strong{font-size:.95rem;color:var(--text)}
+.order-filter-top small{color:var(--muted);line-height:1.4}
+.order-filter-count{display:inline-flex;align-items:center;min-height:32px;padding:0 11px;border:1px solid rgba(139,92,246,.24);border-radius:999px;background:rgba(139,92,246,.10);color:#ddd5ff;font-size:.73rem;font-weight:900;white-space:nowrap}
+.order-filter-grid{display:grid;grid-template-columns:minmax(220px,1.5fr) minmax(185px,1fr) minmax(145px,.75fr) minmax(145px,.75fr) auto;gap:11px;align-items:end}
+.order-filter-grid .field{gap:6px}
+.order-filter-grid input,.order-filter-grid select{min-height:42px;padding:9px 11px}
+.order-filter-clear{min-height:42px;white-space:nowrap}
+.order-quick-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.order-filter-chip{min-height:34px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.035);color:var(--muted-strong);font-size:.73rem;font-weight:850;transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease}
+.order-filter-chip:hover{transform:translateY(-1px);border-color:var(--line-strong);background:rgba(255,255,255,.065);color:var(--text)}
+.order-filter-chip.active{border-color:rgba(229,49,72,.38);background:rgba(229,49,72,.14);color:#ffd5db;box-shadow:0 0 18px rgba(229,49,72,.10)}
 
 @media(max-width:1180px){
   .families-layout{grid-template-columns:1fr}
   .family-form-card{position:relative;top:auto}
+  .order-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .order-filter-search{grid-column:1/-1}
+  .order-filter-clear{width:100%}
 }
 @media(max-width:850px){
   .families-grid{grid-template-columns:1fr}
@@ -1114,6 +1150,12 @@ table.craft-result-table{min-width:650px}
   .delivery-actions button{width:100%}
   .order-items-grid,.order-item-fields{grid-template-columns:1fr}
   .secret-input-row{grid-template-columns:1fr}
+  .order-filter-top{align-items:flex-start;flex-direction:column}
+  .order-filter-grid{grid-template-columns:1fr}
+  .order-filter-search{grid-column:auto}
+  .order-filter-count{white-space:normal}
+  .order-quick-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .order-filter-chip{width:100%;padding:7px 9px;line-height:1.2}
 }
 
 /* Relatório mensal de vendas por família/gangue */

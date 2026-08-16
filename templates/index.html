@@ -569,6 +569,52 @@
               </div>
             </div>
 
+            <div class="order-filter-panel">
+              <div class="order-filter-top">
+                <div>
+                  <strong>Filtrar e ordenar</strong>
+                  <small>Encontre rapidamente as encomendas que precisam de atenção.</small>
+                </div>
+                <span class="order-filter-count" id="encomendasFilterCount">0 encomendas</span>
+              </div>
+
+              <div class="order-filter-grid">
+                <div class="field order-filter-search">
+                  <label for="encomendasBusca">Buscar</label>
+                  <input id="encomendasBusca" type="search" placeholder="Família, produto ou negociador" />
+                </div>
+                <div class="field">
+                  <label for="encomendasOrdenacao">Ordenar por</label>
+                  <select id="encomendasOrdenacao">
+                    <option value="priority-deadline">Prioridade e prazo</option>
+                    <option value="deadline-asc">Prazo mais próximo</option>
+                    <option value="deadline-desc">Prazo mais distante</option>
+                    <option value="created-desc">Cadastradas recentemente</option>
+                    <option value="created-asc">Cadastradas há mais tempo</option>
+                    <option value="family-asc">Família de A a Z</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="encomendasDataInicio">Entrega de</label>
+                  <input id="encomendasDataInicio" type="date" />
+                </div>
+                <div class="field">
+                  <label for="encomendasDataFim">Entrega até</label>
+                  <input id="encomendasDataFim" type="date" />
+                </div>
+                <button type="button" class="ghost-btn order-filter-clear" id="encomendasLimparFiltros">Limpar filtros</button>
+              </div>
+
+              <div class="order-quick-filters" role="group" aria-label="Filtro rápido de encomendas">
+                <button type="button" class="order-filter-chip active" data-order-filter="all" aria-pressed="true">Todas</button>
+                <button type="button" class="order-filter-chip" data-order-filter="priority" aria-pressed="false">Prioridades</button>
+                <button type="button" class="order-filter-chip" data-order-filter="overdue" aria-pressed="false">Vencidas</button>
+                <button type="button" class="order-filter-chip" data-order-filter="today" aria-pressed="false">Para hoje</button>
+                <button type="button" class="order-filter-chip" data-order-filter="next7" aria-pressed="false">Próximos 7 dias</button>
+                <button type="button" class="order-filter-chip" data-order-filter="undated" aria-pressed="false">Sem data reconhecida</button>
+              </div>
+            </div>
+
             <div class="table-wrap">
               <table class="responsive-table encomendas-table">
                 <thead>

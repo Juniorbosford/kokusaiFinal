@@ -3,11 +3,13 @@ const photoInput = document.getElementById("memberPhotoInput");
 const uploadBtn = document.getElementById("memberUploadBtn");
 const uploadZone = document.getElementById("memberUploadZone");
 const selectedPhotosLabel = document.getElementById("memberSelectedPhotos");
+const selectionPreview = document.getElementById("memberSelectionPreview");
 const photoGrid = document.getElementById("memberPhotoGrid");
 const historyTable = document.getElementById("memberHistoryTable");
 const feedback = document.getElementById("memberMetaFeedback");
 let currentRoom = null;
 let selectedPhotos = [];
+let selectedPreviewUrls = [];
 
 function memberEscape(value){
   return String(value ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
@@ -26,20 +28,89 @@ function isSupportedMemberImage(file){
   return /\.(jpe?g|png|webp)$/.test(name) || ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(mime);
 }
 
-function updateSelectedPhotos(files){
-  selectedPhotos = Array.from(files || []).filter(Boolean);
-  const accepted = selectedPhotos.filter(isSupportedMemberImage);
-  const rejected = selectedPhotos.length - accepted.length;
-  selectedPhotos = accepted;
+function selectedPhotoSignature(file){
+  return [file?.name, file?.size, file?.type, file?.lastModified].join(":");
+}
+
+function syncMemberPhotoInput(){
+  try{
+    const transfer = new DataTransfer();
+    selectedPhotos.forEach(file => transfer.items.add(file));
+    photoInput.files = transfer.files;
+  }catch{
+    // O envio usa selectedPhotos quando o navegador não permite alterar FileList.
+  }
+}
+
+function clearSelectedPreviewUrls(){
+  selectedPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+  selectedPreviewUrls = [];
+}
+
+function renderSelectedPhotos(){
+  if(!selectionPreview) return;
+  clearSelectedPreviewUrls();
+  selectionPreview.hidden = selectedPhotos.length === 0;
+  if(!selectedPhotos.length){
+    selectionPreview.innerHTML = "";
+    return;
+  }
+  selectionPreview.innerHTML = selectedPhotos.map((file, index) => {
+    const previewUrl = URL.createObjectURL(file);
+    selectedPreviewUrls.push(previewUrl);
+    return `<article class="member-selected-photo">
+      <img src="${memberEscape(previewUrl)}" alt="Prévia da foto ${index + 1}" />
+      <div><strong>Foto ${index + 1}</strong><small>${memberEscape(file.name || "Imagem colada")}</small></div>
+      <button type="button" data-remove-selected-photo="${index}" aria-label="Remover foto ${index + 1} da seleção">×</button>
+    </article>`;
+  }).join("");
+}
+
+function updateSelectedPhotos(files, {append=false} = {}){
+  const previousCount = selectedPhotos.length;
+  const incoming = Array.from(files || []).filter(Boolean);
+  const supported = incoming.filter(isSupportedMemberImage);
+  const rejected = incoming.length - supported.length;
+  const maxBytes = (currentRoom?.limits?.max_file_mb || 10) * 1024 * 1024;
+  const accepted = supported.filter(file => file.size <= maxBytes);
+  const oversized = supported.length - accepted.length;
+  const candidates = append ? [...selectedPhotos, ...accepted] : accepted;
+  const signatures = new Set();
+  const unique = candidates.filter(file => {
+    const signature = selectedPhotoSignature(file);
+    if(signatures.has(signature)) return false;
+    signatures.add(signature);
+    return true;
+  });
+  const remaining = Math.max((currentRoom?.limits?.max_photos || 5) - (currentRoom?.photos?.length || 0), 0);
+  const excess = Math.max(unique.length - remaining, 0);
+  selectedPhotos = unique.slice(0, remaining);
   if(uploadZone) uploadZone.classList.toggle("has-files", selectedPhotos.length > 0);
   if(selectedPhotosLabel){
     selectedPhotosLabel.textContent = selectedPhotos.length
       ? `${selectedPhotos.length} foto${selectedPhotos.length === 1 ? " selecionada" : "s selecionadas"}`
       : "Nenhuma foto selecionada";
   }
-  if(rejected){
-    memberFeedback("Use somente imagens JPG, JPEG, PNG ou WEBP.", true);
+  syncMemberPhotoInput();
+  renderSelectedPhotos();
+
+  const warnings = [];
+  if(rejected) warnings.push("Use somente imagens JPG, JPEG, PNG ou WEBP.");
+  if(oversized) warnings.push(`Cada foto deve ter no máximo ${currentRoom?.limits?.max_file_mb || 10} MB.`);
+  if(excess) warnings.push(`O limite permite manter no máximo ${remaining} nova(s) foto(s) nesta semana.`);
+  if(warnings.length){
+    memberFeedback(warnings.join(" "), true);
   }
+  return {added: Math.max(selectedPhotos.length - previousCount, 0), hasWarnings: warnings.length > 0};
+}
+
+function clipboardImageFiles(event){
+  const itemFiles = Array.from(event.clipboardData?.items || [])
+    .filter(item => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/"))
+    .map(item => item.getAsFile())
+    .filter(Boolean);
+  if(itemFiles.length) return itemFiles;
+  return Array.from(event.clipboardData?.files || []).filter(file => String(file.type || "").toLowerCase().startsWith("image/"));
 }
 
 function setMemberStatus(status){
@@ -127,7 +198,7 @@ async function loadMemberRoom(){
   }
 }
 
-photoInput?.addEventListener("change", () => updateSelectedPhotos(photoInput.files));
+photoInput?.addEventListener("change", () => updateSelectedPhotos(photoInput.files, {append:true}));
 
 ["dragenter", "dragover"].forEach(eventName => {
   uploadZone?.addEventListener(eventName, event => {
@@ -145,20 +216,39 @@ uploadZone?.addEventListener("drop", event => {
   uploadZone.classList.remove("drag-over");
   if(photoInput?.disabled) return;
   const files = Array.from(event.dataTransfer?.files || []);
-  updateSelectedPhotos(files);
-  try{
-    const transfer = new DataTransfer();
-    selectedPhotos.forEach(file => transfer.items.add(file));
-    photoInput.files = transfer.files;
-  }catch{
-    // O envio usa selectedPhotos, então navegadores que bloqueiam essa atribuição continuam funcionando.
+  updateSelectedPhotos(files, {append:true});
+});
+
+document.addEventListener("paste", event => {
+  const files = clipboardImageFiles(event);
+  if(!files.length) return;
+  event.preventDefault();
+  if(photoInput?.disabled){
+    memberFeedback("O envio de fotos está fechado nesta semana.", true);
+    return;
   }
+  const result = updateSelectedPhotos(files, {append:true});
+  if(result.added && !result.hasWarnings){
+    memberFeedback(`${result.added} imagem${result.added === 1 ? " colada" : "s coladas"}. Confira a prévia e clique em Enviar fotos.`);
+  }
+  uploadZone?.classList.add("paste-success");
+  window.setTimeout(() => uploadZone?.classList.remove("paste-success"), 700);
 });
 
 uploadZone?.addEventListener("keydown", event => {
   if(photoInput?.disabled || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
   photoInput?.click();
+});
+
+selectionPreview?.addEventListener("click", event => {
+  const button = event.target.closest("[data-remove-selected-photo]");
+  if(!button) return;
+  const index = Number(button.dataset.removeSelectedPhoto);
+  if(!Number.isInteger(index) || index < 0 || index >= selectedPhotos.length) return;
+  const remainingSelection = selectedPhotos.filter((_, photoIndex) => photoIndex !== index);
+  updateSelectedPhotos(remainingSelection);
+  memberFeedback("Foto removida da seleção.");
 });
 
 uploadBtn?.addEventListener("click", async () => {
