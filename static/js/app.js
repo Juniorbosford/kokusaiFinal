@@ -163,26 +163,50 @@ function currency(value){
   return new Intl.NumberFormat("pt-BR", {style:"currency", currency:"BRL"}).format(Number(value || 0));
 }
 
-function moneyPricing(baseValue, moneyType){
+function dirtyMoneyPercentage(value){
+  const parsed = Number(String(value ?? "").replace(",", "."));
+  if(!Number.isFinite(parsed)) return 30;
+  return Math.min(30, Math.max(1, parsed));
+}
+
+function percentLabel(value){
+  return new Intl.NumberFormat("pt-BR", {maximumFractionDigits:2}).format(dirtyMoneyPercentage(value));
+}
+
+function moneyPricing(baseValue, moneyType, dirtyPercentage = 30){
   const base = Math.max(0, Number(baseValue || 0));
   const dirty = String(moneyType || "").trim().toLowerCase() === "dinheiro sujo";
-  const surcharge = dirty ? Math.round((base * 0.30 + Number.EPSILON) * 100) / 100 : 0;
-  return {base, surcharge, total:Math.round((base + surcharge + Number.EPSILON) * 100) / 100, dirty};
+  const percentage = dirty ? dirtyMoneyPercentage(dirtyPercentage) : 0;
+  const surcharge = dirty ? Math.round((base * (percentage / 100) + Number.EPSILON) * 100) / 100 : 0;
+  return {base, surcharge, total:Math.round((base + surcharge + Number.EPSILON) * 100) / 100, dirty, percentage};
 }
 
-function moneyTypeBadge(value){
+function moneyTypeBadge(value, dirtyPercentage = 30){
   const dirty = String(value || "").trim().toLowerCase() === "dinheiro sujo";
-  return `<span class="money-type-badge ${dirty ? "dirty" : ""}">${dirty ? "Dinheiro sujo +30%" : "Dinheiro limpo"}</span>`;
+  return `<span class="money-type-badge ${dirty ? "dirty" : ""}">${dirty ? `Dinheiro sujo +${percentLabel(dirtyPercentage)}%` : "Dinheiro limpo"}</span>`;
 }
 
-function renderMoneyPreview(totalId, detailId, baseValue, moneyType){
-  const pricing = moneyPricing(baseValue, moneyType);
+function renderMoneyPreview(totalId, detailId, baseValue, moneyType, dirtyPercentage = 30){
+  const pricing = moneyPricing(baseValue, moneyType, dirtyPercentage);
   setText(totalId, currency(pricing.total));
   setText(detailId, pricing.dirty
-    ? `${currency(pricing.base)} + ${currency(pricing.surcharge)} (30%)`
+    ? `${currency(pricing.base)} + ${currency(pricing.surcharge)} (${percentLabel(pricing.percentage)}%)`
     : "Dinheiro limpo — sem acréscimo");
   document.getElementById(totalId)?.closest(".money-calc-box")?.classList.toggle("dirty", pricing.dirty);
   return pricing;
+}
+
+function syncDirtyPercentageField(moneyTypeId, fieldId, percentageId){
+  const dirty = inputValue(moneyTypeId).trim().toLowerCase() === "dinheiro sujo";
+  const field = document.getElementById(fieldId);
+  const input = document.getElementById(percentageId);
+  if(field) field.hidden = !dirty;
+  if(input){
+    input.disabled = !dirty;
+    input.required = dirty;
+    if(dirty && String(input.value).trim() === "") input.value = "30";
+  }
+  return dirty ? dirtyMoneyPercentage(input?.value) : 0;
 }
 
 function escapeHtml(value){
@@ -336,25 +360,32 @@ function onInput(id, handler){
 onInput("valor_unitario", updatePreviewCompra);
 onInput("quantidade", updatePreviewCompra);
 onInput("c_tipo_dinheiro", updatePreviewCompra);
+onInput("c_percentual_dinheiro_sujo", updatePreviewCompra);
 onInput("v_valor_unitario", updatePreviewVenda);
 onInput("v_quantidade", updatePreviewVenda);
 onInput("v_tipo_dinheiro", updatePreviewVenda);
+onInput("v_percentual_dinheiro_sujo", updatePreviewVenda);
 onInput("e_l85_quantidade", updatePreviewEncomenda);
 onInput("e_l85_valor", updatePreviewEncomenda);
 onInput("e_seringa_quantidade", updatePreviewEncomenda);
 onInput("e_seringa_valor", updatePreviewEncomenda);
 onInput("e_tipo_dinheiro", updatePreviewEncomenda);
+onInput("e_percentual_dinheiro_sujo", updatePreviewEncomenda);
 
 function updatePreviewCompra(){
   const valor = Number(inputValue("valor_unitario") || 0);
   const qtd = Number(inputValue("quantidade") || 0);
-  renderMoneyPreview("previewTotal", "previewCompraDetalhe", valor * qtd, inputValue("c_tipo_dinheiro"));
+  const moneyType = inputValue("c_tipo_dinheiro");
+  const percentage = syncDirtyPercentageField("c_tipo_dinheiro", "c_percentual_field", "c_percentual_dinheiro_sujo");
+  renderMoneyPreview("previewTotal", "previewCompraDetalhe", valor * qtd, moneyType, percentage);
 }
 
 function updatePreviewVenda(){
   const valor = Number(inputValue("v_valor_unitario") || 0);
   const qtd = Number(inputValue("v_quantidade") || 0);
-  renderMoneyPreview("previewVendaTotal", "previewVendaDetalhe", valor * qtd, inputValue("v_tipo_dinheiro"));
+  const moneyType = inputValue("v_tipo_dinheiro");
+  const percentage = syncDirtyPercentageField("v_tipo_dinheiro", "v_percentual_field", "v_percentual_dinheiro_sujo");
+  renderMoneyPreview("previewVendaTotal", "previewVendaDetalhe", valor * qtd, moneyType, percentage);
 }
 
 function syncVendaFamilyField(){
@@ -373,11 +404,12 @@ vendaFamiliaSelect?.addEventListener("change", syncVendaFamilyField);
 
 function updatePreviewEncomenda(){
   const moneyType = inputValue("e_tipo_dinheiro");
+  const percentage = syncDirtyPercentageField("e_tipo_dinheiro", "e_percentual_field", "e_percentual_dinheiro_sujo");
   const l85Base = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
   const seringaBase = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
-  setText("e_l85_subtotal", currency(moneyPricing(l85Base, moneyType).total));
-  setText("e_seringa_subtotal", currency(moneyPricing(seringaBase, moneyType).total));
-  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase, moneyType);
+  setText("e_l85_subtotal", currency(moneyPricing(l85Base, moneyType, percentage).total));
+  setText("e_seringa_subtotal", currency(moneyPricing(seringaBase, moneyType, percentage).total));
+  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase, moneyType, percentage);
 }
 
 function resetEncomendaForm(){
@@ -590,7 +622,7 @@ function renderEncomendas(){
       <td>${escapeHtml(item.o_que_pediu)}</td>
       <td>${orderDeadlineHtml(item)}</td>
       <td>${escapeHtml(item.quem_negociou)}</td>
-      <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
+      <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
       <td>${currency(item.valor)}</td>
       <td>${deliveryControl(item)}</td>
     </tr>`;
@@ -647,7 +679,11 @@ function iniciarEdicaoEncomenda(id){
   document.getElementById("e_para_quando").value = orderDeadlineInputValue(item);
   document.getElementById("e_quem_negociou").value = item.quem_negociou || "";
   document.getElementById("e_entregue").value = String(item.entregue || "Não").toLowerCase() === "sim" ? "Sim" : "Não";
-  document.getElementById("e_tipo_dinheiro").value = String(item.tipo_dinheiro || "Dinheiro limpo").toLowerCase() === "dinheiro sujo" ? "Dinheiro sujo" : "Dinheiro limpo";
+  const dirtyMoney = String(item.tipo_dinheiro || "Dinheiro limpo").toLowerCase() === "dinheiro sujo";
+  document.getElementById("e_tipo_dinheiro").value = dirtyMoney ? "Dinheiro sujo" : "Dinheiro limpo";
+  document.getElementById("e_percentual_dinheiro_sujo").value = dirtyMoney
+    ? dirtyMoneyPercentage(item.percentual_dinheiro_sujo ?? 30)
+    : 30;
   document.getElementById("e_observacao").value = item.observacao || "";
   document.getElementById("e_prioridade").checked = Boolean(item.prioridade);
   updatePreviewEncomenda();
@@ -700,6 +736,7 @@ form?.addEventListener("submit", async (e) => {
     valor_unitario: Number(inputValue("valor_unitario")),
     quantidade: Number(inputValue("quantidade")),
     tipo_dinheiro: inputValue("c_tipo_dinheiro"),
+    percentual_dinheiro_sujo: dirtyMoneyPercentage(inputValue("c_percentual_dinheiro_sujo")),
     observacao: inputValue("observacao").trim(),
   };
 
@@ -720,6 +757,7 @@ vendaForm?.addEventListener("submit", async (e) => {
     valor_unitario: Number(inputValue("v_valor_unitario")),
     quantidade: Number(inputValue("v_quantidade")),
     tipo_dinheiro: inputValue("v_tipo_dinheiro"),
+    percentual_dinheiro_sujo: dirtyMoneyPercentage(inputValue("v_percentual_dinheiro_sujo")),
     observacao: inputValue("v_observacao").trim(),
   };
 
@@ -771,6 +809,7 @@ encomendaForm?.addEventListener("submit", async (e) => {
     quem_negociou: inputValue("e_quem_negociou").trim(),
     entregue: inputValue("e_entregue"),
     tipo_dinheiro: inputValue("e_tipo_dinheiro"),
+    percentual_dinheiro_sujo: dirtyMoneyPercentage(inputValue("e_percentual_dinheiro_sujo")),
     prioridade: Boolean(document.getElementById("e_prioridade")?.checked),
     observacao: inputValue("e_observacao").trim(),
   };
@@ -1345,7 +1384,7 @@ async function loadCompras(){
         <td>${escapeHtml(item.quem_pediu)}</td>
         <td>${escapeHtml(item.quem_vendeu)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
-        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
+        <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
         <td>${currency(item.valor_total)}</td>
         <td>${escapeHtml(item.observacao || "—")}</td>
       </tr>`).join(""));
@@ -1376,7 +1415,7 @@ async function loadVendas(){
         <td>${linked ? `<span class="order-family-chip"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span>` : escapeHtml(item.quem_compra)}</td>
         <td>${escapeHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
-        <td>${moneyTypeBadge(item.tipo_dinheiro)}</td>
+        <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
         <td>${currency(item.valor_total)}</td>
       </tr>`;
     }).join(""));

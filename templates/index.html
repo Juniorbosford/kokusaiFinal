@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260816-percentual-sujo-1-30" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -178,8 +178,17 @@
                 <label for="c_tipo_dinheiro">Tipo de dinheiro</label>
                 <select id="c_tipo_dinheiro" required>
                   <option value="Dinheiro limpo">Dinheiro limpo</option>
-                  <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
+                  <option value="Dinheiro sujo">Dinheiro sujo (porcentagem variável)</option>
                 </select>
+              </div>
+
+              <div class="field dirty-percentage-field" id="c_percentual_field" hidden>
+                <label for="c_percentual_dinheiro_sujo">Acréscimo do dinheiro sujo</label>
+                <div class="percentage-input-wrap">
+                  <input id="c_percentual_dinheiro_sujo" type="number" min="1" max="30" step="0.01" value="30" inputmode="decimal" />
+                  <span>%</span>
+                </div>
+                <small class="field-help">Escolha entre 1% e 30%. Ex.: 20 adiciona 20% ao valor base.</small>
               </div>
 
               <div class="field field-full">
@@ -294,8 +303,17 @@
                 <label for="v_tipo_dinheiro">Tipo de dinheiro</label>
                 <select id="v_tipo_dinheiro" required>
                   <option value="Dinheiro limpo">Dinheiro limpo</option>
-                  <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
+                  <option value="Dinheiro sujo">Dinheiro sujo (porcentagem variável)</option>
                 </select>
+              </div>
+
+              <div class="field dirty-percentage-field" id="v_percentual_field" hidden>
+                <label for="v_percentual_dinheiro_sujo">Acréscimo do dinheiro sujo</label>
+                <div class="percentage-input-wrap">
+                  <input id="v_percentual_dinheiro_sujo" type="number" min="1" max="30" step="0.01" value="30" inputmode="decimal" />
+                  <span>%</span>
+                </div>
+                <small class="field-help">Escolha entre 1% e 30%, conforme o combinado com a gangue.</small>
               </div>
 
               <div class="field field-full">
@@ -522,8 +540,17 @@
                 <label for="e_tipo_dinheiro">Tipo de dinheiro</label>
                 <select id="e_tipo_dinheiro" required>
                   <option value="Dinheiro limpo">Dinheiro limpo</option>
-                  <option value="Dinheiro sujo">Dinheiro sujo (+30%)</option>
+                  <option value="Dinheiro sujo">Dinheiro sujo (porcentagem variável)</option>
                 </select>
+              </div>
+
+              <div class="field dirty-percentage-field" id="e_percentual_field" hidden>
+                <label for="e_percentual_dinheiro_sujo">Acréscimo do dinheiro sujo</label>
+                <div class="percentage-input-wrap">
+                  <input id="e_percentual_dinheiro_sujo" type="number" min="1" max="30" step="0.01" value="30" inputmode="decimal" />
+                  <span>%</span>
+                </div>
+                <small class="field-help">Escolha entre 1% e 30%. O valor ficará salvo junto com a encomenda.</small>
               </div>
 
               <label class="priority-toggle-card field-full" for="e_prioridade">
@@ -1011,6 +1038,6 @@
   </div>
 
   <datalist id="familiasDatalist"></datalist>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260813-bucket-imagens"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260816-percentual-sujo-1-30"></script>
 </body>
 </html>

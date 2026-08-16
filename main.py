@@ -101,7 +101,9 @@ MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
 MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
 MAX_QUANTITY = int(os.getenv("MAX_QUANTITY", "1000000"))
 MAX_MONEY_VALUE = float(os.getenv("MAX_MONEY_VALUE", "1000000000"))
-DIRTY_MONEY_RATE = 0.30
+DEFAULT_DIRTY_MONEY_PERCENTAGE = 30.0
+MIN_DIRTY_MONEY_PERCENTAGE = 1.0
+MAX_DIRTY_MONEY_PERCENTAGE = 30.0
 SHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
@@ -122,6 +124,7 @@ AUTH_USERS = {
 COMPRAS_HEADERS = [
     "id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade",
     "valor_total", "observacao", "tipo_dinheiro", "valor_base", "acrescimo_dinheiro_sujo",
+    "percentual_dinheiro_sujo",
 ]
 VENDAS_HEADERS = [
     "id",
@@ -140,6 +143,7 @@ VENDAS_HEADERS = [
     "tipo_dinheiro",
     "valor_base",
     "acrescimo_dinheiro_sujo",
+    "percentual_dinheiro_sujo",
 ]
 ENCOMENDAS_HEADERS = [
     "id",
@@ -160,6 +164,7 @@ ENCOMENDAS_HEADERS = [
     "valor_base",
     "acrescimo_dinheiro_sujo",
     "prioridade",
+    "percentual_dinheiro_sujo",
 ]
 REUNIOES_HEADERS = ["id", "criado_em", "titulo", "gangue", "icone", "data", "horario", "local", "pauta", "status", "finalizada_em"]
 FAMILIAS_HEADERS = [
@@ -1331,7 +1336,23 @@ def normalize_money_type(value):
     return "Dinheiro limpo"
 
 
-def calculate_payment_values(base_value, money_type):
+def normalize_dirty_money_percentage(value, money_type):
+    if normalize_money_type(money_type) != "Dinheiro sujo":
+        return 0.0
+    raw_value = DEFAULT_DIRTY_MONEY_PERCENTAGE if value is None or str(value).strip() == "" else value
+    try:
+        percentage = float(str(raw_value).replace(",", "."))
+    except (TypeError, ValueError):
+        raise ValueError("A porcentagem do dinheiro sujo deve ser numérica.")
+    if not MIN_DIRTY_MONEY_PERCENTAGE <= percentage <= MAX_DIRTY_MONEY_PERCENTAGE:
+        raise ValueError(
+            "A porcentagem do dinheiro sujo deve ficar entre "
+            f"{MIN_DIRTY_MONEY_PERCENTAGE:g}% e {MAX_DIRTY_MONEY_PERCENTAGE:g}%."
+        )
+    return round(percentage, 2)
+
+
+def calculate_payment_values(base_value, money_type, dirty_percentage=None):
     try:
         base = round(float(base_value or 0), 2)
     except (TypeError, ValueError):
@@ -1340,11 +1361,12 @@ def calculate_payment_values(base_value, money_type):
         raise ValueError("O valor base informado é inválido.")
 
     normalized_type = normalize_money_type(money_type)
-    surcharge = round(base * DIRTY_MONEY_RATE, 2) if normalized_type == "Dinheiro sujo" else 0.0
+    percentage = normalize_dirty_money_percentage(dirty_percentage, normalized_type)
+    surcharge = round(base * (percentage / 100), 2) if normalized_type == "Dinheiro sujo" else 0.0
     total = round(base + surcharge, 2)
     if total > MAX_MONEY_VALUE:
         raise ValueError("Valor total muito alto.")
-    return normalized_type, base, surcharge, total
+    return normalized_type, base, surcharge, total, percentage
 
 
 def apply_payment_defaults(item, total_field):
@@ -1362,9 +1384,18 @@ def apply_payment_defaults(item, total_field):
     except (TypeError, ValueError):
         surcharge = 0.0
 
+    raw_percentage = item.get("percentual_dinheiro_sujo")
+    if money_type == "Dinheiro sujo" and (raw_percentage is None or str(raw_percentage).strip() == ""):
+        raw_percentage = round((surcharge / base) * 100, 2) if base > 0 and str(item.get("acrescimo_dinheiro_sujo") or "").strip() else DEFAULT_DIRTY_MONEY_PERCENTAGE
+    try:
+        percentage = normalize_dirty_money_percentage(raw_percentage, money_type)
+    except ValueError:
+        percentage = DEFAULT_DIRTY_MONEY_PERCENTAGE if money_type == "Dinheiro sujo" else 0.0
+
     item["tipo_dinheiro"] = money_type
     item["valor_base"] = base
     item["acrescimo_dinheiro_sujo"] = surcharge
+    item["percentual_dinheiro_sujo"] = percentage
     return item
 
 
@@ -1863,11 +1894,13 @@ def venda_id_from_encomenda(encomenda_id):
     return f"KKSV-ENC-{str(encomenda_id or '').strip()}"
 
 
-def price_order_items(items, money_type):
-    """Aplica os 30% e distribui os centavos sem alterar o preço unitário base."""
+def price_order_items(items, money_type, dirty_percentage=None):
+    """Aplica a porcentagem escolhida e distribui os centavos entre os itens."""
     normalized_type = normalize_money_type(money_type)
     total_base = round(sum(float(item.get("valor_total") or 0) for item in items), 2)
-    _, _, total_surcharge, total_value = calculate_payment_values(total_base, normalized_type)
+    _, _, total_surcharge, total_value, percentage = calculate_payment_values(
+        total_base, normalized_type, dirty_percentage,
+    )
     remaining_surcharge = total_surcharge
     priced_items = []
 
@@ -1877,7 +1910,7 @@ def price_order_items(items, money_type):
             if index == len(items) - 1:
                 surcharge = round(remaining_surcharge, 2)
             else:
-                surcharge = min(round(base_value * DIRTY_MONEY_RATE, 2), max(remaining_surcharge, 0.0))
+                surcharge = min(round(base_value * (percentage / 100), 2), max(remaining_surcharge, 0.0))
                 remaining_surcharge = round(remaining_surcharge - surcharge, 2)
         else:
             surcharge = 0.0
@@ -1886,6 +1919,7 @@ def price_order_items(items, money_type):
             "tipo_dinheiro": normalized_type,
             "valor_base": base_value,
             "acrescimo_dinheiro_sujo": surcharge,
+            "percentual_dinheiro_sujo": percentage,
             "valor_final": round(base_value + surcharge, 2),
         })
         priced_items.append(priced_item)
@@ -1899,7 +1933,11 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
     raw_base_value = item.get("valor_base")
     if str(raw_base_value or "").strip() == "":
         raw_base_value = item.get("valor")
-    _, valor_base, surcharge, valor_total = calculate_payment_values(raw_base_value, money_type)
+    payment = apply_payment_defaults(dict(item), "valor")
+    percentage = payment["percentual_dinheiro_sujo"]
+    _, valor_base, surcharge, valor_total, percentage = calculate_payment_values(
+        raw_base_value, money_type, percentage,
+    )
     valor_unitario = round(valor_base / quantidade, 2) if quantidade else valor_base
     encomenda_id = str(item.get("id") or "").strip()
     prazo = str(item.get("para_quando") or "").strip()
@@ -1928,6 +1966,7 @@ def build_venda_row_from_encomenda(item, entregue_em=None):
         money_type,
         valor_base,
         surcharge,
+        percentage,
     ]
 
 
@@ -1937,8 +1976,10 @@ def build_venda_rows_from_encomenda(item, entregue_em=None):
     if not items:
         return [build_venda_row_from_encomenda(item, entregue_em=entregue_em)]
 
-    money_type = normalize_money_type(item.get("tipo_dinheiro"))
-    priced_items, _, _, _ = price_order_items(items, money_type)
+    payment = apply_payment_defaults(dict(item), "valor")
+    money_type = payment["tipo_dinheiro"]
+    percentage = payment["percentual_dinheiro_sujo"]
+    priced_items, _, _, _ = price_order_items(items, money_type, percentage)
     encomenda_id = str(item.get("id") or "").strip()
     prazo = str(item.get("para_quando") or "").strip()
     observacao_original = str(item.get("observacao") or "").strip()
@@ -1965,6 +2006,7 @@ def build_venda_rows_from_encomenda(item, entregue_em=None):
             money_type,
             order_item["valor_base"],
             order_item["acrescimo_dinheiro_sujo"],
+            order_item["percentual_dinheiro_sujo"],
         ])
     return rows
 
@@ -2858,8 +2900,10 @@ def create_compra():
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
         try:
-            money_type, valor_base, surcharge, valor_total = calculate_payment_values(
-                quantidade * valor_unitario, data.get("tipo_dinheiro"),
+            money_type, valor_base, surcharge, valor_total, dirty_percentage = calculate_payment_values(
+                quantidade * valor_unitario,
+                data.get("tipo_dinheiro"),
+                data.get("percentual_dinheiro_sujo"),
             )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
@@ -2881,6 +2925,7 @@ def create_compra():
             money_type,
             valor_base,
             surcharge,
+            dirty_percentage,
         ], value_input_option="RAW")
         invalidate_values_cache(COMPRAS_WORKSHEET_NAME)
         log_info(f"Compra registrada com sucesso. ID={registro_id}")
@@ -2893,6 +2938,7 @@ def create_compra():
             "tipo_dinheiro": money_type,
             "valor_base": valor_base,
             "acrescimo_dinheiro_sujo": surcharge,
+            "percentual_dinheiro_sujo": dirty_percentage,
         }), 201
 
     except Exception as e:
@@ -2958,8 +3004,10 @@ def create_venda():
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
         try:
-            money_type, valor_base, surcharge, valor_total = calculate_payment_values(
-                quantidade * valor_unitario, data.get("tipo_dinheiro"),
+            money_type, valor_base, surcharge, valor_total, dirty_percentage = calculate_payment_values(
+                quantidade * valor_unitario,
+                data.get("tipo_dinheiro"),
+                data.get("percentual_dinheiro_sujo"),
             )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
@@ -2985,6 +3033,7 @@ def create_venda():
             money_type,
             valor_base,
             surcharge,
+            dirty_percentage,
         ], value_input_option="RAW")
         invalidate_values_cache(VENDAS_WORKSHEET_NAME)
         log_info(f"Venda registrada com sucesso. ID={registro_id}")
@@ -2998,6 +3047,7 @@ def create_venda():
             "tipo_dinheiro": money_type,
             "valor_base": valor_base,
             "acrescimo_dinheiro_sujo": surcharge,
+            "percentual_dinheiro_sujo": dirty_percentage,
         }), 201
 
     except Exception as e:
@@ -3117,8 +3167,10 @@ def create_encomenda():
                 return error_response(str(validation_error), 400)
 
         try:
-            money_type, valor_base, surcharge, valor = calculate_payment_values(
-                valor_base, data.get("tipo_dinheiro"),
+            money_type, valor_base, surcharge, valor, dirty_percentage = calculate_payment_values(
+                valor_base,
+                data.get("tipo_dinheiro"),
+                data.get("percentual_dinheiro_sujo"),
             )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
@@ -3166,6 +3218,7 @@ def create_encomenda():
             "valor_base": valor_base,
             "acrescimo_dinheiro_sujo": surcharge,
             "prioridade": prioridade,
+            "percentual_dinheiro_sujo": dirty_percentage,
         }
 
         if entregue == "Sim":
@@ -3184,6 +3237,7 @@ def create_encomenda():
                 "venda_ids": [row[0] for row in venda_rows],
                 "valor": round(valor, 2),
                 "tipo_dinheiro": money_type,
+                "percentual_dinheiro_sujo": dirty_percentage,
                 "moved_to_vendas": True,
             }), 201
 
@@ -3207,6 +3261,7 @@ def create_encomenda():
             valor_base,
             surcharge,
             prioridade,
+            dirty_percentage,
         ], value_input_option="RAW")
         invalidate_values_cache(ENCOMENDAS_WORKSHEET_NAME)
         log_info(f"Encomenda registrada com sucesso. ID={registro_id}")
@@ -3218,6 +3273,7 @@ def create_encomenda():
             "valor": round(valor, 2),
             "tipo_dinheiro": money_type,
             "prioridade": prioridade,
+            "percentual_dinheiro_sujo": dirty_percentage,
             "moved_to_vendas": False,
         }), 201
 
@@ -3257,8 +3313,10 @@ def update_encomenda(registro_id):
         para_quando = deadline.isoformat(timespec="minutes")
 
         try:
-            money_type, valor_base, surcharge, valor = calculate_payment_values(
-                valor_base, data.get("tipo_dinheiro"),
+            money_type, valor_base, surcharge, valor, dirty_percentage = calculate_payment_values(
+                valor_base,
+                data.get("tipo_dinheiro"),
+                data.get("percentual_dinheiro_sujo"),
             )
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
@@ -3300,6 +3358,7 @@ def update_encomenda(registro_id):
                 "valor_base": valor_base,
                 "acrescimo_dinheiro_sujo": surcharge,
                 "prioridade": prioridade,
+                "percentual_dinheiro_sujo": dirty_percentage,
             }
 
             if entregue == "Sim":
@@ -3315,7 +3374,7 @@ def update_encomenda(registro_id):
                 })
 
             worksheet.update(
-                f"A{row_index}:R{row_index}",
+                f"A{row_index}:S{row_index}",
                 [[
                     registro_id,
                     original_date,
@@ -3335,6 +3394,7 @@ def update_encomenda(registro_id):
                     valor_base,
                     surcharge,
                     prioridade,
+                    dirty_percentage,
                 ]],
                 value_input_option="RAW",
             )
@@ -3347,6 +3407,7 @@ def update_encomenda(registro_id):
             "valor": round(valor, 2),
             "tipo_dinheiro": money_type,
             "prioridade": prioridade,
+            "percentual_dinheiro_sujo": dirty_percentage,
             "moved_to_vendas": False,
         })
     except Exception as e:

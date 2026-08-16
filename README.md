@@ -130,7 +130,7 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 - A conversão usa IDs estáveis para não duplicar vendas após uma falha parcial.
 - Toda encomenda é vinculada a uma família cadastrada.
 - O ranking mensal aceita somente famílias existentes no cadastro atual.
-- Dinheiro sujo adiciona automaticamente 30% ao valor base.
+- Dinheiro sujo permite escolher o acréscimo de 1% a 30% em cada compra, venda ou encomenda; 30% continua sendo o valor inicial.
 - Uma encomenda pode combinar L85 e Seringa, preservando quantidade e valor de cada produto.
 - Encomendas aceitam prioridade manual com destaque vermelho e são ordenadas automaticamente pelo prazo mais próximo.
 - A lista de encomendas possui busca, filtros rápidos de prazo/prioridade, período personalizado e diferentes ordenações.

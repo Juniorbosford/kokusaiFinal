@@ -274,6 +274,11 @@ input:focus,textarea:focus,select:focus{
 .money-calc-box.dirty small{color:#ffe0a3}
 .money-type-badge{display:inline-flex;align-items:center;justify-content:center;min-height:29px;padding:0 9px;border-radius:999px;border:1px solid rgba(49,208,131,.24);background:rgba(49,208,131,.09);color:#c9ffe4;font-size:.71rem;font-weight:900;white-space:nowrap}
 .money-type-badge.dirty{border-color:rgba(240,184,75,.32);background:rgba(240,184,75,.11);color:#ffe2a8}
+.dirty-percentage-field{padding:13px;border:1px solid rgba(240,184,75,.28);border-radius:15px;background:linear-gradient(135deg,rgba(240,184,75,.09),rgba(255,255,255,.02))}
+.dirty-percentage-field>label{color:#ffe0a3}
+.percentage-input-wrap{position:relative}
+.percentage-input-wrap input{padding-right:44px;border-color:rgba(240,184,75,.3)}
+.percentage-input-wrap span{position:absolute;right:15px;top:50%;transform:translateY(-50%);color:#ffe0a3;font-size:.9rem;font-weight:900;pointer-events:none}
 .order-items-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .order-item-card{padding:14px;border-radius:15px;border:1px solid var(--line);background:rgba(255,255,255,.025)}
 .order-item-title{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
