@@ -15,7 +15,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, date, timezone
 from functools import wraps
 import unicodedata
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_file, Response
 import gspread
 from google.oauth2.service_account import Credentials
@@ -874,6 +874,42 @@ def bucket_key_from_reference(value):
     return reference[len(BUCKET_REFERENCE_PREFIX):].lstrip("/")
 
 
+def bucket_key_from_legacy_flyer_url(value):
+    """Recupera a chave de links temporários antigos do Bucket do Railway.
+
+    Versões anteriores podiam acabar salvando a URL assinada, que expira, em
+    vez da referência ``kokusai-bucket://``. A chave continua presente no
+    caminho da URL e pode ser convertida novamente para a referência estável.
+    """
+    raw_value = str(value or "").strip()
+    parsed = urlparse(raw_value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        return ""
+
+    endpoint_host = (urlparse(META_BUCKET_ENDPOINT).hostname or "").lower()
+    value_host = parsed.hostname.lower()
+    if not endpoint_host or not (
+        value_host == endpoint_host or value_host.endswith(f".{endpoint_host}")
+    ):
+        return ""
+
+    path_parts = [unquote(part) for part in parsed.path.split("/") if part]
+    try:
+        flyer_index = path_parts.index("flyers")
+    except ValueError:
+        return ""
+    object_parts = path_parts[flyer_index:]
+    if len(object_parts) < 2 or any(part in {".", ".."} for part in object_parts):
+        return ""
+    return "/".join(object_parts)
+
+
+def stable_family_flyer_reference(value):
+    reference = str(value or "").strip()
+    object_key = bucket_key_from_reference(reference) or bucket_key_from_legacy_flyer_url(reference)
+    return bucket_reference(object_key) if object_key else reference
+
+
 def family_flyer_storage_path(object_key):
     local_root = os.path.abspath(FLYER_LOCAL_UPLOAD_DIR)
     local_path = os.path.abspath(os.path.join(local_root, *str(object_key).split("/")))
@@ -897,6 +933,10 @@ def store_family_flyer(upload, family_id, slot):
             ContentType="image/webp",
             CacheControl="private, max-age=3600",
         )
+        # Só grava a referência no Google Sheets depois que o Bucket confirma
+        # que o objeto existe. Assim um deploy nunca deixa um cadastro apontando
+        # para um upload incompleto ou para o disco temporário do serviço.
+        client.head_object(Bucket=META_BUCKET_NAME, Key=object_key)
     else:
         if IS_RAILWAY:
             raise RuntimeError("Bucket de imagens não configurado no Railway.")
@@ -921,19 +961,15 @@ def delete_family_flyer_reference(reference):
 
 
 def family_flyer_access_url(reference, family_id, slot):
-    value = str(reference or "").strip()
+    value = stable_family_flyer_reference(reference)
     object_key = bucket_key_from_reference(value)
     if not object_key:
         return value
     if not object_key.startswith("flyers/"):
         return ""
-    client = get_storage_client()
-    if client:
-        return client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": META_BUCKET_NAME, "Key": object_key},
-            ExpiresIn=3600,
-        )
+    # A URL do navegador permanece estável. O servidor busca o arquivo privado
+    # no Bucket a cada acesso, sem expor nem depender de uma URL assinada que
+    # expira depois de uma hora.
     return url_for("family_flyer_file", registro_id=family_id, slot=int(slot))
 
 
@@ -1428,6 +1464,7 @@ def clean_optional_image_reference(value, field_name="Flyer"):
     reference = clean_text(value, field_name, max_length=1000, required=False)
     if not reference:
         return ""
+    reference = stable_family_flyer_reference(reference)
     object_key = bucket_key_from_reference(reference)
     if object_key:
         if not object_key.startswith("flyers/"):
@@ -2050,7 +2087,7 @@ def normalize_family(row):
     item["mercado"] = normalize_market_status(item.get("mercado"))
     item["flyer_oculto"] = normalize_flag(item.get("flyer_oculto"))
     for slot, field in ((1, "flyer_url"), (2, "flyer_url_2")):
-        stored_reference = str(item.get(field) or "").strip()
+        stored_reference = stable_family_flyer_reference(item.get(field))
         item[f"{field}_stored"] = stored_reference
         item[field] = family_flyer_access_url(stored_reference, item.get("id"), slot)
     return item
@@ -2442,6 +2479,7 @@ def health():
     return jsonify({
         "ok": True,
         "service": "kokusai-system",
+        "persistent_storage": "bucket" if storage_bucket_configured() else ("unavailable" if IS_RAILWAY else "local-development"),
         "timestamp": datetime.utcnow().isoformat() + "Z",
     })
 
@@ -3699,12 +3737,36 @@ def family_flyer_file(registro_id, slot):
             return error_response("Família/gangue não encontrada.", 404)
         field_index = FAMILIAS_HEADERS.index("flyer_url" if slot == 1 else "flyer_url_2")
         object_key = bucket_key_from_reference(sheet_cell(row, field_index))
+        if not object_key:
+            object_key = bucket_key_from_legacy_flyer_url(sheet_cell(row, field_index))
         if not object_key or not object_key.startswith("flyers/"):
             return error_response("Flyer não encontrado.", 404)
+
+        client = get_storage_client()
+        if client:
+            bucket_object = client.get_object(Bucket=META_BUCKET_NAME, Key=object_key)
+            body = bucket_object.get("Body")
+            image_bytes = body.read() if body else b""
+            if body and hasattr(body, "close"):
+                body.close()
+            if not image_bytes:
+                return error_response("Arquivo do flyer não encontrado.", 404)
+            response = send_file(
+                BytesIO(image_bytes),
+                mimetype=bucket_object.get("ContentType") or "image/webp",
+                max_age=0,
+            )
+            response.headers["Cache-Control"] = "private, no-store, max-age=0"
+            return response
+
+        if IS_RAILWAY:
+            return error_response("Bucket de imagens não configurado no Railway.", 503)
         local_path = family_flyer_storage_path(object_key)
         if not os.path.isfile(local_path):
             return error_response("Arquivo do flyer não encontrado.", 404)
-        return send_file(local_path, mimetype="image/webp", max_age=0)
+        response = send_file(local_path, mimetype="image/webp", max_age=0)
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+        return response
     except Exception as error:
         log_error("Falha ao servir flyer da família", error)
         return error_response(str(error))

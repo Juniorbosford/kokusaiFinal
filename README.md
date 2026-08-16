@@ -49,7 +49,9 @@ Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não 
 
 - O formulário de Famílias aceita dois arquivos de imagem, além dos links externos opcionais.
 - Imagens enviadas pelo formulário são convertidas para WEBP e armazenadas permanentemente no Bucket.
-- O Google Sheets guarda uma referência estável; o site gera um link temporário novo sempre que carrega as famílias.
+- O Google Sheets guarda uma referência estável; o próprio KOKUSAI entrega a imagem privada ao navegador, sem depender de links temporários que expiram.
+- O upload só é confirmado no cadastro depois que o Bucket confirma a existência do arquivo.
+- Links temporários antigos do Bucket são reconhecidos e recuperados automaticamente quando ainda contêm a chave do flyer.
 - Substituir ou remover um flyer também remove do Bucket apenas o arquivo que deixou de ser usado.
 - Flyers incluídos dentro de `static/images/flyers` continuam fazendo parte do próprio projeto.
 
