@@ -137,6 +137,10 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 - Encomendas aceitam prioridade manual com destaque vermelho e são ordenadas automaticamente pelo prazo mais próximo.
 - A lista de encomendas possui busca, filtros rápidos de prazo/prioridade, período personalizado e diferentes ordenações.
 - Famílias aceitam dois contatos ocultos e dois flyers.
+- Cada família possui um responsável interno pelo contato, exibido em Famílias, Compras, Vendas, Encomendas, Reuniões e Relatórios.
+- Ruptura/Leviatã ficam com Larissa; Distrito/Black Hearts com Wanda; The Lost MC com Kyotaka; Ballas/Legacy com Matheus; Aura/La Guardia com Gohan; Vendetta/Cartel com Max; Hells com Theo.
+- Nox, Void e Meraki ficam como **Sem mercado** e têm o bloqueio preservado. Chaos e Balaclava começam **Em negociação**, mas o administrador pode alterar para **Mercado aberto** quando as negociações forem liberadas. Enquanto uma família não estiver aberta, compras, vendas e encomendas ficam bloqueadas, inclusive pelo campo manual.
+- Responsabilidades internas: Kyotaka controla o baú, Lipe responde pela abertura/deep e Wanda responde por compra de material/controle de estoque.
 
 ## Segurança
 

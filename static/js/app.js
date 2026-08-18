@@ -19,12 +19,18 @@ navLinks.forEach(link => {
 
 const refreshBtn = document.getElementById("refreshBtn");
 const form = document.getElementById("compraForm");
+const compraFamiliaSelect = document.getElementById("c_familia_id");
+const compraVendedorInput = document.getElementById("quem_vendeu");
+const compraVendedorManualField = document.getElementById("c_vendedor_manual_field");
+const compraFamilySummary = document.getElementById("c_family_summary");
 const vendaForm = document.getElementById("vendaForm");
 const vendaFamiliaSelect = document.getElementById("v_familia_id");
+const vendaFamilySummary = document.getElementById("v_family_summary");
 const vendaCompradorInput = document.getElementById("quem_compra");
 const vendaCompradorManualField = document.getElementById("v_comprador_manual_field");
 const encomendaForm = document.getElementById("encomendaForm");
 const encomendaFamiliaSelect = document.getElementById("e_familia_id");
+const encomendaFamilySummary = document.getElementById("e_family_summary");
 const encomendaSubmitBtn = document.getElementById("encomendaSubmitBtn");
 const encomendaCancelEditBtn = document.getElementById("encomendaCancelEditBtn");
 const reuniaoForm = document.getElementById("reuniaoForm");
@@ -388,6 +394,57 @@ function updatePreviewVenda(){
   renderMoneyPreview("previewVendaTotal", "previewVendaDetalhe", valor * qtd, moneyType, percentage);
 }
 
+function familyMarketInfo(family){
+  const status = String(family?.mercado || "Aberto").trim();
+  if(status === "Sem mercado") return {open:false, className:"no-market", label:"Sem mercado", detail:"Compras, vendas e encomendas bloqueadas"};
+  if(status === "Em negociação") return {open:false, className:"negotiating", label:"Em negociação", detail:"Mercado ainda não estabelecido"};
+  if(status === "Fechado") return {open:false, className:"closed", label:"Mercado fechado", detail:"Movimentações bloqueadas"};
+  return {open:true, className:"open", label:"Mercado aberto", detail:"Movimentações liberadas"};
+}
+
+function familyOptionLabel(family){
+  const market = familyMarketInfo(family);
+  const responsible = String(family?.responsavel_contato || "A definir").trim();
+  return `${family?.icone || "🤝"} ${family?.nome || "Família"} — ${responsible} — ${market.label}`;
+}
+
+function renderFamilySelectionSummary(family, container){
+  if(!container) return;
+  if(!family){
+    container.hidden = true;
+    container.innerHTML = "";
+    return;
+  }
+  const market = familyMarketInfo(family);
+  container.hidden = false;
+  container.className = `family-selection-summary field-full ${market.className}`;
+  container.innerHTML = `
+    <span class="family-selection-icon">${escapeHtml(family.icone || "🤝")}</span>
+    <div><strong>${escapeHtml(family.nome || "Família")}</strong><small>Responsável pelo contato: ${escapeHtml(family.responsavel_contato || "A definir")}</small></div>
+    <span class="family-selection-market">${escapeHtml(market.label)}</span>`;
+}
+
+function familyChipHtml(family, fallback = {}){
+  const name = family?.nome || fallback.nome || "Família não vinculada";
+  const icon = family?.icone || fallback.icone || "🤝";
+  const responsible = family?.responsavel_contato || fallback.responsavel || "";
+  const linked = Boolean(family?.id || fallback.linked);
+  return `<span class="order-family-chip ${linked ? "" : "unlinked"}"><span class="order-family-icon">${escapeHtml(icon)}</span><span class="order-family-text"><strong>${escapeHtml(name)}</strong>${responsible ? `<small>Contato: ${escapeHtml(responsible)}</small>` : ""}</span></span>`;
+}
+
+function syncCompraFamilyField(){
+  if(!compraFamiliaSelect || !compraVendedorInput) return;
+  const wasLinked = compraVendedorInput.disabled;
+  const family = familiasCache.find(item => item.id === compraFamiliaSelect.value);
+  const linked = Boolean(family);
+  if(linked) compraVendedorInput.value = family.nome || "";
+  else if(wasLinked) compraVendedorInput.value = "";
+  compraVendedorInput.required = !linked;
+  compraVendedorInput.disabled = linked;
+  if(compraVendedorManualField) compraVendedorManualField.hidden = linked;
+  renderFamilySelectionSummary(family, compraFamilySummary);
+}
+
 function syncVendaFamilyField(){
   if(!vendaFamiliaSelect || !vendaCompradorInput) return;
   const wasLinked = vendaCompradorInput.disabled;
@@ -398,9 +455,15 @@ function syncVendaFamilyField(){
   vendaCompradorInput.required = !linked;
   vendaCompradorInput.disabled = linked;
   if(vendaCompradorManualField) vendaCompradorManualField.hidden = linked;
+  renderFamilySelectionSummary(family, vendaFamilySummary);
 }
 
 vendaFamiliaSelect?.addEventListener("change", syncVendaFamilyField);
+compraFamiliaSelect?.addEventListener("change", syncCompraFamilyField);
+encomendaFamiliaSelect?.addEventListener("change", () => {
+  const family = familiasCache.find(item => item.id === encomendaFamiliaSelect.value);
+  renderFamilySelectionSummary(family, encomendaFamilySummary);
+});
 
 function updatePreviewEncomenda(){
   const moneyType = inputValue("e_tipo_dinheiro");
@@ -415,6 +478,7 @@ function updatePreviewEncomenda(){
 function resetEncomendaForm(){
   encomendaEmEdicaoId = null;
   encomendaForm?.reset();
+  renderFamilySelectionSummary(null, encomendaFamilySummary);
   updatePreviewEncomenda();
   if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar encomenda";
   if(encomendaCancelEditBtn) encomendaCancelEditBtn.hidden = true;
@@ -544,7 +608,9 @@ function filteredAndSortedOrders(){
     const family = familyForOrder(item);
     const searchable = normalizeFamilyFlyerKey([
       family?.nome,
+      family?.responsavel_contato,
       item.familia_nome,
+      item.familia_responsavel,
       item.quem_pediu,
       item.o_que_pediu,
       item.quem_negociou,
@@ -612,13 +678,14 @@ function renderEncomendas(){
     const family = familyForOrder(item);
     const familyName = family?.nome || item.familia_nome || item.quem_pediu || "Família não vinculada";
     const familyIcon = family?.icone || item.familia_icone || "🤝";
+    const familyResponsible = family?.responsavel_contato || item.familia_responsavel || "";
     const linked = Boolean(family?.id || item.familia_id);
     const priority = Boolean(item.prioridade);
     const nextByDeadline = !priority && orderDeadlineTimestamp(item) === nearestRegularDeadline;
     return `<tr class="${priority ? "order-row-priority" : (nextByDeadline ? "order-row-next" : "")}">
       <td>${orderPriorityBadge(item, nearestRegularDeadline)}</td>
       <td>${escapeHtml(item.data)}</td>
-      <td><span class="order-family-chip ${linked ? "" : "unlinked"}"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span></td>
+      <td>${familyChipHtml(family, {nome:familyName, icone:familyIcon, responsavel:familyResponsible, linked})}</td>
       <td>${escapeHtml(item.o_que_pediu)}</td>
       <td>${orderDeadlineHtml(item)}</td>
       <td>${escapeHtml(item.quem_negociou)}</td>
@@ -658,6 +725,7 @@ function iniciarEdicaoEncomenda(id){
 
   encomendaEmEdicaoId = id;
   if(encomendaFamiliaSelect) encomendaFamiliaSelect.value = family?.id || item.familia_id || "";
+  renderFamilySelectionSummary(family, encomendaFamilySummary);
   document.getElementById("e_l85_quantidade").value = l85?.quantidade || "";
   document.getElementById("e_l85_valor").value = l85?.valor_unitario ?? "";
   document.getElementById("e_seringa_quantidade").value = seringa?.quantidade || "";
@@ -729,10 +797,16 @@ async function sendPost(url, payload, feedbackEl, loadingMessage, successMessage
 
 form?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const selectedFamily = familiasCache.find(item => item.id === inputValue("c_familia_id").trim());
+  if(selectedFamily && !familyMarketInfo(selectedFamily).open){
+    setFeedback(formFeedback, `${selectedFamily.nome}: ${familyMarketInfo(selectedFamily).detail}.`, true);
+    return;
+  }
   const payload = {
     produto: inputValue("produto").trim(),
     quem_pediu: inputValue("quem_pediu").trim(),
     quem_vendeu: inputValue("quem_vendeu").trim(),
+    familia_id: inputValue("c_familia_id").trim(),
     valor_unitario: Number(inputValue("valor_unitario")),
     quantidade: Number(inputValue("quantidade")),
     tipo_dinheiro: inputValue("c_tipo_dinheiro"),
@@ -743,12 +817,18 @@ form?.addEventListener("submit", async (e) => {
   const ok = await sendPost("/api/compras", payload, formFeedback, "Salvando compra...", "Compra salva com sucesso.");
   if(ok){
     form.reset();
+    syncCompraFamilyField();
     updatePreviewCompra();
   }
 });
 
 vendaForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const selectedFamily = familiasCache.find(item => item.id === inputValue("v_familia_id").trim());
+  if(selectedFamily && !familyMarketInfo(selectedFamily).open){
+    setFeedback(vendaFeedback, `${selectedFamily.nome}: ${familyMarketInfo(selectedFamily).detail}.`, true);
+    return;
+  }
   const payload = {
     produto: inputValue("v_produto").trim(),
     familia_id: inputValue("v_familia_id").trim(),
@@ -774,6 +854,11 @@ encomendaForm?.addEventListener("submit", async (e) => {
   const familiaId = inputValue("e_familia_id").trim();
   if(!familiaId){
     setFeedback(encomendaFeedback, "Selecione a família ou gangue responsável pela encomenda.", true);
+    return;
+  }
+  const selectedFamily = familiasCache.find(item => item.id === familiaId);
+  if(selectedFamily && !familyMarketInfo(selectedFamily).open){
+    setFeedback(encomendaFeedback, `${selectedFamily.nome}: ${familyMarketInfo(selectedFamily).detail}.`, true);
     return;
   }
   const itens = [
@@ -1034,6 +1119,7 @@ function iniciarEdicaoFamilia(id){
   familiaEmEdicaoId = id;
   document.getElementById("f_nome").value = item.nome || "";
   document.getElementById("f_icone").value = item.icone || "";
+  document.getElementById("f_responsavel_contato").value = item.responsavel_contato || "";
   document.getElementById("f_mercado").value = item.mercado || "Aberto";
   document.getElementById("f_preco_venda").value = item.preco_venda_para_familia || "";
   document.getElementById("f_preco_compra").value = item.preco_compra_da_familia || "";
@@ -1108,6 +1194,7 @@ familiaForm?.addEventListener("submit", async (event) => {
   const payload = {
     nome: inputValue("f_nome").trim(),
     icone: inputValue("f_icone").trim(),
+    responsavel_contato: inputValue("f_responsavel_contato").trim(),
     mercado: inputValue("f_mercado"),
     preco_venda_para_familia: inputValue("f_preco_venda").trim(),
     preco_compra_da_familia: inputValue("f_preco_compra").trim(),
@@ -1155,6 +1242,7 @@ function familyPayloadFromItem(item, overrides = {}){
   return {
     nome:item?.nome || "",
     icone:item?.icone || "",
+    responsavel_contato:item?.responsavel_contato || "",
     mercado:item?.mercado || "Aberto",
     preco_venda_para_familia:item?.preco_venda_para_familia || "",
     preco_compra_da_familia:item?.preco_compra_da_familia || "",
@@ -1377,17 +1465,23 @@ async function loadCompras(){
       setTableContent(comprasTable, `<tr><td colspan="8">Nenhuma compra registrada.</td></tr>`);
       return;
     }
-    setTableContent(comprasTable, data.map(item => `
-      <tr>
+    setTableContent(comprasTable, data.map(item => {
+      const family = familyForOrder(item);
+      const linked = Boolean(family?.id || item.familia_id);
+      const seller = linked
+        ? familyChipHtml(family, {nome:item.familia_nome || item.quem_vendeu, icone:item.familia_icone, responsavel:item.familia_responsavel, linked:true})
+        : escapeHtml(item.quem_vendeu);
+      return `<tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
         <td>${escapeHtml(item.quem_pediu)}</td>
-        <td>${escapeHtml(item.quem_vendeu)}</td>
+        <td>${seller}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
         <td>${currency(item.valor_total)}</td>
         <td>${escapeHtml(item.observacao || "—")}</td>
-      </tr>`).join(""));
+      </tr>`;
+    }).join(""));
   }catch(error){
     setTableContent(comprasTable, `<tr><td colspan="8">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
   }
@@ -1408,11 +1502,12 @@ async function loadVendas(){
       const family = familyForOrder(item);
       const familyName = family?.nome || item.familia_nome || item.quem_compra || "Comprador não informado";
       const familyIcon = family?.icone || item.familia_icone || "🤝";
+      const familyResponsible = family?.responsavel_contato || item.familia_responsavel || "";
       const linked = Boolean(family?.id || item.familia_id);
       return `<tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
-        <td>${linked ? `<span class="order-family-chip"><span>${escapeHtml(familyIcon)}</span><strong>${escapeHtml(familyName)}</strong></span>` : escapeHtml(item.quem_compra)}</td>
+        <td>${linked ? familyChipHtml(family, {nome:familyName, icone:familyIcon, responsavel:familyResponsible, linked:true}) : escapeHtml(item.quem_compra)}</td>
         <td>${escapeHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
@@ -1453,6 +1548,7 @@ function renderRelatorio(data){
         <span class="report-medal">${reportMedal(item.posicao)}</span>
         <div class="report-family-icon">${escapeHtml(item.icone || "🤝")}</div>
         <strong>${escapeHtml(item.nome)}</strong>
+        <span class="report-family-owner">Contato: ${escapeHtml(item.responsavel_contato || "A definir")}</span>
         <p>${currency(item.total_gasto)}</p>
         <small>${integer(item.compras)} compra${Number(item.compras) === 1 ? "" : "s"}</small>
       </article>`).join("") : `<div class="report-empty">Nenhuma venda ou encomenda vinculada a uma família neste mês.</div>`;
@@ -1466,7 +1562,7 @@ function renderRelatorio(data){
   setTableContent(relatorioTable, ranking.map(item => `
     <tr>
       <td><span class="report-rank">${reportMedal(item.posicao)}</span></td>
-      <td><span class="order-family-chip"><span>${escapeHtml(item.icone || "🤝")}</span><strong>${escapeHtml(item.nome)}</strong></span></td>
+      <td>${familyChipHtml({id:item.familia_id, nome:item.nome, icone:item.icone, responsavel_contato:item.responsavel_contato})}</td>
       <td><strong class="report-money">${currency(item.total_gasto)}</strong></td>
       <td>${integer(item.compras)}</td>
       <td>${integer(item.encomendas_finalizadas)}</td>
@@ -1531,6 +1627,7 @@ function reportTxt(data){
   ranking.forEach(item => {
     lines.push(
       `${item.posicao}. ${item.icone || "🤝"} ${item.nome}`,
+      `   Responsável pelo contato: ${item.responsavel_contato || "A definir"}`,
       `   Total gasto: ${currency(item.total_gasto)}`,
       `   Compras concluídas: ${item.compras}`,
       `   Compras diretas: ${item.compras_diretas}`,
@@ -1609,14 +1706,25 @@ async function loadFamilias(){
     if(familiasDatalist){
       familiasDatalist.innerHTML = items.map(item => `<option value="${escapeHtml(item.nome)}"></option>`).join("");
     }
+    const familyOptions = items.map(item => {
+      const market = familyMarketInfo(item);
+      return `<option value="${escapeHtml(item.id)}" ${market.open ? "" : "disabled"}>${escapeHtml(familyOptionLabel(item))}</option>`;
+    }).join("");
+    if(compraFamiliaSelect){
+      const selectedFamilyId = compraFamiliaSelect.value;
+      compraFamiliaSelect.innerHTML = `<option value="">Fornecedor sem família cadastrada</option>${familyOptions}`;
+      if(items.some(item => item.id === selectedFamilyId)) compraFamiliaSelect.value = selectedFamilyId;
+      syncCompraFamilyField();
+    }
     if(encomendaFamiliaSelect){
       const selectedFamilyId = encomendaFamiliaSelect.value;
-      encomendaFamiliaSelect.innerHTML = `<option value="">Selecione a família responsável</option>${items.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}</option>`).join("")}`;
+      encomendaFamiliaSelect.innerHTML = `<option value="">Selecione a família responsável</option>${familyOptions}`;
       if(items.some(item => item.id === selectedFamilyId)) encomendaFamiliaSelect.value = selectedFamilyId;
+      renderFamilySelectionSummary(items.find(item => item.id === encomendaFamiliaSelect.value), encomendaFamilySummary);
     }
     if(vendaFamiliaSelect){
       const selectedFamilyId = vendaFamiliaSelect.value;
-      vendaFamiliaSelect.innerHTML = `<option value="">Sem família cadastrada</option>${items.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.icone || "🤝")} ${escapeHtml(item.nome)}</option>`).join("")}`;
+      vendaFamiliaSelect.innerHTML = `<option value="">Sem família cadastrada</option>${familyOptions}`;
       if(items.some(item => item.id === selectedFamilyId)) vendaFamiliaSelect.value = selectedFamilyId;
       syncVendaFamilyField();
     }
@@ -1627,7 +1735,7 @@ async function loadFamilias(){
     }
 
     familiasGrid.innerHTML = items.map(item => {
-      const closed = item.mercado === "Fechado";
+      const market = familyMarketInfo(item);
       const localFlyers = getLocalFamilyFlyers(item);
       const configuredFlyers = [item.flyer_url, item.flyer_url_2].filter(Boolean);
       const flyerUrls = item.flyer_oculto ? [] : (configuredFlyers.length ? configuredFlyers : localFlyers);
@@ -1636,13 +1744,14 @@ async function loadFamilias(){
         : `<div class="family-flyer family-flyer-empty"><span>${escapeHtml(item.icone || "🤝")}</span><small>Sem flyer vinculado</small></div>`;
       const contacts = [item.contato, item.contato_2].filter(Boolean);
       const contactsHtml = contacts.length ? `<div class="family-contacts">${contacts.map((contact, index) => `<div class="family-contact"><button type="button" class="family-contact-toggle" data-toggle-family-contact>Mostrar contato ${index + 1}</button><span data-family-contact-value hidden>${escapeHtml(contact)}</span></div>`).join("")}</div>` : "";
-      return `<article class="family-card ${closed ? "closed" : "open"}">
+      return `<article class="family-card ${market.className}">
         ${flyer}
         <div class="family-card-content">
           <div class="family-card-top">
             <div><span class="family-icon">${escapeHtml(item.icone || "🤝")}</span><h4>${escapeHtml(item.nome)}</h4></div>
-            <span class="market-status ${closed ? "closed" : "open"}">${closed ? "Mercado fechado" : "Mercado aberto"}</span>
+            <span class="market-status ${market.className}">${escapeHtml(market.label)}</span>
           </div>
+          <div class="family-responsible-card"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato || "A definir")}</strong></div>
           <div class="family-price-grid">
             <div><span>Nosso valor para a família</span><p>${escapeHtml(item.preco_venda_para_familia || "Não informado")}</p></div>
             <div><span>Valor deles para a Kokusai</span><p>${escapeHtml(item.preco_compra_da_familia || "Não informado")}</p></div>
@@ -1693,11 +1802,15 @@ async function loadReunioes(){
       const statusLabel = done ? "Finalizada" : (canceled ? "Cancelada" : (pending ? "Aguardando confirmação" : "Agendada"));
       const date = item.data ? new Date(`${item.data}T12:00:00`) : null;
       const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("pt-BR", {weekday:"short", day:"2-digit", month:"short"}) : item.data;
+      const relationship = item.responsavel_contato
+        ? `<div class="meeting-relationship"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato)}</strong></div>`
+        : "";
       return `<article class="meeting-card ${statusClass}">
         <div class="meeting-icon">${escapeHtml(item.icone || "🤝")}</div>
         <div class="meeting-card-content">
           <div class="meeting-card-top"><span class="meeting-status ${statusClass}">${statusLabel}</span><span class="meeting-gang">${escapeHtml(item.gangue)}</span></div>
           <h4>${escapeHtml(item.titulo)}</h4>
+          ${relationship}
           <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
           ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
           ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}

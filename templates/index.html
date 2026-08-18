@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260816-percentual-sujo-1-30" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260817-responsaveis-familias" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -159,9 +159,19 @@
                 <input id="quem_pediu" list="familiasDatalist" placeholder="Nome ou facção" required />
               </div>
 
-              <div class="field">
+              <div class="field field-full">
+                <label for="c_familia_id">Família fornecedora (opcional)</label>
+                <select id="c_familia_id">
+                  <option value="">Fornecedor sem família cadastrada</option>
+                </select>
+                <small class="field-help">Ao selecionar uma família, o responsável pelo contato aparece abaixo e o mercado é validado.</small>
+              </div>
+
+              <div class="family-selection-summary field-full" id="c_family_summary" hidden></div>
+
+              <div class="field field-full" id="c_vendedor_manual_field">
                 <label for="quem_vendeu">Quem vendeu</label>
-                <input id="quem_vendeu" placeholder="Responsável pela venda" required />
+                <input id="quem_vendeu" placeholder="Fornecedor ou responsável pela venda" required />
               </div>
 
               <div class="field">
@@ -277,6 +287,8 @@
                 </select>
                 <small class="field-help">Selecione uma família para contabilizar a venda no ranking mensal.</small>
               </div>
+
+              <div class="family-selection-summary field-full" id="v_family_summary" hidden></div>
 
               <div class="field field-full" id="v_comprador_manual_field">
                 <label for="quem_compra">Quem compra</label>
@@ -481,6 +493,8 @@
                 </select>
                 <small class="field-help">Toda encomenda fica vinculada ao cadastro da família.</small>
               </div>
+
+              <div class="family-selection-summary field-full" id="e_family_summary" hidden></div>
 
               <div class="field field-full">
                 <label>Itens do pedido</label>
@@ -751,8 +765,22 @@
             <p class="eyebrow">Relacionamento externo</p>
             <h3>Famílias e gangues</h3>
           </div>
-          <p>Consulte todas as famílias, os valores negociados, o flyer vinculado e se o mercado está aberto ou fechado para cada uma.</p>
+          <p>Consulte os responsáveis pelo contato, valores negociados, flyers e a situação comercial de cada família.</p>
         </div>
+
+        <section class="panel-card relationship-operations-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Organização interna</p>
+              <h3>Responsabilidades da operação</h3>
+            </div>
+          </div>
+          <div class="relationship-operations-grid">
+            <article><span>🔐</span><div><small>Controle do baú</small><strong>Kyotaka</strong></div></article>
+            <article><span>🧪</span><div><small>Abertura e responsabilidade pela deep</small><strong>Lipe</strong></div></article>
+            <article><span>📦</span><div><small>Compra de material e controle de estoque</small><strong>Wanda</strong></div></article>
+          </div>
+        </section>
 
         <div class="families-layout">
           <section class="panel-card family-form-card">
@@ -774,10 +802,16 @@
                 <input id="f_icone" maxlength="12" placeholder="Ex.: ✨" />
               </div>
               <div class="field">
+                <label for="f_responsavel_contato">Responsável pelo contato</label>
+                <input id="f_responsavel_contato" maxlength="120" placeholder="Ex.: Larissa" />
+              </div>
+              <div class="field field-full">
                 <label for="f_mercado">Situação do mercado</label>
                 <select id="f_mercado" required>
                   <option value="Aberto">Mercado aberto</option>
                   <option value="Fechado">Mercado fechado</option>
+                  <option value="Sem mercado">Sem mercado — bloquear movimentações</option>
+                  <option value="Em negociação">Em negociação — bloquear movimentações</option>
                 </select>
               </div>
               <div class="field field-full">
@@ -853,7 +887,7 @@
               <div class="family-counters">
                 <span><strong id="familiasTotal">0</strong> cadastradas</span>
                 <span><strong id="familiasAbertas">0</strong> abertas</span>
-                <span><strong id="familiasFechadas">0</strong> fechadas</span>
+                <span><strong id="familiasFechadas">0</strong> indisponíveis</span>
               </div>
             </div>
             <div id="familiasGrid" class="families-grid"></div>
@@ -1038,6 +1072,6 @@
   </div>
 
   <datalist id="familiasDatalist"></datalist>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260816-percentual-sujo-1-30"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260817-responsaveis-familias"></script>
 </body>
 </html>

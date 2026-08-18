@@ -125,6 +125,7 @@ COMPRAS_HEADERS = [
     "id", "data", "produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade",
     "valor_total", "observacao", "tipo_dinheiro", "valor_base", "acrescimo_dinheiro_sujo",
     "percentual_dinheiro_sujo",
+    "familia_id", "familia_nome", "familia_icone",
 ]
 VENDAS_HEADERS = [
     "id",
@@ -182,36 +183,71 @@ FAMILIAS_HEADERS = [
     "flyer_oculto",
     "contato_2",
     "flyer_url_2",
+    "responsavel_contato",
 ]
 DEFAULT_FAMILIAS = [
     {
-        "nome": "Aura",
-        "icone": "✨",
-        "mercado": "Aberto",
-        "preco_venda_para_familia": "",
-        "preco_compra_da_familia": "",
-        "flyer_url": "",
-        "observacao": "Cadastro padrão para garantir que a Aura apareça nas opções de facções.",
+        "nome": "Ruptura", "icone": "💥", "mercado": "Aberto", "responsavel_contato": "Larissa",
     },
     {
-        "nome": "Distrito",
-        "icone": "🏙️",
-        "mercado": "Aberto",
-        "preco_venda_para_familia": "",
-        "preco_compra_da_familia": "",
-        "flyer_url": "",
-        "observacao": "Cadastro padrão para permitir uma tabela especial de valores para o Distrito.",
+        "nome": "Leviatã", "icone": "🐉", "mercado": "Aberto", "responsavel_contato": "Larissa",
     },
     {
-        "nome": "Cartel",
-        "icone": "🦂",
-        "mercado": "Aberto",
-        "preco_venda_para_familia": "",
-        "preco_compra_da_familia": "",
-        "flyer_url": "",
-        "observacao": "Nome corrigido de Bandoleros para Cartel.",
+        "nome": "Distrito", "icone": "🏙️", "mercado": "Aberto", "responsavel_contato": "Wanda",
+    },
+    {
+        "nome": "Black Hearts", "icone": "🖤", "mercado": "Aberto", "responsavel_contato": "Wanda",
+    },
+    {
+        "nome": "The Lost MC", "icone": "🏍️", "mercado": "Aberto", "responsavel_contato": "Kyotaka",
+    },
+    {
+        "nome": "Ballas", "icone": "🟣", "mercado": "Aberto", "responsavel_contato": "Matheus",
+    },
+    {
+        "nome": "Legacy", "icone": "👑", "mercado": "Aberto", "responsavel_contato": "Matheus",
+    },
+    {
+        "nome": "Aura", "icone": "✨", "mercado": "Aberto", "responsavel_contato": "Gohan",
+    },
+    {
+        "nome": "La Guardia", "icone": "🛡️", "mercado": "Aberto", "responsavel_contato": "Gohan",
+    },
+    {
+        "nome": "Vendetta", "icone": "🔴", "mercado": "Aberto", "responsavel_contato": "Max",
+    },
+    {
+        "nome": "Cartel", "icone": "🦂", "mercado": "Aberto", "responsavel_contato": "Max",
+    },
+    {
+        "nome": "Hells", "icone": "🏴", "mercado": "Aberto", "responsavel_contato": "Theo",
+    },
+    {
+        "nome": "Nox", "icone": "🌑", "mercado": "Sem mercado", "responsavel_contato": "",
+        "observacao": "Não compramos nem vendemos para esta família enquanto estiver sem mercado aberto.",
+    },
+    {
+        "nome": "Void", "icone": "⚫", "mercado": "Sem mercado", "responsavel_contato": "",
+        "observacao": "Não compramos nem vendemos para esta família enquanto estiver sem mercado aberto.",
+    },
+    {
+        "nome": "Meraki", "icone": "🔹", "mercado": "Sem mercado", "responsavel_contato": "",
+        "observacao": "Não compramos nem vendemos para esta família enquanto estiver sem mercado aberto.",
+    },
+    {
+        "nome": "Chaos", "icone": "🌀", "mercado": "Em negociação", "responsavel_contato": "",
+        "observacao": "Mercado ainda não estabelecido. Compras, vendas e encomendas ficam bloqueadas.",
+    },
+    {
+        "nome": "Balaclava", "icone": "🥷", "mercado": "Em negociação", "responsavel_contato": "",
+        "observacao": "Mercado ainda não estabelecido. Compras, vendas e encomendas ficam bloqueadas.",
     },
 ]
+RESTRICTED_FAMILY_MARKETS = {
+    "nox": "Sem mercado",
+    "void": "Sem mercado",
+    "meraki": "Sem mercado",
+}
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
 
@@ -1437,16 +1473,45 @@ def apply_payment_defaults(item, total_field):
 
 def canonical_family_name(value):
     name = str(value or "").strip()
-    if normalized_lookup_key(name) in {"bandoleros", "bandolero"}:
-        return "Cartel"
-    return name
+    aliases = {
+        "bandoleros": "Cartel",
+        "bandolero": "Cartel",
+        "blackherts": "Black Hearts",
+        "black hearts": "Black Hearts",
+        "the lost": "The Lost MC",
+        "the lost mc": "The Lost MC",
+        "lost mc": "The Lost MC",
+        "laguardia": "La Guardia",
+        "la guardia": "La Guardia",
+        "leviata": "Leviatã",
+        "hells angels": "Hells",
+    }
+    return aliases.get(normalized_lookup_key(name), name)
 
 
 def normalize_market_status(value):
     normalized = normalized_lookup_key(value)
+    if normalized in {"sem mercado", "mercado inexistente", "nao temos mercado", "sem mercado aberto"}:
+        return "Sem mercado"
+    if normalized in {"em negociacao", "negociacao", "mercado em negociacao", "ainda sem mercado"}:
+        return "Em negociação"
     if normalized in {"fechado", "fechada", "mercado fechado", "nao", "n"}:
         return "Fechado"
     return "Aberto"
+
+
+def family_market_is_open(value):
+    return normalize_market_status(value) == "Aberto"
+
+
+def family_market_block_message(family):
+    name = str(family.get("nome") or "Esta família").strip()
+    status = normalize_market_status(family.get("mercado"))
+    if status == "Em negociação":
+        return f"{name} ainda não possui mercado estabelecido. Compras, vendas e encomendas estão bloqueadas."
+    if status == "Sem mercado":
+        return f"{name} está sem mercado aberto. Não compramos nem vendemos para esta família."
+    return f"O mercado de {name} está fechado. Compras, vendas e encomendas estão bloqueadas."
 
 
 def normalize_flag(value):
@@ -1586,6 +1651,7 @@ def build_family_row(data, registro_id=None, criado_em=None):
         "Sim" if normalize_flag(data.get("flyer_oculto")) else "Não",
         str(data.get("contato_2") or "").strip(),
         str(data.get("flyer_url_2") or "").strip(),
+        str(data.get("responsavel_contato") or "").strip(),
     ]
 
 
@@ -1624,6 +1690,15 @@ def _ensure_familias_ready_locked(worksheet, force=False):
         worksheet.delete_rows(row_index)
         changed = True
 
+    if duplicate_indexes:
+        invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+        rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
+        existing = {}
+        for row_index, row in enumerate(rows[1:], start=2):
+            key = normalized_lookup_key(canonical_family_name(sheet_cell(row, 2)))
+            if key and key not in existing:
+                existing[key] = (row_index, row)
+
     additions = []
 
     # Importa cadastros da antiga aba Flyers quando ela existir.
@@ -1639,6 +1714,29 @@ def _ensure_familias_ready_locked(worksheet, force=False):
         if key not in existing:
             additions.append(build_family_row(default))
             existing[key] = (None, additions[-1])
+            continue
+
+        row_index, existing_row = existing[key]
+        if not row_index:
+            continue
+        padded = list(existing_row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(existing_row))
+        row_changed = False
+        responsible_index = FAMILIAS_HEADERS.index("responsavel_contato")
+        if not str(padded[responsible_index] or "").strip() and default.get("responsavel_contato"):
+            padded[responsible_index] = default["responsavel_contato"]
+            row_changed = True
+        if not str(padded[FAMILIAS_HEADERS.index("icone")] or "").strip() and default.get("icone"):
+            padded[FAMILIAS_HEADERS.index("icone")] = default["icone"]
+            row_changed = True
+        restricted_status = RESTRICTED_FAMILY_MARKETS.get(key)
+        if restricted_status and normalize_market_status(padded[FAMILIAS_HEADERS.index("mercado")]) != restricted_status:
+            padded[FAMILIAS_HEADERS.index("mercado")] = restricted_status
+            row_changed = True
+        if row_changed:
+            padded[FAMILIAS_HEADERS.index("atualizado_em")] = format_timestamp()
+            worksheet.update(f"A{row_index}:O{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
+            existing[key] = (row_index, padded)
+            changed = True
 
     # Toda reunião já finalizada também deve aparecer em Famílias.
     reunioes_worksheet = get_reunioes_worksheet()
@@ -1691,7 +1789,7 @@ def upsert_family_from_meeting(name, icon=""):
                 changed = True
             if changed:
                 padded[9] = format_timestamp()
-                worksheet.update(f"A{row_index}:N{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
+                worksheet.update(f"A{row_index}:O{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
                 invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
             return padded[0] or family_id_from_name(canonical_name), False
 
@@ -1797,7 +1895,11 @@ def validate_numeric_fields(data, required_fields):
 
 
 def normalize_compra(row):
-    return apply_payment_defaults(row_to_dict(row, COMPRAS_HEADERS), "valor_total")
+    item = row_to_dict(row, COMPRAS_HEADERS)
+    item["familia_id"] = str(item.get("familia_id") or "").strip()
+    item["familia_nome"] = str(item.get("familia_nome") or item.get("quem_vendeu") or "").strip()
+    item["familia_icone"] = str(item.get("familia_icone") or "").strip()
+    return apply_payment_defaults(item, "valor_total")
 
 
 def normalize_venda(row):
@@ -2085,6 +2187,8 @@ def normalize_family(row):
     item = row_to_dict(row, FAMILIAS_HEADERS)
     item["nome"] = canonical_family_name(item.get("nome"))
     item["mercado"] = normalize_market_status(item.get("mercado"))
+    item["mercado_aberto"] = family_market_is_open(item.get("mercado"))
+    item["responsavel_contato"] = str(item.get("responsavel_contato") or "").strip()
     item["flyer_oculto"] = normalize_flag(item.get("flyer_oculto"))
     for slot, field in ((1, "flyer_url"), (2, "flyer_url_2")):
         stored_reference = stable_family_flyer_reference(item.get(field))
@@ -2093,7 +2197,7 @@ def normalize_family(row):
     return item
 
 
-def get_family_snapshot(family_id):
+def get_family_snapshot(family_id, require_open=False):
     """Resolve a família no servidor para não confiar no nome enviado pelo navegador."""
     clean_id = clean_text(family_id, "Família/gangue", max_length=80, required=True)
     worksheet = get_familias_worksheet()
@@ -2103,11 +2207,36 @@ def get_family_snapshot(family_id):
     family = normalize_family(row)
     if not str(family.get("nome") or "").strip():
         raise ValueError("A família/gangue selecionada não possui um cadastro válido.")
+    if require_open and not family.get("mercado_aberto"):
+        raise ValueError(family_market_block_message(family))
     return {
         "id": str(family.get("id") or clean_id).strip(),
         "nome": str(family.get("nome") or "").strip(),
         "icone": str(family.get("icone") or "").strip(),
+        "mercado": family["mercado"],
+        "mercado_aberto": bool(family.get("mercado_aberto")),
+        "responsavel_contato": family["responsavel_contato"],
     }
+
+
+def validate_manual_party_against_families(name):
+    """Impede que um cadastro de família seja contornado pelo campo de texto livre."""
+    lookup_key = normalized_lookup_key(canonical_family_name(name))
+    if not lookup_key:
+        return
+
+    worksheet = get_familias_worksheet()
+    rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet)
+    for row in rows[1:]:
+        family = normalize_family(row)
+        if normalized_lookup_key(family.get("nome")) != lookup_key:
+            continue
+        if not family.get("mercado_aberto"):
+            raise ValueError(family_market_block_message(family))
+        raise ValueError(
+            f"{family['nome']} já está cadastrada. Selecione essa família no campo Família/gangue "
+            "para registrar o responsável e manter os relatórios corretos."
+        )
 
 
 def parse_record_datetime(value):
@@ -2252,6 +2381,8 @@ def build_family_sales_report(month_value=None):
                 "id": str(current.get("id") or family_id).strip(),
                 "nome": str(current.get("nome") or "").strip(),
                 "icone": str(current.get("icone") or "").strip(),
+                "responsavel_contato": str(current.get("responsavel_contato") or "").strip(),
+                "mercado": current.get("mercado") or "Aberto",
             }
 
         # Primeiro tentamos a foto do cadastro gravada na venda; depois, o
@@ -2271,6 +2402,8 @@ def build_family_sales_report(month_value=None):
                     "id": str(current.get("id") or "").strip(),
                     "nome": str(current.get("nome") or record_name).strip(),
                     "icone": str(current.get("icone") or "").strip(),
+                    "responsavel_contato": str(current.get("responsavel_contato") or "").strip(),
+                    "mercado": current.get("mercado") or "Aberto",
                 }
         return None
 
@@ -2281,6 +2414,8 @@ def build_family_sales_report(month_value=None):
                 "familia_id": str(family.get("id") or "").strip(),
                 "nome": str(family.get("nome") or "Família sem nome").strip(),
                 "icone": str(family.get("icone") or "").strip() or "🤝",
+                "responsavel_contato": str(family.get("responsavel_contato") or "").strip(),
+                "mercado": normalize_market_status(family.get("mercado")),
                 "total_gasto": 0.0,
                 "valor_pendente": 0.0,
                 "itens_comprados": 0,
@@ -2353,6 +2488,8 @@ def build_family_sales_report(month_value=None):
             "familia_id": group["familia_id"],
             "nome": group["nome"],
             "icone": group["icone"],
+            "responsavel_contato": group["responsavel_contato"],
+            "mercado": group["mercado"],
             "total_gasto": round(group["total_gasto"], 2),
             "valor_pendente": round(group["valor_pendente"], 2),
             "compras": len(group["_transacoes"]),
@@ -2907,7 +3044,24 @@ def list_compras():
     try:
         worksheet = get_compras_worksheet()
         rows = cached_get_all_values(COMPRAS_WORKSHEET_NAME, worksheet)
-        return jsonify([normalize_compra(row) for row in latest_data_rows(rows)])
+        family_worksheet = get_familias_worksheet()
+        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
+        families_by_id = {
+            str(family.get("id") or "").strip(): family
+            for family in (normalize_family(row) for row in family_rows[1:])
+            if str(family.get("id") or "").strip()
+        }
+        compras = []
+        for row in latest_data_rows(rows):
+            compra = normalize_compra(row)
+            family = families_by_id.get(compra.get("familia_id"))
+            if family:
+                compra["familia_nome"] = family["nome"]
+                compra["familia_icone"] = family.get("icone") or ""
+                compra["familia_responsavel"] = family.get("responsavel_contato") or ""
+                compra["familia_mercado"] = family.get("mercado") or "Aberto"
+            compras.append(compra)
+        return jsonify(compras)
 
     except Exception as e:
         log_error("Falha em /api/compras [GET]", e)
@@ -2921,7 +3075,7 @@ def create_compra():
         data = request.get_json(silent=True)
         ok, message = validate_numeric_fields(
             data,
-            ["produto", "quem_pediu", "quem_vendeu", "valor_unitario", "quantidade"]
+            ["produto", "quem_pediu", "valor_unitario", "quantidade"]
         )
 
         if not ok:
@@ -2930,8 +3084,15 @@ def create_compra():
         try:
             produto = clean_text_field(data, "produto", "Produto")
             quem_pediu = clean_text_field(data, "quem_pediu", "Quem pediu")
-            quem_vendeu = clean_text_field(data, "quem_vendeu", "Quem vendeu")
             observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
+            family_id = str(data.get("familia_id") or "").strip()
+            if family_id:
+                family = get_family_snapshot(family_id, require_open=True)
+                quem_vendeu = family["nome"]
+            else:
+                family = {"id": "", "nome": "", "icone": ""}
+                quem_vendeu = clean_text_field(data, "quem_vendeu", "Quem vendeu")
+                validate_manual_party_against_families(quem_vendeu)
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
@@ -2964,6 +3125,9 @@ def create_compra():
             valor_base,
             surcharge,
             dirty_percentage,
+            family["id"],
+            family["nome"],
+            family["icone"],
         ], value_input_option="RAW")
         invalidate_values_cache(COMPRAS_WORKSHEET_NAME)
         log_info(f"Compra registrada com sucesso. ID={registro_id}")
@@ -2977,6 +3141,7 @@ def create_compra():
             "valor_base": valor_base,
             "acrescimo_dinheiro_sujo": surcharge,
             "percentual_dinheiro_sujo": dirty_percentage,
+            "familia_id": family["id"],
         }), 201
 
     except Exception as e:
@@ -3004,6 +3169,8 @@ def list_vendas():
             if family:
                 venda["familia_nome"] = family["nome"]
                 venda["familia_icone"] = family.get("icone") or ""
+                venda["familia_responsavel"] = family.get("responsavel_contato") or ""
+                venda["familia_mercado"] = family.get("mercado") or "Aberto"
             vendas.append(venda)
         return jsonify(vendas)
 
@@ -3031,11 +3198,12 @@ def create_venda():
             observacao = clean_text_field(data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False)
             family_id = str(data.get("familia_id") or "").strip()
             if family_id:
-                family = get_family_snapshot(family_id)
+                family = get_family_snapshot(family_id, require_open=True)
                 quem_compra = family["nome"]
             else:
                 family = {"id": "", "nome": "", "icone": ""}
                 quem_compra = clean_text_field(data, "quem_compra", "Quem compra")
+                validate_manual_party_against_families(quem_compra)
         except ValueError as validation_error:
             return error_response(str(validation_error), 400)
 
@@ -3156,6 +3324,8 @@ def list_encomendas():
             if family:
                 order["familia_nome"] = family["nome"]
                 order["familia_icone"] = family.get("icone") or ""
+                order["familia_responsavel"] = family.get("responsavel_contato") or ""
+                order["familia_mercado"] = family.get("mercado") or "Aberto"
             orders.append(order)
         orders.sort(key=encomenda_sort_key)
         return jsonify(orders)
@@ -3221,7 +3391,7 @@ def create_encomenda():
             entregue = "Não"
 
         try:
-            family = get_family_snapshot(data.get("familia_id"))
+            family = get_family_snapshot(data.get("familia_id"), require_open=True)
             quem_pediu = family["nome"]
             para_quando = clean_text_field(data, "para_quando", "Para quando")
             quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
@@ -3335,7 +3505,7 @@ def update_encomenda(registro_id):
 
         try:
             items, valor_base = validate_encomenda_items(data.get("itens"))
-            family = get_family_snapshot(data.get("familia_id"))
+            family = get_family_snapshot(data.get("familia_id"), require_open=True)
             quem_pediu = family["nome"]
             para_quando = clean_text_field(data, "para_quando", "Para quando")
             quem_negociou = clean_text_field(data, "quem_negociou", "Quem negociou")
@@ -3570,6 +3740,18 @@ def list_reunioes():
         worksheet = get_reunioes_worksheet()
         rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, worksheet)
         reunioes = [normalize_reuniao(row) for row in latest_data_rows(rows)]
+        family_worksheet = get_familias_worksheet()
+        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
+        families_by_name = {
+            normalized_lookup_key(family.get("nome")): family
+            for family in (normalize_family(row) for row in family_rows[1:])
+            if normalized_lookup_key(family.get("nome"))
+        }
+        for reuniao in reunioes:
+            family = families_by_name.get(normalized_lookup_key(reuniao.get("gangue")))
+            if family:
+                reuniao["responsavel_contato"] = family.get("responsavel_contato") or ""
+                reuniao["mercado"] = family.get("mercado") or "Aberto"
         status_order = {"Agendada": 0, "Aguardando confirmação": 1, "Cancelada": 2, "Finalizada": 3}
         reunioes.sort(key=lambda item: (status_order.get(item.get("status"), 0), item.get("data", ""), item.get("horario", "")))
         return jsonify(reunioes)
@@ -3820,7 +4002,7 @@ def upload_familia_flyer(registro_id):
                 padded[FAMILIAS_HEADERS.index("flyer_oculto")] = "Não"
                 padded[FAMILIAS_HEADERS.index("atualizado_em")] = format_timestamp()
                 worksheet.update(
-                    f"A{row_index}:N{row_index}",
+                    f"A{row_index}:O{row_index}",
                     [padded[:len(FAMILIAS_HEADERS)]],
                     value_input_option="RAW",
                 )
@@ -3860,6 +4042,9 @@ def validate_family_payload(data):
         raise ValueError("Nome da família/gangue é obrigatório.")
 
     market = normalize_market_status(data.get("mercado"))
+    restricted_market = RESTRICTED_FAMILY_MARKETS.get(normalized_lookup_key(name))
+    if restricted_market:
+        market = restricted_market
     icon = clean_text_field(data, "icone", "Ícone", max_length=12, required=False)
     sale_price = clean_text_field(
         data, "preco_venda_para_familia", "Preço de venda para a família",
@@ -3877,6 +4062,9 @@ def validate_family_payload(data):
     contact_2 = clean_text_field(
         data, "contato_2", "Contato 2", max_length=200, required=False,
     )
+    responsible = clean_text_field(
+        data, "responsavel_contato", "Responsável pelo contato", max_length=120, required=False,
+    )
     flyer_hidden = normalize_flag(data.get("flyer_oculto"))
     observation = clean_text_field(
         data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False,
@@ -3891,6 +4079,7 @@ def validate_family_payload(data):
         "flyer_url_2": flyer_url_2,
         "contato": contact,
         "contato_2": contact_2,
+        "responsavel_contato": responsible,
         "flyer_oculto": flyer_hidden,
         "observacao": observation,
     }
@@ -3958,7 +4147,7 @@ def update_familia(registro_id):
                 new_reference = str(updated[field_index] or "").strip()
                 if old_reference != new_reference:
                     replaced_flyers.append(old_reference)
-            worksheet.update(f"A{row_index}:N{row_index}", [updated], value_input_option="RAW")
+            worksheet.update(f"A{row_index}:O{row_index}", [updated], value_input_option="RAW")
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
 
         for reference in replaced_flyers:
