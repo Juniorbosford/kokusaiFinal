@@ -244,13 +244,27 @@ const LOCAL_FLYERS = {
 };
 
 function normalizeFamilyFlyerKey(value){
-  return String(value || "")
+  const key = String(value || "")
     .normalize("NFD")
     .replace(/[\\u0300-\\u036f]/g, "")
     .toLowerCase()
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+  const aliases = {
+    "caos":"chaos",
+    "balaklava":"balaclava",
+    "blackherts":"black hearts",
+    "black heart":"black hearts",
+    "the lost":"the lost mc",
+    "lost mc":"the lost mc",
+    "laguardia":"la guardia",
+    "bandoleros":"cartel",
+    "bandolero":"cartel",
+    "los bandoleros":"cartel",
+    "hells angels":"hells",
+  };
+  return aliases[key] || key;
 }
 
 function getLocalFamilyFlyers(item){

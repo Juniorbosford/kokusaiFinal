@@ -1476,7 +1476,9 @@ def canonical_family_name(value):
     aliases = {
         "bandoleros": "Cartel",
         "bandolero": "Cartel",
+        "los bandoleros": "Cartel",
         "blackherts": "Black Hearts",
+        "black heart": "Black Hearts",
         "black hearts": "Black Hearts",
         "the lost": "The Lost MC",
         "the lost mc": "The Lost MC",
@@ -1485,6 +1487,8 @@ def canonical_family_name(value):
         "la guardia": "La Guardia",
         "leviata": "Leviatã",
         "hells angels": "Hells",
+        "caos": "Chaos",
+        "balaklava": "Balaclava",
     }
     return aliases.get(normalized_lookup_key(name), name)
 
@@ -1655,6 +1659,49 @@ def build_family_row(data, registro_id=None, criado_em=None):
     ]
 
 
+def merge_duplicate_family_rows(primary_row, duplicate_row, canonical_name):
+    """Consolida duplicatas sem descartar flyers, contatos ou regras comerciais."""
+    size = len(FAMILIAS_HEADERS)
+    primary = list(primary_row[:size]) + [""] * max(0, size - len(primary_row))
+    duplicate = list(duplicate_row[:size]) + [""] * max(0, size - len(duplicate_row))
+    original = list(primary)
+
+    primary[FAMILIAS_HEADERS.index("nome")] = canonical_name
+
+    # Campos simples: o cadastro principal prevalece, e a duplicata preenche lacunas.
+    for field_name in (
+        "icone", "preco_venda_para_familia", "preco_compra_da_familia",
+        "observacao", "responsavel_contato",
+    ):
+        field_index = FAMILIAS_HEADERS.index(field_name)
+        if not str(primary[field_index] or "").strip() and str(duplicate[field_index] or "").strip():
+            primary[field_index] = duplicate[field_index]
+
+    # Se uma das grafias já foi liberada, mantém o mercado aberto na unificação.
+    market_index = FAMILIAS_HEADERS.index("mercado")
+    if family_market_is_open(duplicate[market_index]) and not family_market_is_open(primary[market_index]):
+        primary[market_index] = "Aberto"
+
+    # Aproveita os dois espaços disponíveis para não perder flyers nem contatos.
+    for first_field, second_field in (("flyer_url", "flyer_url_2"), ("contato", "contato_2")):
+        first_index = FAMILIAS_HEADERS.index(first_field)
+        second_index = FAMILIAS_HEADERS.index(second_field)
+        unique_values = []
+        for value in (primary[first_index], primary[second_index], duplicate[first_index], duplicate[second_index]):
+            clean_value = str(value or "").strip()
+            if clean_value and clean_value not in unique_values:
+                unique_values.append(clean_value)
+        primary[first_index] = unique_values[0] if unique_values else ""
+        primary[second_index] = unique_values[1] if len(unique_values) > 1 else ""
+
+    if normalize_flag(duplicate[FAMILIAS_HEADERS.index("flyer_oculto")]):
+        primary[FAMILIAS_HEADERS.index("flyer_oculto")] = "Sim"
+
+    if primary != original:
+        primary[FAMILIAS_HEADERS.index("atualizado_em")] = format_timestamp()
+    return primary, primary != original
+
+
 def ensure_familias_ready(worksheet, force=False):
     # Serializa a manutenção para impedir cadastros duplicados em acessos simultâneos.
     with _sheets_lock:
@@ -1678,6 +1725,16 @@ def _ensure_familias_ready_locked(worksheet, force=False):
         if not key:
             continue
         if key in existing:
+            primary_index, primary_row = existing[key]
+            merged_row, merged_changed = merge_duplicate_family_rows(primary_row, row, name)
+            if merged_changed:
+                worksheet.update(
+                    f"A{primary_index}:O{primary_index}",
+                    [merged_row[:len(FAMILIAS_HEADERS)]],
+                    value_input_option="RAW",
+                )
+                existing[key] = (primary_index, merged_row)
+                changed = True
             duplicate_indexes.append(row_index)
             continue
         existing[key] = (row_index, row)
@@ -1685,7 +1742,7 @@ def _ensure_familias_ready_locked(worksheet, force=False):
             worksheet.update_cell(row_index, 3, name)
             changed = True
 
-    # Remove duplicatas antigas, como Bandoleros + Cartel, preservando o primeiro cadastro.
+    # Remove a linha repetida somente depois de consolidar seus dados no cadastro principal.
     for row_index in reversed(duplicate_indexes):
         worksheet.delete_rows(row_index)
         changed = True
@@ -2392,7 +2449,7 @@ def build_family_sales_report(month_value=None):
         checked = set()
         for candidate in candidates:
             record_name = str(candidate or "").strip()
-            lookup_key = normalized_lookup_key(record_name)
+            lookup_key = normalized_lookup_key(canonical_family_name(record_name))
             if not lookup_key or lookup_key in checked:
                 continue
             checked.add(lookup_key)
