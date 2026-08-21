@@ -1237,7 +1237,7 @@ def add_security_headers(response):
         "script-src 'self'; "
         "style-src 'self' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
-        "img-src 'self' data: https: http:; "
+        "img-src 'self' data: blob: https: http:; "
         "connect-src 'self'; "
         "base-uri 'self'; "
         "frame-ancestors 'none'; "
