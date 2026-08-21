@@ -10,7 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260817-responsaveis-familias-dedupe" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260818-observacao-encomendas" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260818-sophisticated-hud" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -20,21 +21,21 @@
         <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="brand-logo" />
         <div>
           <p class="brand-kicker">Kokusai</p>
-          <h1>Departamento</h1>
-          <span>Compras • Vendas • Encomendas • Relatórios • Famílias • Metas • Craft</span>
+          <h1>Operações</h1>
+          <span>Central de gestão</span>
         </div>
       </div>
 
       <nav class="nav" aria-label="Navegação principal">
-        <button class="nav-link active" data-target="dashboard"><span>Visão geral</span></button>
-        <button class="nav-link" data-target="compras"><span>Compras</span></button>
-        <button class="nav-link" data-target="vendas"><span>Vendas</span></button>
-        <button class="nav-link" data-target="encomendas"><span>Encomendas</span></button>
-        <button class="nav-link" data-target="relatorios"><span>Relatórios</span></button>
-        <button class="nav-link" data-target="reunioes"><span>Reuniões</span></button>
-        <button class="nav-link" data-target="familias"><span>Famílias</span></button>
-        {% if is_admin %}<button class="nav-link" data-target="metas"><span>Salas de Meta</span></button>{% endif %}
-        <button class="nav-link" data-target="craft"><span>Craft</span></button>
+        <button class="nav-link active" data-target="dashboard"><span class="nav-icon">⌂</span><span>Visão geral</span></button>
+        <button class="nav-link" data-target="compras"><span class="nav-icon">↓</span><span>Compras</span></button>
+        <button class="nav-link" data-target="vendas"><span class="nav-icon">↑</span><span>Vendas</span></button>
+        <button class="nav-link" data-target="encomendas"><span class="nav-icon">◇</span><span>Encomendas</span></button>
+        <button class="nav-link" data-target="relatorios"><span class="nav-icon">▥</span><span>Relatórios</span></button>
+        <button class="nav-link" data-target="reunioes"><span class="nav-icon">◷</span><span>Reuniões</span></button>
+        <button class="nav-link" data-target="familias"><span class="nav-icon">◎</span><span>Famílias</span></button>
+        {% if is_admin %}<button class="nav-link" data-target="metas"><span class="nav-icon">✓</span><span>Salas de Meta</span></button>{% endif %}
+        <button class="nav-link" data-target="craft"><span class="nav-icon">⌁</span><span>Craft</span></button>
       </nav>
 
       <div class="sidebar-panel">
@@ -60,25 +61,23 @@
     <main class="main-content">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Painel operacional</p>
-          <h2>Controle do departamento</h2>
-          <span class="topbar-subtitle">Registre movimentações, acompanhe totais e consulte históricos em um só lugar.</span>
+          <p class="eyebrow" id="topbarKicker">Central operacional</p>
+          <h2 id="topbarTitle">Visão geral</h2>
+          <span class="topbar-subtitle" id="topbarSubtitle">Indicadores essenciais da operação.</span>
         </div>
         <div class="topbar-actions">
           <span class="role-badge {{ current_user.role }}">{{ "Administrador" if is_admin else "Leitor" }}</span>
           <span class="sync-label" id="lastSync">Aguardando atualização</span>
-          <button class="ghost-btn" id="refreshBtn" type="button">Atualizar dados</button>
+          <button class="ghost-btn" id="refreshBtn" type="button">Atualizar</button>
         </div>
       </header>
 
       <section class="view active" id="dashboard">
         <div class="hero-card">
           <div class="hero-content">
-            <p class="hero-tag">Gestão GTARP</p>
-            <h3>Operação centralizada para compras, vendas, encomendas, famílias, metas e craft</h3>
-            <p class="hero-copy">
-              Um painel mais limpo, direto e profissional para registrar pedidos, consultar famílias parceiras, acompanhar pagamentos de meta, calcular crafts e manter o histórico do departamento organizado.
-            </p>
+            <p class="hero-tag">Resumo ao vivo</p>
+            <h3>Operação Kokusai</h3>
+            <p class="hero-copy">Movimentações, compromissos e metas em uma leitura rápida.</p>
             <div class="access-note {{ current_user.role }}">
               {{ "Você está com permissão total para registrar e consultar movimentações." if is_admin else "Você está em modo somente leitura. Os registros podem ser consultados, mas não alterados." }}
             </div>
@@ -139,7 +138,7 @@
         </div>
 
         <div class="section-grid">
-          <section class="panel-card">
+          <section class="panel-card disclosure-panel" id="compraEntryPanel" data-disclosure-panel data-disclosure-label="Registrar compra">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Nova compra</p>
@@ -265,7 +264,7 @@
         </div>
 
         <div class="section-grid">
-          <section class="panel-card">
+          <section class="panel-card disclosure-panel" id="vendaEntryPanel" data-disclosure-panel data-disclosure-label="Registrar venda">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Nova venda</p>
@@ -437,7 +436,7 @@
 
         <section class="report-podium" id="relatorioPodio" aria-label="As três gangues que mais gastaram"></section>
 
-        <section class="panel-card table-card">
+        <section class="panel-card table-card disclosure-panel" id="reportRankingPanel" data-disclosure-panel data-disclosure-label="Ver ranking completo">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Ranking completo</p>
@@ -476,7 +475,7 @@
         </div>
 
         <div class="section-grid">
-          <section class="panel-card">
+          <section class="panel-card disclosure-panel" id="encomendaEntryPanel" data-disclosure-panel data-disclosure-label="Nova encomenda">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker" id="encomendaFormKicker">Nova encomenda</p>
@@ -617,9 +616,10 @@
                   <small>Encontre rapidamente as encomendas que precisam de atenção.</small>
                 </div>
                 <span class="order-filter-count" id="encomendasFilterCount">0 encomendas</span>
+                <button type="button" class="order-advanced-toggle" id="encomendasAdvancedToggle" aria-expanded="false" aria-controls="encomendasAdvancedFilters">Filtros avançados</button>
               </div>
 
-              <div class="order-filter-grid">
+              <div class="order-filter-grid" id="encomendasAdvancedFilters" hidden>
                 <div class="field order-filter-search">
                   <label for="encomendasBusca">Buscar</label>
                   <input id="encomendasBusca" type="search" placeholder="Família, produto ou negociador" />
@@ -663,7 +663,7 @@
                     <th>Prioridade</th>
                     <th>Data</th>
                     <th>Quem pediu</th>
-                    <th>O que pediu</th>
+                    <th>Pedido / detalhes</th>
                     <th>Pra quando</th>
                     <th>Negociou</th>
                     <th>Pagamento</th>
@@ -689,7 +689,7 @@
         </div>
 
         <div class="meetings-layout">
-          <section class="panel-card meeting-form-card">
+          <section class="panel-card meeting-form-card disclosure-panel" id="reuniaoEntryPanel" data-disclosure-panel data-disclosure-label="Agendar reunião">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker" id="reuniaoFormKicker">Nova reunião</p>
@@ -768,7 +768,7 @@
           <p>Consulte os responsáveis pelo contato, valores negociados, flyers e a situação comercial de cada família.</p>
         </div>
 
-        <section class="panel-card relationship-operations-card">
+        <section class="panel-card relationship-operations-card disclosure-panel" id="relationshipOperationsPanel" data-disclosure-panel data-disclosure-label="Ver responsáveis">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Organização interna</p>
@@ -776,14 +776,14 @@
             </div>
           </div>
           <div class="relationship-operations-grid">
-            <article><span>🔐</span><div><small>Controle do baú</small><strong>Kyotaka</strong></div></article>
+            <article><span>🔐</span><div><small>Controle do baú</small><strong>Kiyotaka</strong></div></article>
             <article><span>🧪</span><div><small>Abertura e responsabilidade pela deep</small><strong>Lipe</strong></div></article>
             <article><span>📦</span><div><small>Compra de material e controle de estoque</small><strong>Wanda</strong></div></article>
           </div>
         </section>
 
         <div class="families-layout">
-          <section class="panel-card family-form-card">
+          <section class="panel-card family-form-card disclosure-panel" id="familiaEntryPanel" data-disclosure-panel data-disclosure-label="Adicionar família">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker" id="familiaFormKicker">Novo cadastro</p>
@@ -973,7 +973,7 @@
         </div>
 
         <div class="section-grid craft-layout">
-          <section class="panel-card">
+          <section class="panel-card disclosure-panel" id="craftCalculatorPanel" data-disclosure-panel data-disclosure-label="Abrir calculadora">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Novo cálculo</p>
@@ -1058,7 +1058,7 @@
           </section>
         </div>
 
-        <section class="panel-card craft-recipes-card">
+        <section class="panel-card craft-recipes-card disclosure-panel" id="craftRecipesPanel" data-disclosure-panel data-disclosure-label="Consultar receitas">
           <div class="panel-head">
             <div>
               <p class="panel-kicker">Transcrição da planilha</p>
@@ -1072,6 +1072,6 @@
   </div>
 
   <datalist id="familiasDatalist"></datalist>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260817-responsaveis-familias-dedupe"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260818-sophisticated-hud"></script>
 </body>
 </html>

@@ -15,7 +15,7 @@ META_MEMBERS = [
     {"username": "hinata", "display_name": "Hinata", "password_hash": "pbkdf2_sha256$260000$vFsO7Vfi5AI/hMJGQxWf0A==$+GrXNq49/uMsyABHkKqLz5HFowwAT2k1IYbISGhaFv0="},
     {"username": "joao", "display_name": "João", "password_hash": "pbkdf2_sha256$260000$9xg/h9g5W2rdyhOyeYdvng==$k2SpyEXnFdgj6yqjMKy8/MnAztmZS2V0W22CoBasNKY="},
     {"username": "junior.azul", "display_name": "Junior (Azulzin)", "password_hash": "pbkdf2_sha256$260000$le77i+4cBCV4IRaGo0NoZQ==$YY9Uf6qSY8mQYSi2zyG/r3DkW8hlyyG7hfXUM8pHtxs="},
-    {"username": "kyotaka", "display_name": "Kyotaka", "password_hash": "pbkdf2_sha256$260000$Buibv4HjRTAJ3Q+iSf7sgQ==$lJW6PSBLARAP0ez1cyvKk60cmWb1kIb9nFlOyg5GG+4="},
+    {"username": "kyotaka", "display_name": "Kiyotaka", "password_hash": "pbkdf2_sha256$260000$Buibv4HjRTAJ3Q+iSf7sgQ==$lJW6PSBLARAP0ez1cyvKk60cmWb1kIb9nFlOyg5GG+4="},
     {"username": "lara.salles", "display_name": "Lara Salles", "password_hash": "pbkdf2_sha256$260000$MM7P004zW8rW+ylVdEWRxQ==$6g5XBOcTVgieuubqA53CYBsPrAckupRcauwk/Rkgm/U="},
     {"username": "larissa", "display_name": "Larissa", "password_hash": "pbkdf2_sha256$260000$Nz5Og9ppnQLI/5piQEcr9w==$inPXRY0yGUWERB36st78hnc9L4GYMJaKaR/RAX7X8Tg="},
     {"username": "liam", "display_name": "Liam", "password_hash": "pbkdf2_sha256$260000$zgdiB3tIcYBTbMzTNieQZQ==$icless0ddN5HRj2IZpWDnK/G+UBBrYqk9oPuAXTSWhw="},
@@ -36,4 +36,3 @@ META_MEMBERS = [
     {"username": "yori", "display_name": "Yori", "password_hash": "pbkdf2_sha256$260000$RlQ+unDq2Psq4AMPPbZw7w==$YdomDTv3eo2dYNzBYUotxZklyUP90dF/EYotUP27768="},
     {"username": "wanda", "display_name": "Wanda", "password_hash": "pbkdf2_sha256$260000$YgpvYDLnb8LtyR2JzKqK9A==$P21Ep/DetJWHuotbMcOpJsZuWH4MDsoVbHocVlE94xU="},
 ]
-

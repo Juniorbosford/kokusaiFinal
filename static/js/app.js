@@ -3,6 +3,18 @@ const views = document.querySelectorAll(".view");
 const canWrite = document.body.dataset.canWrite === "true";
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
 
+const VIEW_META = {
+  dashboard:{kicker:"Central operacional", title:"Visão geral", subtitle:"Indicadores essenciais da operação."},
+  compras:{kicker:"Movimentações", title:"Compras", subtitle:"Entradas registradas e histórico de fornecedores."},
+  vendas:{kicker:"Movimentações", title:"Vendas", subtitle:"Saídas, clientes e valores movimentados."},
+  encomendas:{kicker:"Operação", title:"Encomendas", subtitle:"Prioridades, prazos e entregas pendentes."},
+  relatorios:{kicker:"Inteligência comercial", title:"Relatórios", subtitle:"Desempenho mensal por família e gangue."},
+  reunioes:{kicker:"Agenda", title:"Reuniões", subtitle:"Compromissos e alinhamentos externos."},
+  familias:{kicker:"Relacionamento", title:"Famílias", subtitle:"Mercados, responsáveis e condições comerciais."},
+  metas:{kicker:"Controle semanal", title:"Salas de Meta", subtitle:"Comprovantes, conferência e fechamento."},
+  craft:{kicker:"Produção", title:"Craft", subtitle:"Cálculo objetivo de materiais e faltas."},
+};
+
 function csrfHeaders(headers = {}){
   return csrfToken ? {...headers, "X-CSRF-Token": csrfToken} : headers;
 }
@@ -10,7 +22,50 @@ function csrfHeaders(headers = {}){
 function activateView(target){
   navLinks.forEach(btn => btn.classList.toggle("active", btn.dataset.target === target));
   views.forEach(view => view.classList.toggle("active", view.id === target));
+  const meta = VIEW_META[target] || VIEW_META.dashboard;
+  const kicker = document.getElementById("topbarKicker");
+  const title = document.getElementById("topbarTitle");
+  const subtitle = document.getElementById("topbarSubtitle");
+  if(kicker) kicker.textContent = meta.kicker;
+  if(title) title.textContent = meta.title;
+  if(subtitle) subtitle.textContent = meta.subtitle;
+  document.title = `${meta.title} | Kokusai`;
   window.scrollTo({top:0, behavior:"smooth"});
+}
+
+function syncDisclosurePanel(panel, open){
+  if(!panel) return;
+  panel.classList.toggle("is-collapsed", !open);
+  const button = panel.querySelector(":scope > .panel-head .panel-disclosure-toggle");
+  if(!button) return;
+  button.setAttribute("aria-expanded", String(open));
+  button.classList.toggle("active", open);
+  const label = button.querySelector(".panel-disclosure-label");
+  if(label) label.textContent = open ? "Recolher" : (panel.dataset.disclosureLabel || "Abrir");
+  const symbol = button.querySelector(".panel-disclosure-symbol");
+  if(symbol) symbol.textContent = open ? "−" : "+";
+}
+
+function initializeDisclosurePanels(){
+  document.querySelectorAll("[data-disclosure-panel]").forEach(panel => {
+    const head = panel.querySelector(":scope > .panel-head");
+    if(!head || head.querySelector(".panel-disclosure-toggle")) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "panel-disclosure-toggle";
+    button.innerHTML = '<span class="panel-disclosure-symbol" aria-hidden="true">+</span><span class="panel-disclosure-label"></span>';
+    head.appendChild(button);
+    const startsOpen = panel.dataset.disclosureOpen === "true";
+    syncDisclosurePanel(panel, startsOpen);
+    button.addEventListener("click", () => syncDisclosurePanel(panel, panel.classList.contains("is-collapsed")));
+  });
+}
+
+function setDisclosurePanelOpen(panelId, open = true, scroll = false){
+  const panel = document.getElementById(panelId);
+  if(!panel) return;
+  syncDisclosurePanel(panel, open);
+  if(scroll) requestAnimationFrame(() => panel.scrollIntoView({behavior:"smooth", block:"start"}));
 }
 
 navLinks.forEach(link => {
@@ -61,6 +116,8 @@ const encomendasDataInicio = document.getElementById("encomendasDataInicio");
 const encomendasDataFim = document.getElementById("encomendasDataFim");
 const encomendasLimparFiltros = document.getElementById("encomendasLimparFiltros");
 const encomendasFilterCount = document.getElementById("encomendasFilterCount");
+const encomendasAdvancedToggle = document.getElementById("encomendasAdvancedToggle");
+const encomendasAdvancedFilters = document.getElementById("encomendasAdvancedFilters");
 const encomendasQuickFilters = document.querySelectorAll("[data-order-filter]");
 const relatorioMes = document.getElementById("relatorioMes");
 const relatorioGerarBtn = document.getElementById("relatorioGerarBtn");
@@ -696,18 +753,64 @@ function renderEncomendas(){
     const linked = Boolean(family?.id || item.familia_id);
     const priority = Boolean(item.prioridade);
     const nextByDeadline = !priority && orderDeadlineTimestamp(item) === nearestRegularDeadline;
-    return `<tr class="${priority ? "order-row-priority" : (nextByDeadline ? "order-row-next" : "")}">
+    const observation = String(item.observacao || "").trim();
+    const detailsId = `order-details-${item.id}`;
+    const observationButton = observation ? `
+      <button class="order-observation-toggle" type="button" data-toggle-order-details="${escapeHtml(item.id)}" aria-expanded="false" aria-controls="${escapeHtml(detailsId)}">
+        <span class="order-observation-icon">📝</span>
+        <span class="order-details-label">Ver observação</span>
+        <span class="order-details-arrow" aria-hidden="true">⌄</span>
+      </button>` : "";
+    const detailsRow = observation ? `
+      <tr class="order-details-row" id="${escapeHtml(detailsId)}" data-order-details-row="${escapeHtml(item.id)}" hidden>
+        <td colspan="${colspan}">
+          <div class="order-details-panel">
+            <div class="order-details-heading">
+              <span class="order-details-heading-icon">📝</span>
+              <div><small>Observação da encomenda</small><strong>${escapeHtml(familyName)}</strong></div>
+              <button class="order-details-close" type="button" data-close-order-details="${escapeHtml(item.id)}">Fechar</button>
+            </div>
+            <p>${escapeHtml(observation)}</p>
+            <div class="order-details-meta">
+              <span><small>Pedido</small><strong>${escapeHtml(item.o_que_pediu || "—")}</strong></span>
+              <span><small>Negociou</small><strong>${escapeHtml(item.quem_negociou || "—")}</strong></span>
+              <span><small>Prazo</small><strong>${escapeHtml(item.para_quando_exibicao || item.para_quando || "—")}</strong></span>
+            </div>
+          </div>
+        </td>
+      </tr>` : "";
+    return `<tr class="order-main-row ${priority ? "order-row-priority" : (nextByDeadline ? "order-row-next" : "")}" data-order-main-row="${escapeHtml(item.id)}">
       <td>${orderPriorityBadge(item, nearestRegularDeadline)}</td>
       <td>${escapeHtml(item.data)}</td>
       <td>${familyChipHtml(family, {nome:familyName, icone:familyIcon, responsavel:familyResponsible, linked})}</td>
-      <td>${escapeHtml(item.o_que_pediu)}</td>
+      <td><div class="order-product-cell"><span>${escapeHtml(item.o_que_pediu)}</span>${observationButton}</div></td>
       <td>${orderDeadlineHtml(item)}</td>
       <td>${escapeHtml(item.quem_negociou)}</td>
       <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
       <td>${currency(item.valor)}</td>
       <td>${deliveryControl(item)}</td>
-    </tr>`;
+    </tr>${detailsRow}`;
   }).join(""));
+}
+
+function toggleOrderDetails(orderId, forceOpen = null){
+  if(!encomendasTable) return;
+  const detailsRow = Array.from(encomendasTable.querySelectorAll("[data-order-details-row]"))
+    .find(row => row.dataset.orderDetailsRow === orderId);
+  const mainRow = Array.from(encomendasTable.querySelectorAll("[data-order-main-row]"))
+    .find(row => row.dataset.orderMainRow === orderId);
+  if(!detailsRow) return;
+
+  const willOpen = forceOpen === null ? detailsRow.hidden : Boolean(forceOpen);
+  detailsRow.hidden = !willOpen;
+  mainRow?.classList.toggle("details-open", willOpen);
+  encomendasTable.querySelectorAll("[data-toggle-order-details]").forEach(button => {
+    if(button.dataset.toggleOrderDetails !== orderId) return;
+    button.setAttribute("aria-expanded", String(willOpen));
+    button.classList.toggle("active", willOpen);
+    const label = button.querySelector(".order-details-label");
+    if(label) label.textContent = willOpen ? "Ocultar observação" : "Ver observação";
+  });
 }
 
 function setActiveOrderFilter(filterName){
@@ -727,6 +830,14 @@ function clearOrderFilters(){
   if(encomendasDataFim) encomendasDataFim.value = "";
   setActiveOrderFilter("all");
 }
+
+encomendasAdvancedToggle?.addEventListener("click", () => {
+  const willOpen = Boolean(encomendasAdvancedFilters?.hidden);
+  if(encomendasAdvancedFilters) encomendasAdvancedFilters.hidden = !willOpen;
+  encomendasAdvancedToggle.setAttribute("aria-expanded", String(willOpen));
+  encomendasAdvancedToggle.classList.toggle("active", willOpen);
+  encomendasAdvancedToggle.textContent = willOpen ? "Ocultar filtros" : "Filtros avançados";
+});
 
 function iniciarEdicaoEncomenda(id){
   const item = encomendasCache.find(encomenda => encomenda.id === id);
@@ -775,7 +886,7 @@ function iniciarEdicaoEncomenda(id){
   setText("encomendaFormKicker", "Editar encomenda");
   setText("encomendaFormTitle", family ? `${family.icone || "🤝"} ${family.nome}` : (item.familia_nome || item.quem_pediu || "Atualizar encomenda"));
   setFeedback(encomendaFeedback, "Edite os campos e clique em Salvar alterações.");
-  encomendaForm.scrollIntoView({behavior:"smooth", block:"start"});
+  setDisclosurePanelOpen("encomendaEntryPanel", true, true);
 }
 
 encomendaCancelEditBtn?.addEventListener("click", () => {
@@ -967,7 +1078,7 @@ function iniciarEdicaoReuniao(id){
   setText("reuniaoFormKicker", "Editar reunião");
   setText("reuniaoFormTitle", item.titulo || "Atualizar compromisso");
   setFeedback(reuniaoFeedback, "Edite os campos e clique em Salvar alterações.");
-  reuniaoForm.scrollIntoView({behavior:"smooth", block:"start"});
+  setDisclosurePanelOpen("reuniaoEntryPanel", true, true);
 }
 
 reuniaoCancelEditBtn?.addEventListener("click", () => {
@@ -1030,6 +1141,18 @@ reunioesGrid?.addEventListener("click", async (event) => {
 });
 
 encomendasTable?.addEventListener("click", async (event) => {
+  const detailsButton = event.target.closest("[data-toggle-order-details]");
+  if(detailsButton){
+    toggleOrderDetails(detailsButton.dataset.toggleOrderDetails);
+    return;
+  }
+
+  const closeDetailsButton = event.target.closest("[data-close-order-details]");
+  if(closeDetailsButton){
+    toggleOrderDetails(closeDetailsButton.dataset.closeOrderDetails, false);
+    return;
+  }
+
   if(!canWrite) return;
 
   const editButton = event.target.closest("[data-editar-encomenda]");
@@ -1154,7 +1277,7 @@ function iniciarEdicaoFamilia(id){
   setText("familiaFormKicker", "Editar cadastro");
   setText("familiaFormTitle", item.nome || "Atualizar família/gangue");
   setFeedback(familiaFeedback, "Edite os dados e clique em Salvar alterações.");
-  familiaForm.scrollIntoView({behavior:"smooth", block:"start"});
+  setDisclosurePanelOpen("familiaEntryPanel", true, true);
 }
 
 familiaCancelEditBtn?.addEventListener("click", () => {
@@ -1406,11 +1529,12 @@ function renderRecipes(){
   if(!recipeGrid) return;
 
   recipeGrid.innerHTML = CRAFT_RECIPES.map(recipe => `
-    <article class="recipe-card">
-      <div class="recipe-head">
+    <details class="recipe-card">
+      <summary class="recipe-head">
         <h4>${escapeHtml(recipe.title)}</h4>
         <span>${escapeHtml(recipe.helper)}</span>
-      </div>
+        <b aria-hidden="true">+</b>
+      </summary>
       <div class="recipe-list">
         ${recipe.materials.map(([material, amount]) => `
           <div>
@@ -1418,7 +1542,7 @@ function renderRecipes(){
             <strong>${integer(amount)}</strong>
           </div>`).join("")}
       </div>
-    </article>
+    </details>
   `).join("");
 }
 
@@ -1759,20 +1883,25 @@ async function loadFamilias(){
       const contacts = [item.contato, item.contato_2].filter(Boolean);
       const contactsHtml = contacts.length ? `<div class="family-contacts">${contacts.map((contact, index) => `<div class="family-contact"><button type="button" class="family-contact-toggle" data-toggle-family-contact>Mostrar contato ${index + 1}</button><span data-family-contact-value hidden>${escapeHtml(contact)}</span></div>`).join("")}</div>` : "";
       return `<article class="family-card ${market.className}">
-        ${flyer}
         <div class="family-card-content">
           <div class="family-card-top">
             <div><span class="family-icon">${escapeHtml(item.icone || "🤝")}</span><h4>${escapeHtml(item.nome)}</h4></div>
             <span class="market-status ${market.className}">${escapeHtml(market.label)}</span>
           </div>
           <div class="family-responsible-card"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato || "A definir")}</strong></div>
-          <div class="family-price-grid">
-            <div><span>Nosso valor para a família</span><p>${escapeHtml(item.preco_venda_para_familia || "Não informado")}</p></div>
-            <div><span>Valor deles para a Kokusai</span><p>${escapeHtml(item.preco_compra_da_familia || "Não informado")}</p></div>
-          </div>
-          ${contactsHtml}
-          ${item.observacao ? `<p class="family-note">${escapeHtml(item.observacao)}</p>` : ""}
-          ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">✏️ Editar dados/flyers</button>${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
+          <details class="entity-details family-card-details">
+            <summary><span>Cadastro e condições</span><b aria-hidden="true">+</b></summary>
+            <div class="entity-details-body">
+              ${flyer}
+              <div class="family-price-grid">
+                <div><span>Nosso valor</span><p>${escapeHtml(item.preco_venda_para_familia || "Não informado")}</p></div>
+                <div><span>Valor deles</span><p>${escapeHtml(item.preco_compra_da_familia || "Não informado")}</p></div>
+              </div>
+              ${contactsHtml}
+              ${item.observacao ? `<p class="family-note">${escapeHtml(item.observacao)}</p>` : ""}
+              ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">Editar cadastro</button>${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
+            </div>
+          </details>
         </div>
       </article>`;
     }).join("");
@@ -1819,17 +1948,24 @@ async function loadReunioes(){
       const relationship = item.responsavel_contato
         ? `<div class="meeting-relationship"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato)}</strong></div>`
         : "";
+      const extraDetails = item.local || item.pauta || done || canceled || canWrite;
       return `<article class="meeting-card ${statusClass}">
         <div class="meeting-icon">${escapeHtml(item.icone || "🤝")}</div>
         <div class="meeting-card-content">
           <div class="meeting-card-top"><span class="meeting-status ${statusClass}">${statusLabel}</span><span class="meeting-gang">${escapeHtml(item.gangue)}</span></div>
           <h4>${escapeHtml(item.titulo)}</h4>
           ${relationship}
-          <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span>${item.local ? `<span>📍 ${escapeHtml(item.local)}</span>` : ""}</div>
-          ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
-          ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
-          ${canceled ? `<small class="meeting-canceled-at">Cancelada em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
-          ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">✏️ Editar</button>${done || canceled ? "" : `<button class="meeting-cancel-btn" type="button" data-cancelar-reuniao="${escapeHtml(item.id)}">Cancelar reunião</button><button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Marcar como finalizada</button>`}</div>` : ""}
+          <div class="meeting-details"><span>📆 ${escapeHtml(dateLabel || "--")}</span><span>🕒 ${escapeHtml(item.horario || "--")}</span></div>
+          ${extraDetails ? `<details class="entity-details meeting-card-details">
+            <summary><span>Ver detalhes</span><b aria-hidden="true">+</b></summary>
+            <div class="entity-details-body">
+              ${item.local ? `<div class="meeting-location">📍 ${escapeHtml(item.local)}</div>` : ""}
+              ${item.pauta ? `<p>${escapeHtml(item.pauta)}</p>` : ""}
+              ${done ? `<small>Concluída em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
+              ${canceled ? `<small class="meeting-canceled-at">Cancelada em ${escapeHtml(item.finalizada_em || "--")}</small>` : ""}
+              ${canWrite ? `<div class="meeting-actions"><button class="meeting-edit-btn" type="button" data-editar-reuniao="${escapeHtml(item.id)}">Editar</button>${done || canceled ? "" : `<button class="meeting-cancel-btn" type="button" data-cancelar-reuniao="${escapeHtml(item.id)}">Cancelar</button><button class="meeting-finish-btn" type="button" data-finalizar-reuniao="${escapeHtml(item.id)}">Finalizar</button>`}</div>` : ""}
+            </div>
+          </details>` : ""}
         </div>
       </article>`;
     }).join("");
@@ -2018,12 +2154,13 @@ async function loadAll(){
   }finally{
     if(refreshBtn){
       refreshBtn.disabled = false;
-      refreshBtn.textContent = "Atualizar dados";
+      refreshBtn.textContent = "Atualizar";
     }
   }
 }
 
 refreshBtn?.addEventListener("click", loadAll);
+initializeDisclosurePanels();
 updatePreviewCompra();
 updatePreviewVenda();
 updatePreviewEncomenda();

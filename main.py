@@ -199,7 +199,7 @@ DEFAULT_FAMILIAS = [
         "nome": "Black Hearts", "icone": "🖤", "mercado": "Aberto", "responsavel_contato": "Wanda",
     },
     {
-        "nome": "The Lost MC", "icone": "🏍️", "mercado": "Aberto", "responsavel_contato": "Kyotaka",
+        "nome": "The Lost MC", "icone": "🏍️", "mercado": "Aberto", "responsavel_contato": "Kiyotaka",
     },
     {
         "nome": "Ballas", "icone": "🟣", "mercado": "Aberto", "responsavel_contato": "Matheus",
@@ -622,7 +622,7 @@ def ensure_meta_database_ready():
                 """
                 INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at)
                 VALUES (?, ?, ?, ?, 'member', 1, ?)
-                ON CONFLICT(username) DO NOTHING
+                ON CONFLICT(username) DO UPDATE SET display_name = excluded.display_name
                 """
             )
             for member in META_MEMBERS:
@@ -1401,6 +1401,15 @@ def normalized_lookup_key(value):
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
+def canonical_staff_name(value):
+    name = str(value or "").strip()
+    aliases = {
+        "kyotaka": "Kiyotaka",
+        "kiyotaka": "Kiyotaka",
+    }
+    return aliases.get(normalized_lookup_key(name), name)
+
+
 def normalize_money_type(value):
     normalized = normalized_lookup_key(value)
     if normalized in {"dinheiro sujo", "sujo", "dirty", "dirty money"}:
@@ -1655,7 +1664,7 @@ def build_family_row(data, registro_id=None, criado_em=None):
         "Sim" if normalize_flag(data.get("flyer_oculto")) else "Não",
         str(data.get("contato_2") or "").strip(),
         str(data.get("flyer_url_2") or "").strip(),
-        str(data.get("responsavel_contato") or "").strip(),
+        canonical_staff_name(data.get("responsavel_contato")),
     ]
 
 
@@ -1779,7 +1788,12 @@ def _ensure_familias_ready_locked(worksheet, force=False):
         padded = list(existing_row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(existing_row))
         row_changed = False
         responsible_index = FAMILIAS_HEADERS.index("responsavel_contato")
-        if not str(padded[responsible_index] or "").strip() and default.get("responsavel_contato"):
+        current_responsible = str(padded[responsible_index] or "").strip()
+        canonical_responsible = canonical_staff_name(current_responsible)
+        if canonical_responsible != current_responsible:
+            padded[responsible_index] = canonical_responsible
+            row_changed = True
+        elif not current_responsible and default.get("responsavel_contato"):
             padded[responsible_index] = default["responsavel_contato"]
             row_changed = True
         if not str(padded[FAMILIAS_HEADERS.index("icone")] or "").strip() and default.get("icone"):
@@ -2245,7 +2259,7 @@ def normalize_family(row):
     item["nome"] = canonical_family_name(item.get("nome"))
     item["mercado"] = normalize_market_status(item.get("mercado"))
     item["mercado_aberto"] = family_market_is_open(item.get("mercado"))
-    item["responsavel_contato"] = str(item.get("responsavel_contato") or "").strip()
+    item["responsavel_contato"] = canonical_staff_name(item.get("responsavel_contato"))
     item["flyer_oculto"] = normalize_flag(item.get("flyer_oculto"))
     for slot, field in ((1, "flyer_url"), (2, "flyer_url_2")):
         stored_reference = stable_family_flyer_reference(item.get(field))
@@ -4119,9 +4133,9 @@ def validate_family_payload(data):
     contact_2 = clean_text_field(
         data, "contato_2", "Contato 2", max_length=200, required=False,
     )
-    responsible = clean_text_field(
+    responsible = canonical_staff_name(clean_text_field(
         data, "responsavel_contato", "Responsável pelo contato", max_length=120, required=False,
-    )
+    ))
     flyer_hidden = normalize_flag(data.get("flyer_oculto"))
     observation = clean_text_field(
         data, "observacao", "Observação", max_length=MAX_OBSERVATION_LENGTH, required=False,

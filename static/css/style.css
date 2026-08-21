@@ -1124,6 +1124,28 @@ table.craft-result-table{min-width:650px}
 .order-row-priority td:first-child{box-shadow:inset 4px 0 0 #ef4444}
 .order-row-priority:hover td{background:linear-gradient(90deg,rgba(239,68,68,.16),rgba(239,68,68,.045))}
 .order-row-next td{background:linear-gradient(90deg,rgba(240,184,75,.065),rgba(240,184,75,.015))}
+.order-product-cell{display:grid;gap:9px;align-items:start}
+.order-observation-toggle{display:inline-flex;align-items:center;gap:7px;width:max-content;max-width:100%;min-height:31px;padding:0 9px;border:1px solid rgba(139,92,246,.28);border-radius:9px;background:rgba(139,92,246,.09);color:#dcd3ff;font-size:.69rem;font-weight:900;transition:background .18s ease,border-color .18s ease,color .18s ease}
+.order-observation-toggle:hover,.order-observation-toggle.active{border-color:rgba(139,92,246,.45);background:rgba(139,92,246,.17);color:#f0ecff}
+.order-observation-icon{font-size:.82rem}
+.order-details-arrow{font-size:.9rem;transition:transform .18s ease}
+.order-observation-toggle.active .order-details-arrow{transform:rotate(180deg)}
+.order-main-row.details-open td{border-bottom-color:transparent}
+.order-details-row[hidden]{display:none!important}
+.order-details-row td{padding:0 13px 14px;background:rgba(6,8,12,.74);border-bottom:1px solid rgba(139,92,246,.18)}
+.order-details-row:hover td{background:rgba(6,8,12,.74)}
+.order-details-panel{display:grid;gap:14px;padding:16px;border:1px solid rgba(139,92,246,.24);border-radius:15px;background:linear-gradient(135deg,rgba(139,92,246,.105),rgba(255,255,255,.025));box-shadow:inset 0 1px 0 rgba(255,255,255,.035)}
+.order-details-heading{display:flex;align-items:center;gap:11px}
+.order-details-heading-icon{display:grid;place-items:center;width:38px;height:38px;flex:0 0 38px;border-radius:11px;background:rgba(139,92,246,.16);border:1px solid rgba(139,92,246,.24)}
+.order-details-heading>div{display:grid;gap:2px;min-width:0;flex:1}
+.order-details-heading small,.order-details-meta small{color:var(--muted);font-size:.66rem;font-weight:850;text-transform:uppercase;letter-spacing:.07em}
+.order-details-heading strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#eee9ff;font-size:.9rem}
+.order-details-close{min-height:32px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:rgba(255,255,255,.04);color:var(--muted-strong);font-size:.7rem;font-weight:850}
+.order-details-close:hover{background:rgba(255,255,255,.075);color:var(--text)}
+.order-details-panel>p{margin:0;padding:13px 14px;border-left:3px solid #8b5cf6;border-radius:0 11px 11px 0;background:rgba(0,0,0,.19);color:#e7e3ef;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.order-details-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.order-details-meta>span{display:grid;gap:4px;min-width:0;padding:10px 11px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.025)}
+.order-details-meta strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted-strong);font-size:.76rem}
 .order-priority-badge{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted-strong);font-size:.72rem;font-weight:900;white-space:nowrap}
 .order-priority-badge.high{border-color:rgba(239,68,68,.38);background:rgba(239,68,68,.14);color:#ffd0d0;box-shadow:0 0 18px rgba(239,68,68,.12)}
 .order-priority-badge.high span{display:grid;place-items:center;width:18px;height:18px;border-radius:999px;background:#ef4444;color:#fff}
@@ -1173,6 +1195,11 @@ table.craft-result-table{min-width:650px}
   .families-grid{grid-template-columns:1fr}
   .responsive-table tr.order-row-priority{border-color:rgba(239,68,68,.42);box-shadow:inset 4px 0 0 #ef4444}
   .responsive-table tr.order-row-next{border-color:rgba(240,184,75,.28)}
+  .responsive-table tr.order-main-row.details-open{border-radius:15px 15px 0 0;border-bottom-color:rgba(139,92,246,.22)}
+  .responsive-table tr.order-details-row{margin-top:-12px;border-top:0;border-radius:0 0 15px 15px;background:transparent}
+  .responsive-table tr.order-details-row td.table-message{display:block;padding:0 10px 10px;text-align:left;background:rgba(6,8,12,.62)}
+  .responsive-table tr.order-details-row td::before{display:none}
+  .order-details-meta{grid-template-columns:1fr}
 }
 @media(max-width:520px){
   .family-counters{justify-content:flex-start}
@@ -1189,6 +1216,9 @@ table.craft-result-table{min-width:650px}
   .order-filter-count{white-space:normal}
   .order-quick-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .order-filter-chip{width:100%;padding:7px 9px;line-height:1.2}
+  .order-observation-toggle{width:100%;justify-content:center}
+  .order-details-heading{align-items:flex-start;flex-wrap:wrap}
+  .order-details-close{margin-left:49px}
 }
 
 /* Relatório mensal de vendas por família/gangue */

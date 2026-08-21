@@ -17,13 +17,24 @@ kokusaiFinal/
 │   ├── login.html
 │   └── meta_room.html      # Sala individual do membro
 └── static/
-    ├── css/style.css
+    ├── css/
+    │   ├── style.css       # Componentes e regras visuais de base
+    │   └── hud.css         # Hierarquia e acabamento da interface atual
     ├── js/app.js
     ├── js/meta_room.js
     └── images/
 ```
 
 Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não devem ser publicados. Eles já estão cobertos pelo `.gitignore`.
+
+## Interface e fluxo visual
+
+- O cabeçalho muda conforme a área aberta e substitui títulos repetidos dentro das telas.
+- Formulários de cadastro começam recolhidos e abrem somente quando o usuário solicita; ao editar um registro, o formulário correto é aberto automaticamente.
+- Famílias, reuniões, observações de encomenda, ranking completo e receitas mostram primeiro apenas o resumo. Informações secundárias ficam em detalhes expansíveis.
+- Os filtros rápidos de encomendas permanecem visíveis; busca, período e ordenações avançadas abrem sob demanda.
+- `style.css` concentra a base funcional dos componentes e `hud.css` aplica o visual grafite/preto/vermelho de baixa densidade. Carregue sempre `hud.css` depois de `style.css`.
+- A interface é responsiva: tabelas viram cartões, a navegação se torna horizontal e os painéis se reorganizam em telas menores.
 
 ## Onde os dados ficam
 
@@ -136,11 +147,12 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 - Uma encomenda pode combinar L85 e Seringa, preservando quantidade e valor de cada produto.
 - Encomendas aceitam prioridade manual com destaque vermelho e são ordenadas automaticamente pelo prazo mais próximo.
 - A lista de encomendas possui busca, filtros rápidos de prazo/prioridade, período personalizado e diferentes ordenações.
+- Encomendas com observação exibem um botão discreto **Ver observação**; ele abre um painel com o texto, pedido, negociador e prazo sem ocupar espaço permanente na tabela.
 - Famílias aceitam dois contatos ocultos e dois flyers.
 - Cada família possui um responsável interno pelo contato, exibido em Famílias, Compras, Vendas, Encomendas, Reuniões e Relatórios.
-- Ruptura/Leviatã ficam com Larissa; Distrito/Black Hearts com Wanda; The Lost MC com Kyotaka; Ballas/Legacy com Matheus; Aura/La Guardia com Gohan; Vendetta/Cartel com Max; Hells com Theo.
+- Ruptura/Leviatã ficam com Larissa; Distrito/Black Hearts com Wanda; The Lost MC com Kiyotaka; Ballas/Legacy com Matheus; Aura/La Guardia com Gohan; Vendetta/Cartel com Max; Hells com Theo.
 - Nox, Void e Meraki ficam como **Sem mercado** e têm o bloqueio preservado. Chaos e Balaclava começam **Em negociação**, mas o administrador pode alterar para **Mercado aberto** quando as negociações forem liberadas. Enquanto uma família não estiver aberta, compras, vendas e encomendas ficam bloqueadas, inclusive pelo campo manual.
-- Responsabilidades internas: Kyotaka controla o baú, Lipe responde pela abertura/deep e Wanda responde por compra de material/controle de estoque.
+- Responsabilidades internas: Kiyotaka controla o baú, Lipe responde pela abertura/deep e Wanda responde por compra de material/controle de estoque.
 - Variações de nomes são unificadas automaticamente, como Caos/Chaos e Balaklava/Balaclava. Ao remover a duplicata, o sistema preserva até dois flyers, dois contatos, valores, responsável e a situação comercial já liberada.
 
 ## Segurança
