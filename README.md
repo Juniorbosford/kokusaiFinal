@@ -8,9 +8,11 @@ Painel interno para compras, vendas, encomendas, famílias, reuniões, relatóri
 kokusaiFinal/
 ├── main.py                 # Aplicação Flask, APIs e regras de negócio
 ├── meta_members.py         # Membros e hashes de acesso das salas de meta
+├── KOKUSAI_PREVIEW_HUD.html # Prévia completa em um único arquivo
 ├── requirements.txt        # Dependências Python
 ├── Procfile                # Comando de inicialização do Railway
 ├── scripts/
+│   ├── build_hud_preview.js
 │   └── generate_password_hash.py
 ├── templates/
 │   ├── index.html          # Painel do administrador
@@ -26,6 +28,16 @@ kokusaiFinal/
 ```
 
 Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não devem ser publicados. Eles já estão cobertos pelo `.gitignore`.
+
+## Ver somente a interface
+
+Para avaliar a HUD sem instalar Python, configurar banco ou conectar o Google Sheets:
+
+1. Extraia todo o ZIP.
+2. Abra `KOKUSAI_PREVIEW_HUD.html` com dois cliques.
+3. Navegue pelas abas normalmente.
+
+A prévia usa dados simulados, não envia informações e não altera a produção. CSS, JavaScript, logo e flyers de demonstração ficam embutidos no próprio HTML, então o arquivo pode ser aberto sozinho, mesmo fora da pasta do projeto. Quando a interface principal mudar, execute `node scripts/build_hud_preview.js` para regenerá-la.
 
 ## Interface e fluxo visual
 
@@ -55,6 +67,9 @@ Arquivos locais contendo credenciais, banco SQLite, fotos enviadas e cache não 
 - Ciclos antigos são migrados automaticamente para o calendário sexta–quarta sem apagar fotos.
 - As fotos permanecem no Bucket após atualizações e deploys e continuam disponíveis no histórico semanal.
 - Membros podem selecionar, arrastar ou colar imagens copiadas com `Ctrl + V`, conferindo as prévias antes do envio.
+- Cada membro pode manter até **10 fotos por semana**.
+- Depois de **3 semanas finalizadas consecutivas** com resultado `Não pago`, o sistema exibe um aviso na sala individual e no painel do administrador.
+- Ao retirar alguém de `meta_members.py`, o acesso é desativado sem apagar o histórico antigo, as fotos ou os logs.
 
 ## Persistência dos flyers
 
@@ -118,7 +133,6 @@ Troque `Postgres` e `Bucket` se os serviços tiverem outros nomes no projeto Rai
 ```text
 KOKUSAI_PASSWORD_HASH=hash_do_administrador
 APP_TIMEZONE=America/Sao_Paulo
-META_MAX_PHOTOS_PER_WEEK=5
 META_MAX_FILE_BYTES=10485760
 SHEETS_CACHE_SECONDS=45
 SHEETS_MAINTENANCE_SECONDS=300

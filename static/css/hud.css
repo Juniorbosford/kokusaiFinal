@@ -562,15 +562,38 @@ tbody tr:hover td{background:rgba(255,255,255,.017)}
 .meta-rooms-grid{gap:5px}
 .meta-room-list-item{grid-template-columns:34px minmax(0,1fr) auto;gap:8px;padding:8px;border-radius:9px;background:rgba(255,255,255,.014)}
 .meta-room-list-item:hover,.meta-room-list-item.active{background:rgba(217,45,69,.055);border-color:rgba(217,45,69,.2)}
+.meta-room-list-item.has-payment-warning{border-color:rgba(239,68,68,.28);background:linear-gradient(90deg,rgba(239,68,68,.045),rgba(255,255,255,.012))}
 .meta-room-avatar{width:34px;height:34px;border-radius:9px;background:rgba(217,45,69,.09);font-size:.76rem}
 .meta-room-person strong{font-size:.77rem}
 .meta-room-person small,.meta-room-list-info small{font-size:.61rem}
+.meta-payment-alert{display:inline-flex;align-items:center;min-height:19px;padding:2px 6px;border:1px solid rgba(239,68,68,.26);border-radius:999px;background:rgba(239,68,68,.09);color:#ffafb7!important;font-style:normal;font-weight:850;white-space:nowrap}
 .meta-status-badge{min-height:23px;padding:0 7px;font-size:.56rem}
 .meta-room-detail-head{margin-bottom:10px}
 .meta-room-detail-head h3{font-size:1.08rem}
 .meta-detail-week{padding:9px 10px;border-radius:9px;background:rgba(255,255,255,.018)}
 .meta-review-panel{padding:11px;border-radius:10px;background:rgba(255,255,255,.016)}
 .meta-review-actions button{min-height:35px;border-radius:8px;font-size:.68rem}
+.meta-payment-warning{display:flex;align-items:flex-start;gap:10px;margin:0 0 11px;padding:11px 12px;border:1px solid rgba(239,68,68,.27);border-radius:11px;background:linear-gradient(110deg,rgba(239,68,68,.10),rgba(217,45,69,.035));color:#ffd7db}
+.meta-payment-warning[hidden]{display:none}
+.meta-payment-warning-icon{display:grid;place-items:center;flex:0 0 27px;width:27px;height:27px;border-radius:8px;background:rgba(239,68,68,.18);color:#ff7f8b;font-size:.82rem;font-weight:950}
+.meta-payment-warning strong{display:block;color:#ffe7e9;font-size:.76rem}
+.meta-payment-warning p{margin:3px 0 0;color:#c99da2;font-size:.67rem;line-height:1.4}
+.admin-payment-warning{margin-top:-2px}
+
+/* Confirmação integrada da revisão de metas */
+.meta-confirm-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;padding:20px;background:rgba(2,3,5,.76);backdrop-filter:blur(8px)}
+.meta-confirm-overlay[hidden]{display:none}
+.meta-confirm-dialog{width:min(430px,100%);padding:23px;border:1px solid rgba(255,255,255,.11);border-radius:16px;background:linear-gradient(155deg,#15161a,#0d0e11);box-shadow:0 28px 90px rgba(0,0,0,.55);animation:meta-confirm-enter .16s ease-out}
+.meta-confirm-icon{display:grid;place-items:center;width:42px;height:42px;margin-bottom:15px;border:1px solid rgba(239,68,68,.28);border-radius:12px;background:rgba(239,68,68,.11);color:#ff8994;font-size:1.08rem;font-weight:950}
+.meta-confirm-dialog h3{margin:5px 0 7px;color:#f4f4f6;font-size:1.15rem}
+.meta-confirm-dialog>p:last-of-type{margin:0;color:#9b9ea7;font-size:.78rem;line-height:1.55}
+.meta-confirm-actions{display:grid;grid-template-columns:1fr 1.35fr;gap:8px;margin-top:20px}
+.meta-confirm-actions button{min-height:40px;border-radius:9px}
+.meta-confirm-overlay[data-status="paid"] .meta-confirm-icon{border-color:rgba(49,208,131,.27);background:rgba(49,208,131,.10);color:#8ce6b8}
+.meta-confirm-overlay[data-status="paid"] .meta-confirm-submit{border-color:rgba(49,208,131,.36);background:#23865b;color:#f0fff7}
+.meta-confirm-overlay[data-status="paid"] .meta-confirm-submit:hover{background:#2a9768}
+.meta-confirm-overlay[data-status="unpaid"] .meta-confirm-submit{border-color:rgba(239,68,68,.38);background:#b8283c;color:#fff}
+@keyframes meta-confirm-enter{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
 
 /* Sala individual de meta */
 .meta-room-shell{grid-template-columns:240px minmax(0,1fr)}
@@ -580,6 +603,7 @@ tbody tr:hover td{background:rgba(255,255,255,.017)}
 .member-room-header{padding-bottom:17px;border-bottom:1px solid var(--line)}
 .member-room-header h2{font-size:1.55rem}
 .member-room-header p{max-width:700px;font-size:.78rem;line-height:1.45}
+.member-payment-warning{margin:0}
 .member-room-grid{gap:12px}
 .member-upload-zone{padding:22px;border-radius:11px;background:rgba(217,45,69,.025);border-color:rgba(217,45,69,.23)}
 .member-upload-zone:hover,.member-upload-zone.dragover,.member-upload-zone:focus{background:rgba(217,45,69,.05);box-shadow:none}
@@ -681,6 +705,8 @@ tbody tr:hover td{background:rgba(255,255,255,.017)}
   .family-responsible-card strong{text-align:left}
   .member-upload-actions{align-items:stretch;flex-direction:column}
   .member-upload-actions button{width:100%}
+  .meta-confirm-dialog{padding:19px}
+  .meta-confirm-actions{grid-template-columns:1fr}
   .report-position-1,.report-position-2,.report-position-3{order:initial;transform:none}
   .report-podium-card{padding:12px}
 }

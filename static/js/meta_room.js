@@ -7,6 +7,9 @@ const selectionPreview = document.getElementById("memberSelectionPreview");
 const photoGrid = document.getElementById("memberPhotoGrid");
 const historyTable = document.getElementById("memberHistoryTable");
 const feedback = document.getElementById("memberMetaFeedback");
+const paymentWarning = document.getElementById("memberPaymentWarning");
+const paymentWarningTitle = document.getElementById("memberPaymentWarningTitle");
+const paymentWarningText = document.getElementById("memberPaymentWarningText");
 let currentRoom = null;
 let selectedPhotos = [];
 let selectedPreviewUrls = [];
@@ -82,7 +85,7 @@ function updateSelectedPhotos(files, {append=false} = {}){
     signatures.add(signature);
     return true;
   });
-  const remaining = Math.max((currentRoom?.limits?.max_photos || 5) - (currentRoom?.photos?.length || 0), 0);
+  const remaining = Math.max((currentRoom?.limits?.max_photos || 10) - (currentRoom?.photos?.length || 0), 0);
   const excess = Math.max(unique.length - remaining, 0);
   selectedPhotos = unique.slice(0, remaining);
   if(uploadZone) uploadZone.classList.toggle("has-files", selectedPhotos.length > 0);
@@ -132,7 +135,7 @@ function memberStatusClass(status){
 function renderCurrentPhotos(room){
   const photos = room.photos || [];
   const locked = !room.schedule?.envios_abertos || ["Pago", "Não pago"].includes(room.submission?.status);
-  document.getElementById("memberPhotoCounter").textContent = `${photos.length}/${room.limits?.max_photos || 5} fotos enviadas`;
+  document.getElementById("memberPhotoCounter").textContent = `${photos.length}/${room.limits?.max_photos || 10} fotos enviadas`;
   if(!photos.length){
     photoGrid.innerHTML = '<div class="meta-empty-state">Você ainda não enviou fotos nesta semana.</div>';
     return;
@@ -143,6 +146,16 @@ function renderCurrentPhotos(room){
       <div><span>Foto ${index + 1}</span><small>${memberEscape(photo.created_at || "")}</small></div>
       ${locked ? '<span class="photo-locked">Envios encerrados</span>' : `<button type="button" data-delete-member-photo="${memberEscape(photo.id)}">Remover</button>`}
     </article>`).join("");
+}
+
+function renderPaymentWarning(monitor){
+  if(!paymentWarning) return;
+  const weeks = Number(monitor?.consecutive_unpaid_weeks || 0);
+  const showWarning = Boolean(monitor?.warning && weeks >= 3);
+  paymentWarning.hidden = !showWarning;
+  if(!showWarning) return;
+  paymentWarningTitle.textContent = `Atenção: ${weeks} semanas sem meta paga`;
+  paymentWarningText.textContent = "Este aviso considera semanas finalizadas e consecutivas. Procure a administração para regularizar sua situação.";
 }
 
 function renderHistory(history){
@@ -171,6 +184,7 @@ async function loadMemberRoom(){
     document.getElementById("memberWeekMini").textContent = weekLabel;
     setMemberStatus(data.submission.status);
     renderCurrentPhotos(data);
+    renderPaymentWarning(data.payment_monitor);
     renderHistory(data.history);
     const noteBox = document.getElementById("memberAdminNote");
     if(data.submission.admin_note){
@@ -254,7 +268,7 @@ selectionPreview?.addEventListener("click", event => {
 uploadBtn?.addEventListener("click", async () => {
   const files = selectedPhotos.length ? selectedPhotos : Array.from(photoInput.files || []);
   if(!files.length){ memberFeedback("Selecione pelo menos uma foto.", true); return; }
-  const remaining = Math.max((currentRoom?.limits?.max_photos || 5) - (currentRoom?.photos?.length || 0), 0);
+  const remaining = Math.max((currentRoom?.limits?.max_photos || 10) - (currentRoom?.photos?.length || 0), 0);
   if(files.length > remaining){ memberFeedback(`Você pode enviar mais ${remaining} foto(s) nesta semana.`, true); return; }
   const maxBytes = (currentRoom?.limits?.max_file_mb || 10) * 1024 * 1024;
   if(files.some(file => file.size > maxBytes)){ memberFeedback(`Cada foto deve ter no máximo ${currentRoom?.limits?.max_file_mb || 10} MB.`, true); return; }

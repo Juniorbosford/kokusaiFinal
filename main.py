@@ -71,7 +71,7 @@ META_LOCAL_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 FLYER_LOCAL_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "flyer_uploads")
 BUCKET_REFERENCE_PREFIX = "kokusai-bucket://"
 META_MAX_FILE_BYTES = int(os.getenv("META_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
-META_MAX_PHOTOS_PER_WEEK = int(os.getenv("META_MAX_PHOTOS_PER_WEEK", "5"))
+META_MAX_PHOTOS_PER_WEEK = 10
 META_ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 META_IMAGE_MAX_SIDE = int(os.getenv("META_IMAGE_MAX_SIDE", "2200"))
 META_IMAGE_WEBP_QUALITY = int(os.getenv("META_IMAGE_WEBP_QUALITY", "88"))
@@ -618,11 +618,18 @@ def ensure_meta_database_ready():
                 cursor.execute(statement)
 
             created_at = format_timestamp()
+            # A lista em meta_members.py é a fonte atual da equipe. Membros
+            # removidos ficam inativos para preservar semanas, fotos e logs
+            # antigos, enquanto os presentes na lista são ativados novamente.
+            cursor.execute("UPDATE meta_users SET active = 0 WHERE role = 'member'")
             seed_query = meta_sql(
                 """
                 INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at)
                 VALUES (?, ?, ?, ?, 'member', 1, ?)
-                ON CONFLICT(username) DO UPDATE SET display_name = excluded.display_name
+                ON CONFLICT(username) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    password_hash = excluded.password_hash,
+                    active = 1
                 """
             )
             for member in META_MEMBERS:
@@ -648,7 +655,7 @@ def ensure_meta_database_ready():
 def get_meta_member_by_username(username):
     try:
         return meta_query_one(
-            "SELECT id, username, display_name, password_hash, role, active FROM meta_users WHERE username = ?",
+            "SELECT id, username, display_name, password_hash, role, active FROM meta_users WHERE username = ? AND active = 1",
             (str(username or "").strip().lower(),),
         )
     except Exception as error:
@@ -731,6 +738,30 @@ def get_meta_room_history(user_id, exclude_week_start=None, limit=12):
         """,
         (user_id, excluded_week, int(limit)),
     )
+
+
+def get_meta_unpaid_streaks():
+    """Conta semanas finalizadas consecutivas com resultado Não pago."""
+    rows = meta_query_all(
+        """
+        SELECT s.user_id, s.status, s.week_start
+        FROM meta_submissions s
+        INNER JOIN meta_week_closures c ON c.week_start = s.week_start
+        ORDER BY s.user_id ASC,
+                 substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2) DESC
+        """
+    )
+    streaks = {}
+    completed_users = set()
+    for row in rows:
+        user_id = row["user_id"]
+        if user_id in completed_users:
+            continue
+        if row["status"] == "Não pago":
+            streaks[user_id] = streaks.get(user_id, 0) + 1
+        else:
+            completed_users.add(user_id)
+    return streaks
 
 
 def get_meta_week_closure(week_start):
@@ -2708,6 +2739,7 @@ def build_meta_room_payload(user_id, week_start=None):
     schedule = meta_week_payload(start_date) if start_date else {}
     closure = get_meta_week_closure(submission["week_start"])
     uploads_open = meta_submission_uploads_open(submission) and not closure
+    unpaid_streak = int(get_meta_unpaid_streaks().get(user_id, 0))
     return {
         "member": {
             "id": member["id"],
@@ -2722,6 +2754,11 @@ def build_meta_room_payload(user_id, week_start=None):
         },
         "photos": [serialize_meta_photo(photo) for photo in photos],
         "history": history,
+        "payment_monitor": {
+            "consecutive_unpaid_weeks": unpaid_streak,
+            "warning": unpaid_streak >= 3,
+            "warning_threshold": 3,
+        },
         "limits": {
             "max_photos": META_MAX_PHOTOS_PER_WEEK,
             "max_file_mb": round(META_MAX_FILE_BYTES / (1024 * 1024)),
@@ -2893,6 +2930,11 @@ def list_meta_rooms():
             """,
             (week["semana_inicio"],),
         )
+        unpaid_streaks = get_meta_unpaid_streaks()
+        for room in rooms:
+            streak = int(unpaid_streaks.get(room["user_id"], 0))
+            room["consecutive_unpaid_weeks"] = streak
+            room["payment_warning"] = streak >= 3
         pending_reviews = sum(1 for room in rooms if room["status"] not in {"Pago", "Não pago"})
         week["pending_reviews"] = pending_reviews
         week["can_finalize"] = bool(week.get("review_mode") and pending_reviews == 0 and rooms)
@@ -4280,7 +4322,12 @@ def resumo_metas():
     try:
         week = get_admin_meta_week()
         rows = meta_query_all(
-            "SELECT status FROM meta_submissions WHERE week_start = ?",
+            """
+            SELECT s.status
+            FROM meta_submissions s
+            JOIN meta_users u ON u.id = s.user_id
+            WHERE s.week_start = ? AND u.role = 'member' AND u.active = 1
+            """,
             (week["semana_inicio"],),
         )
         total = len(rows)

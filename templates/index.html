@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260818-observacao-encomendas" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260818-sophisticated-hud" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260821-metas-equipe-alertas" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -1072,6 +1072,20 @@
   </div>
 
   <datalist id="familiasDatalist"></datalist>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260818-sophisticated-hud"></script>
+
+  <div class="meta-confirm-overlay" id="metaReviewConfirm" hidden>
+    <section class="meta-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="metaReviewConfirmTitle" aria-describedby="metaReviewConfirmText">
+      <span class="meta-confirm-icon" id="metaReviewConfirmIcon" aria-hidden="true">✓</span>
+      <p class="panel-kicker">Confirmar revisão</p>
+      <h3 id="metaReviewConfirmTitle">Salvar resultado da meta?</h3>
+      <p id="metaReviewConfirmText">Confira o resultado antes de continuar.</p>
+      <div class="meta-confirm-actions">
+        <button type="button" class="ghost-btn" id="metaReviewConfirmCancel">Voltar</button>
+        <button type="button" class="primary-btn meta-confirm-submit" id="metaReviewConfirmSubmit">Confirmar</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260821-metas-equipe-alertas"></script>
 </body>
 </html>

@@ -137,9 +137,17 @@ const metaRoomDetail = document.getElementById("metaRoomDetail");
 const finalizeMetaWeekBtn = document.getElementById("finalizeMetaWeekBtn");
 const metaCycleStatus = document.getElementById("metaCycleStatus");
 const metaCycleDeadline = document.getElementById("metaCycleDeadline");
+const metaReviewConfirm = document.getElementById("metaReviewConfirm");
+const metaReviewConfirmIcon = document.getElementById("metaReviewConfirmIcon");
+const metaReviewConfirmTitle = document.getElementById("metaReviewConfirmTitle");
+const metaReviewConfirmText = document.getElementById("metaReviewConfirmText");
+const metaReviewConfirmCancel = document.getElementById("metaReviewConfirmCancel");
+const metaReviewConfirmSubmit = document.getElementById("metaReviewConfirmSubmit");
 let metaRoomsCache = [];
 let selectedMetaRoomUserId = null;
 let activeMetaWeek = null;
+let pendingMetaReview = null;
+let metaConfirmPreviousFocus = null;
 const craftForm = document.getElementById("craftForm");
 const craftInputs = document.querySelectorAll("[data-craft-input]");
 const craftTable = document.getElementById("craftTable");
@@ -1988,12 +1996,18 @@ function renderMetaRooms(){
     metaRoomsGrid.innerHTML = '<div class="meta-empty-state">Nenhuma sala encontrada.</div>';
     return;
   }
-  metaRoomsGrid.innerHTML = rooms.map(room => `
-    <button type="button" class="meta-room-list-item ${room.user_id === selectedMetaRoomUserId ? "active" : ""}" data-meta-room-user="${escapeHtml(room.user_id)}">
+  metaRoomsGrid.innerHTML = rooms.map(room => {
+    const unpaidStreak = integer(room.consecutive_unpaid_weeks || 0);
+    const paymentAlert = room.payment_warning
+      ? `<small class="meta-payment-alert" title="${unpaidStreak} semanas consecutivas sem meta paga">! ${unpaidStreak} semanas</small>`
+      : "";
+    return `
+    <button type="button" class="meta-room-list-item ${room.user_id === selectedMetaRoomUserId ? "active" : ""} ${room.payment_warning ? "has-payment-warning" : ""}" data-meta-room-user="${escapeHtml(room.user_id)}">
       <span class="meta-room-avatar">${escapeHtml(String(room.display_name || "?").slice(0, 1).toUpperCase())}</span>
       <span class="meta-room-person"><strong>${escapeHtml(room.display_name)}</strong><small>@${escapeHtml(room.username)}</small></span>
-      <span class="meta-room-list-info"><span class="meta-status-badge ${metaStatusClass(room.status)}">${escapeHtml(room.status)}</span><small>${integer(room.photo_count || 0)} foto(s)</small></span>
-    </button>`).join("");
+      <span class="meta-room-list-info"><span class="meta-status-badge ${metaStatusClass(room.status)}">${escapeHtml(room.status)}</span><small>${integer(room.photo_count || 0)} foto(s)</small>${paymentAlert}</span>
+    </button>`;
+  }).join("");
 }
 
 async function loadMetaRoomDetail(userId){
@@ -2014,6 +2028,10 @@ async function loadMetaRoomDetail(userId){
     const historyHtml = history.length
       ? history.map(item => `<tr><td>${escapeHtml(item.week_start)} até ${escapeHtml(item.week_end)}</td><td>${integer(item.photo_count || 0)}</td><td><span class="meta-status-badge ${metaStatusClass(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.reviewed_at || "—")}</td></tr>`).join("")
       : '<tr><td colspan="4">Nenhum histórico ainda.</td></tr>';
+    const unpaidStreak = integer(data.payment_monitor?.consecutive_unpaid_weeks || 0);
+    const paymentWarningHtml = data.payment_monitor?.warning
+      ? `<aside class="meta-payment-warning admin-payment-warning"><span class="meta-payment-warning-icon" aria-hidden="true">!</span><div><strong>Atenção: ${unpaidStreak} semanas sem meta paga</strong><p>O aviso considera somente semanas já finalizadas e consecutivas.</p></div></aside>`
+      : "";
     const reviewAllowed = Boolean(activeMetaWeek?.review_mode && !activeMetaWeek?.closed);
     const reviewPanel = reviewAllowed
       ? `<div class="meta-review-panel"><label for="metaAdminNote">Observação para o membro</label><textarea id="metaAdminNote" placeholder="Opcional: orientação ou justificativa">${escapeHtml(submission.admin_note || "")}</textarea><div class="meta-review-actions"><button type="button" class="meta-review-paid" data-meta-review="Pago" data-submission-id="${escapeHtml(submission.id)}">✓ Marcar pago</button><button type="button" class="meta-review-rejected" data-meta-review="Não pago" data-submission-id="${escapeHtml(submission.id)}">✕ Marcar não pago</button><button type="button" class="meta-review-pending" data-meta-review="Pendente" data-submission-id="${escapeHtml(submission.id)}">Voltar para pendente</button></div></div>`
@@ -2024,6 +2042,7 @@ async function loadMetaRoomDetail(userId){
         <div><p class="panel-kicker">Sala individual</p><h3>${escapeHtml(data.member.display_name)}</h3><small>@${escapeHtml(data.member.username)}</small></div>
         <span class="meta-status-badge ${metaStatusClass(submission.status)}">${escapeHtml(submission.status || "Pendente")}</span>
       </div>
+      ${paymentWarningHtml}
       <div class="meta-detail-week"><span>Semana</span><strong>${escapeHtml(submission.week_start)} até ${escapeHtml(submission.week_end)}</strong><small>${integer(photos.length)} foto(s) enviada(s)</small></div>
       ${photosHtml}
       ${canWrite ? reviewPanel : (submission.admin_note ? `<p class="family-note">Observação: ${escapeHtml(submission.admin_note)}</p>` : "")}
@@ -2040,12 +2059,38 @@ metaRoomsGrid?.addEventListener("click", (event) => {
 
 metaRoomsSearch?.addEventListener("input", renderMetaRooms);
 
-metaRoomDetail?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-meta-review]");
-  if(!button || !canWrite) return;
-  const status = button.dataset.metaReview;
-  if(status === "Pago" && !window.confirm("Confirmar que esta pessoa pagou a meta da semana?")) return;
-  if(status === "Não pago" && !window.confirm("Confirmar que esta pessoa não pagou a meta da semana?")) return;
+function closeMetaReviewConfirm(){
+  if(!metaReviewConfirm) return;
+  metaReviewConfirm.hidden = true;
+  metaReviewConfirm.dataset.status = "";
+  pendingMetaReview = null;
+  if(metaConfirmPreviousFocus?.isConnected) metaConfirmPreviousFocus.focus();
+  metaConfirmPreviousFocus = null;
+}
+
+function openMetaReviewConfirm(button, status){
+  if(!metaReviewConfirm || !metaReviewConfirmTitle || !metaReviewConfirmText || !metaReviewConfirmSubmit){
+    submitMetaReview(button, status);
+    return;
+  }
+  const member = metaRoomsCache.find(room => room.user_id === selectedMetaRoomUserId);
+  const memberName = member?.display_name || "esta pessoa";
+  const isPaid = status === "Pago";
+  pendingMetaReview = {button, status};
+  metaConfirmPreviousFocus = document.activeElement;
+  metaReviewConfirm.dataset.status = isPaid ? "paid" : "unpaid";
+  if(metaReviewConfirmIcon) metaReviewConfirmIcon.textContent = isPaid ? "✓" : "!";
+  metaReviewConfirmTitle.textContent = isPaid ? "Confirmar meta paga?" : "Confirmar meta não paga?";
+  metaReviewConfirmText.textContent = isPaid
+    ? `${memberName} ficará como pago nesta semana.`
+    : `${memberName} ficará como não pago nesta semana.`;
+  metaReviewConfirmSubmit.textContent = isPaid ? "Confirmar pagamento" : "Confirmar não pagamento";
+  metaReviewConfirm.hidden = false;
+  requestAnimationFrame(() => metaReviewConfirmSubmit.focus());
+}
+
+async function submitMetaReview(button, status){
+  if(!button?.isConnected || !canWrite) return;
   const buttons = metaRoomDetail.querySelectorAll("[data-meta-review]");
   buttons.forEach(item => item.disabled = true);
   try{
@@ -2060,6 +2105,31 @@ metaRoomDetail?.addEventListener("click", async (event) => {
     }
   }catch(error){ setFeedback(metasFeedback, `Falha ao revisar meta: ${error.message}`, true); }
   finally{ buttons.forEach(item => item.disabled = false); }
+}
+
+metaRoomDetail?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-meta-review]");
+  if(!button || !canWrite) return;
+  const status = button.dataset.metaReview;
+  if(["Pago", "Não pago"].includes(status)){
+    openMetaReviewConfirm(button, status);
+    return;
+  }
+  await submitMetaReview(button, status);
+});
+
+metaReviewConfirmCancel?.addEventListener("click", closeMetaReviewConfirm);
+metaReviewConfirmSubmit?.addEventListener("click", async () => {
+  const review = pendingMetaReview;
+  if(!review) return;
+  closeMetaReviewConfirm();
+  await submitMetaReview(review.button, review.status);
+});
+metaReviewConfirm?.addEventListener("click", event => {
+  if(event.target === metaReviewConfirm) closeMetaReviewConfirm();
+});
+document.addEventListener("keydown", event => {
+  if(event.key === "Escape" && metaReviewConfirm && !metaReviewConfirm.hidden) closeMetaReviewConfirm();
 });
 
 finalizeMetaWeekBtn?.addEventListener("click", async () => {

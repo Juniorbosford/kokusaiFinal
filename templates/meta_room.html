@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260816-percentual-sujo-1-30" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260818-sophisticated-hud" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260821-metas-equipe-alertas" />
 </head>
 <body class="meta-room-page" data-role="member">
   <div class="page-noise" aria-hidden="true"></div>
@@ -50,6 +50,14 @@
         <span class="meta-status-badge pending" id="memberMetaStatus">Pendente</span>
       </header>
 
+      <aside class="meta-payment-warning member-payment-warning" id="memberPaymentWarning" role="status" hidden>
+        <span class="meta-payment-warning-icon" aria-hidden="true">!</span>
+        <div>
+          <strong id="memberPaymentWarningTitle">Atenção ao histórico de metas</strong>
+          <p id="memberPaymentWarningText"></p>
+        </div>
+      </aside>
+
       <section class="member-room-grid">
         <article class="panel-card member-upload-card">
           <div class="panel-head">
@@ -62,7 +70,7 @@
             <input id="memberPhotoInput" type="file" accept="image/jpeg,image/jpg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple />
             <div>
               <strong>Arraste, selecione ou cole suas fotos</strong>
-              <p>JPG, JPEG, PNG ou WEBP. Copie uma imagem e pressione <kbd>Ctrl</kbd> + <kbd>V</kbd> nesta página.</p>
+              <p>Até 10 fotos em JPG, JPEG, PNG ou WEBP. Você também pode colar com <kbd>Ctrl</kbd> + <kbd>V</kbd>.</p>
             </div>
           </div>
           <div class="member-selection-preview" id="memberSelectionPreview" hidden aria-live="polite"></div>
@@ -103,6 +111,6 @@
       </section>
     </main>
   </div>
-  <script src="{{ url_for('static', filename='js/meta_room.js') }}?v=20260815-colar-imagem"></script>
+  <script src="{{ url_for('static', filename='js/meta_room.js') }}?v=20260821-limite-alerta"></script>
 </body>
 </html>
