@@ -2019,6 +2019,37 @@ tbody tr:hover td{background:rgba(255,255,255,.017)}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+.family-card-controls{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.family-quick-edit{
+  min-height:30px;
+  padding:6px 11px;
+  border:1px solid rgba(217,45,69,.32);
+  border-radius:8px;
+  background:rgba(217,45,69,.08);
+  color:#f0b2bc;
+  font:700 11px/1 Inter,system-ui,sans-serif;
+  cursor:pointer;
+  transition:border-color .2s ease,background .2s ease,color .2s ease;
+}
+
+.family-quick-edit:hover,
+.family-quick-edit:focus-visible{
+  border-color:rgba(217,45,69,.72);
+  background:rgba(217,45,69,.16);
+  color:#fff;
+  outline:none;
+}
+
+@media(max-width:560px){
+  .family-card-controls{align-items:flex-end;flex-direction:column}
+}
 
 </style>
 
@@ -3020,6 +3051,11 @@ tbody tr:hover td{background:rgba(255,255,255,.017)}
                 <input id="craft_rastreador" type="number" min="0" step="1" placeholder="0" data-craft-input />
               </div>
 
+              <div class="field">
+                <label for="craft_circuito_eletronico">Circuito eletrônico</label>
+                <input id="craft_circuito_eletronico" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
               <div class="calc-box craft-total-box">
                 <span>Total de itens no cálculo</span>
                 <strong id="craftTotalItens">0</strong>
@@ -3414,6 +3450,19 @@ const CRAFT_RECIPES = [
     materials:[
       ["ALUMÍNIO", 10],
       ["DINHEIRO SUJO", 200],
+    ],
+  },
+  {
+    id:"circuito_eletronico",
+    inputId:"craft_circuito_eletronico",
+    title:"Craft circuito eletrônico",
+    helper:"Quantos circuitos eletrônicos quero fazer",
+    materials:[
+      ["ALUMÍNIO", 5],
+      ["COBRE", 5],
+      ["DINHEIRO SUJO", 200],
+      ["PLÁSTICO", 10],
+      ["CHAPA DE METAL", 1],
     ],
   },
 ];
@@ -4435,6 +4484,8 @@ function resetFamiliaForm(){
   if(flyerUrl2) flyerUrl2.placeholder = "Opcional: https://.../flyer-2.png";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Adicionar Família/Gangue";
   if(familiaCancelEditBtn) familiaCancelEditBtn.hidden = true;
+  const entryPanel = document.getElementById("familiaEntryPanel");
+  if(entryPanel) entryPanel.dataset.disclosureLabel = "Adicionar família";
   setText("familiaFormKicker", "Novo cadastro");
   setText("familiaFormTitle", "Adicionar Família/Gangue");
 }
@@ -4472,6 +4523,8 @@ function iniciarEdicaoFamilia(id){
   document.getElementById("f_observacao").value = item.observacao || "";
   if(familiaSubmitBtn) familiaSubmitBtn.textContent = "Salvar alterações";
   if(familiaCancelEditBtn) familiaCancelEditBtn.hidden = false;
+  const entryPanel = document.getElementById("familiaEntryPanel");
+  if(entryPanel) entryPanel.dataset.disclosureLabel = "Editar informações";
   setText("familiaFormKicker", "Editar cadastro");
   setText("familiaFormTitle", item.nome || "Atualizar família/gangue");
   setFeedback(familiaFeedback, "Edite os dados e clique em Salvar alterações.");
@@ -4543,6 +4596,10 @@ familiaForm?.addEventListener("submit", async (event) => {
 
   const url = editing ? `/api/familias/${encodeURIComponent(familiaEmEdicaoId)}` : "/api/familias";
   try{
+    if(familiaSubmitBtn){
+      familiaSubmitBtn.disabled = true;
+      familiaSubmitBtn.textContent = editing ? "Salvando alterações..." : "Adicionando...";
+    }
     setFeedback(familiaFeedback, editing ? "Salvando alterações..." : "Adicionando família/gangue...");
     const {res, data} = await fetchJson(url, {
       method:editing ? "PUT" : "POST",
@@ -4570,6 +4627,11 @@ familiaForm?.addEventListener("submit", async (event) => {
     }
   }catch(error){
     setFeedback(familiaFeedback, `Falha ao salvar família/gangue: ${error.message}`, true);
+  }finally{
+    if(familiaSubmitBtn){
+      familiaSubmitBtn.disabled = false;
+      familiaSubmitBtn.textContent = familiaEmEdicaoId ? "Salvar alterações" : "Adicionar Família/Gangue";
+    }
   }
 });
 
@@ -5084,7 +5146,10 @@ async function loadFamilias(){
         <div class="family-card-content">
           <div class="family-card-top">
             <div><span class="family-icon">${escapeHtml(item.icone || "🤝")}</span><h4>${escapeHtml(item.nome)}</h4></div>
-            <span class="market-status ${market.className}">${escapeHtml(market.label)}</span>
+            <div class="family-card-controls">
+              <span class="market-status ${market.className}">${escapeHtml(market.label)}</span>
+              ${canWrite ? `<button type="button" class="family-quick-edit" data-editar-familia="${escapeHtml(item.id)}" aria-label="Editar informações de ${escapeHtml(item.nome)}">Editar</button>` : ""}
+            </div>
           </div>
           <div class="family-responsible-card"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato || "A definir")}</strong></div>
           <details class="entity-details family-card-details">
@@ -5097,7 +5162,7 @@ async function loadFamilias(){
               </div>
               ${contactsHtml}
               ${item.observacao ? `<p class="family-note">${escapeHtml(item.observacao)}</p>` : ""}
-              ${canWrite ? `<div class="family-actions"><button type="button" class="family-edit-btn" data-editar-familia="${escapeHtml(item.id)}">Editar cadastro</button>${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
+              ${canWrite ? `<div class="family-actions">${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
             </div>
           </details>
         </div>

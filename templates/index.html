@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260818-observacao-encomendas" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260821-metas-equipe-alertas" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260827-edicao-familias" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -1012,6 +1012,11 @@
                 <input id="craft_rastreador" type="number" min="0" step="1" placeholder="0" data-craft-input />
               </div>
 
+              <div class="field">
+                <label for="craft_circuito_eletronico">Circuito eletrônico</label>
+                <input id="craft_circuito_eletronico" type="number" min="0" step="1" placeholder="0" data-craft-input />
+              </div>
+
               <div class="calc-box craft-total-box">
                 <span>Total de itens no cálculo</span>
                 <strong id="craftTotalItens">0</strong>
@@ -1086,6 +1091,6 @@
     </section>
   </div>
 
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260821-metas-equipe-alertas"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260827-semanas-familias-circuito"></script>
 </body>
 </html>

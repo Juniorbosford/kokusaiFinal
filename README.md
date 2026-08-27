@@ -64,7 +64,7 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - Depois que todos forem avaliados, o administrador finaliza a semana e recebe o log em TXT.
 - **Sexta-feira seguinte:** a próxima semana abre automaticamente.
 - Cada membro vê todas as próprias fotos; o administrador vê todas as salas.
-- Ciclos antigos são migrados automaticamente para o calendário sexta–quarta sem apagar fotos.
+- Ciclos antigos são migrados automaticamente para o calendário sexta–quarta. Fotos que tenham sido vinculadas à semana errada são reassociadas pela data real do envio, sem aparecer na semana nova e sem perder o histórico correto.
 - As fotos permanecem no Bucket após atualizações e deploys e continuam disponíveis no histórico semanal.
 - Membros podem selecionar, arrastar ou colar imagens copiadas com `Ctrl + V`, conferindo as prévias antes do envio.
 - Cada membro pode manter até **10 fotos por semana**.
@@ -163,11 +163,13 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 - A lista de encomendas possui busca, filtros rápidos de prazo/prioridade, período personalizado e diferentes ordenações.
 - Encomendas com observação exibem um botão discreto **Ver observação**; ele abre um painel com o texto, pedido, negociador e prazo sem ocupar espaço permanente na tabela.
 - Famílias aceitam dois contatos ocultos e dois flyers.
+- O administrador possui uma ação **Editar** visível em cada cartão de família; ela abre o formulário preenchido e salva as alterações no mesmo cadastro.
 - Cada família possui um responsável interno pelo contato, exibido em Famílias, Compras, Vendas, Encomendas, Reuniões e Relatórios.
 - Ruptura/Leviatã ficam com Larissa; Distrito/Black Hearts com Wanda; The Lost MC com Kiyotaka; Ballas/Legacy com Matheus; Aura/La Guardia com Gohan; Vendetta/Cartel com Max; Hells com Theo.
 - Nox, Void e Meraki ficam como **Sem mercado** e têm o bloqueio preservado. Chaos e Balaclava começam **Em negociação**, mas o administrador pode alterar para **Mercado aberto** quando as negociações forem liberadas. Enquanto uma família não estiver aberta, compras, vendas e encomendas ficam bloqueadas, inclusive pelo campo manual.
 - Responsabilidades internas: Kiyotaka controla o baú, Lipe responde pela abertura/deep e Wanda responde por compra de material/controle de estoque.
 - Variações de nomes são unificadas automaticamente, como Caos/Chaos e Balaklava/Balaclava. Ao remover a duplicata, o sistema preserva até dois flyers, dois contatos, valores, responsável e a situação comercial já liberada.
+- A calculadora de craft inclui **Circuito Eletrônico**: 5 Alumínios, 5 Cobres, 200 de Dinheiro Sujo, 10 Plásticos e 1 Chapa de Metal por unidade.
 
 ## Segurança
 

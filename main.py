@@ -27,6 +27,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
+APP_RELEASE = "2026.08.27-fotos-circuito-familias"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -281,6 +282,18 @@ def parse_date_br(value):
         return datetime.strptime(str(value or "").strip(), "%d/%m/%Y").date()
     except Exception:
         return None
+
+
+def parse_meta_timestamp(value):
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    for timestamp_format in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(raw_value[:19], timestamp_format)
+        except Exception:
+            continue
+    return None
 
 
 def meta_week_start(today=None):
@@ -542,6 +555,111 @@ def migrate_legacy_meta_weeks(connection):
     return migrated
 
 
+def repair_meta_photo_week_assignments(connection):
+    """Reassocia fotos antigas usando a data real em que foram enviadas.
+
+    Uma migração anterior consolidava ciclos inteiros de quarta–terça no ciclo
+    sexta–quarta seguinte. Isso podia levar uma foto enviada antes da sexta
+    para a sala da semana nova. O arquivo continua preservado, mas volta para
+    a submissão semanal correta e deixa de aparecer como foto da semana atual.
+    """
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        SELECT p.id AS photo_id, p.submission_id, p.user_id, p.created_at,
+               s.week_start, s.week_end
+        FROM meta_photos p
+        INNER JOIN meta_submissions s ON s.id = p.submission_id
+        """
+    )
+    photos = meta_rows_from_cursor(cursor)
+    repaired = 0
+    affected_submission_ids = set()
+
+    for photo in photos:
+        created_at = parse_meta_timestamp(photo.get("created_at"))
+        if not created_at:
+            continue
+
+        target_start_date = meta_week_start(created_at.date())
+        target_week_start = format_date_br(target_start_date)
+        target_week_end = format_date_br(meta_week_end(target_start_date))
+        if photo.get("week_start") == target_week_start:
+            continue
+
+        cursor.execute(
+            meta_sql(
+                """
+                SELECT id FROM meta_submissions
+                WHERE user_id = ? AND week_start = ?
+                """
+            ),
+            (photo["user_id"], target_week_start),
+        )
+        target_rows = meta_rows_from_cursor(cursor)
+        if target_rows:
+            target_submission_id = target_rows[0]["id"]
+        else:
+            target_submission_id = f"META-SUB-{uuid.uuid4().hex}"
+            cursor.execute(
+                meta_sql(
+                    """
+                    INSERT INTO meta_submissions
+                        (id, user_id, week_start, week_end, status, submitted_at, created_at)
+                    VALUES (?, ?, ?, ?, 'Enviado', ?, ?)
+                    """
+                ),
+                (
+                    target_submission_id,
+                    photo["user_id"],
+                    target_week_start,
+                    target_week_end,
+                    photo.get("created_at"),
+                    photo.get("created_at") or format_timestamp(),
+                ),
+            )
+
+        cursor.execute(
+            meta_sql("UPDATE meta_photos SET submission_id = ? WHERE id = ?"),
+            (target_submission_id, photo["photo_id"]),
+        )
+        affected_submission_ids.update({photo["submission_id"], target_submission_id})
+        repaired += 1
+
+    # Mantém o resumo das duas salas coerente depois de mover as fotos. Status
+    # administrativos finais nunca são alterados por esta reparação.
+    for submission_id in affected_submission_ids:
+        cursor.execute(
+            meta_sql(
+                """
+                SELECT COUNT(*) AS total, MIN(created_at) AS first_photo_at
+                FROM meta_photos WHERE submission_id = ?
+                """
+            ),
+            (submission_id,),
+        )
+        count_rows = meta_rows_from_cursor(cursor)
+        photo_count = int(count_rows[0].get("total") or 0) if count_rows else 0
+        first_photo_at = count_rows[0].get("first_photo_at") if count_rows else None
+        cursor.execute(meta_sql("SELECT status FROM meta_submissions WHERE id = ?"), (submission_id,))
+        status_rows = meta_rows_from_cursor(cursor)
+        if not status_rows:
+            continue
+        current_status = str(status_rows[0].get("status") or "Pendente")
+        if photo_count == 0 and current_status == "Enviado":
+            cursor.execute(
+                meta_sql("UPDATE meta_submissions SET status = 'Pendente', submitted_at = NULL WHERE id = ?"),
+                (submission_id,),
+            )
+        elif photo_count > 0 and current_status == "Pendente":
+            cursor.execute(
+                meta_sql("UPDATE meta_submissions SET status = 'Enviado', submitted_at = ? WHERE id = ?"),
+                (first_photo_at or format_timestamp(), submission_id),
+            )
+
+    return repaired
+
+
 def ensure_meta_database_ready():
     global _meta_db_ready
     if _meta_db_ready:
@@ -641,10 +759,13 @@ def ensure_meta_database_ready():
                     created_at,
                 ))
             migrated_weeks = migrate_legacy_meta_weeks(connection)
+            repaired_photos = repair_meta_photo_week_assignments(connection)
             connection.commit()
             _meta_db_ready = True
             if migrated_weeks:
                 log_info(f"Semanas antigas de meta migradas para sexta–quarta: {migrated_weeks}")
+            if repaired_photos:
+                log_info(f"Fotos de meta reassociadas à semana correta: {repaired_photos}")
         except Exception:
             connection.rollback()
             raise
@@ -2718,6 +2839,7 @@ def health():
     return jsonify({
         "ok": True,
         "service": "kokusai-system",
+        "version": APP_RELEASE,
         "persistent_storage": "bucket" if storage_bucket_configured() else ("unavailable" if IS_RAILWAY else "local-development"),
         "timestamp": datetime.utcnow().isoformat() + "Z",
     })
@@ -4268,7 +4390,11 @@ def update_familia(registro_id):
                 delete_family_flyer_reference(reference)
             except Exception as cleanup_error:
                 log_error("Flyer substituído não pôde ser removido do Bucket", cleanup_error)
-        return jsonify({"ok": True, "message": "Família/gangue atualizada com sucesso."})
+        return jsonify({
+            "ok": True,
+            "message": "Informações da família/gangue salvas com sucesso.",
+            "id": registro_id,
+        })
     except Exception as e:
         log_error("Falha em /api/familias/<id> [PUT]", e)
         return error_response(str(e))

@@ -714,3 +714,34 @@ tbody tr:hover td{background:rgba(255,255,255,.017)}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+.family-card-controls{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.family-quick-edit{
+  min-height:30px;
+  padding:6px 11px;
+  border:1px solid rgba(217,45,69,.32);
+  border-radius:8px;
+  background:rgba(217,45,69,.08);
+  color:#f0b2bc;
+  font:700 11px/1 Inter,system-ui,sans-serif;
+  cursor:pointer;
+  transition:border-color .2s ease,background .2s ease,color .2s ease;
+}
+
+.family-quick-edit:hover,
+.family-quick-edit:focus-visible{
+  border-color:rgba(217,45,69,.72);
+  background:rgba(217,45,69,.16);
+  color:#fff;
+  outline:none;
+}
+
+@media(max-width:560px){
+  .family-card-controls{align-items:flex-end;flex-direction:column}
+}
