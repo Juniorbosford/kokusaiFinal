@@ -27,7 +27,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.08.27-fotos-circuito-familias"
+APP_RELEASE = "2026.09.03-hud-natural-v2"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -1917,21 +1917,11 @@ def _ensure_familias_ready_locked(worksheet, force=False):
             if key and key not in existing:
                 existing[key] = (row_index, row)
 
-    additions = []
-
-    # Importa cadastros da antiga aba Flyers quando ela existir.
-    for legacy in legacy_flyers_payloads():
-        key = normalized_lookup_key(legacy.get("nome"))
-        if not key or key in existing:
-            continue
-        additions.append(build_family_row(legacy))
-        existing[key] = (None, additions[-1])
-
+    # Os cadastros padrão já foram migrados nas versões anteriores. A manutenção
+    # só corrige famílias que ainda existem; nunca recria uma família excluída.
     for default in DEFAULT_FAMILIAS:
         key = normalized_lookup_key(default["nome"])
         if key not in existing:
-            additions.append(build_family_row(default))
-            existing[key] = (None, additions[-1])
             continue
 
         row_index, existing_row = existing[key]
@@ -1960,28 +1950,6 @@ def _ensure_familias_ready_locked(worksheet, force=False):
             worksheet.update(f"A{row_index}:O{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
             existing[key] = (row_index, padded)
             changed = True
-
-    # Toda reunião já finalizada também deve aparecer em Famílias.
-    reunioes_worksheet = get_reunioes_worksheet()
-    reunioes_rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, reunioes_worksheet)
-    for reuniao_row in reunioes_rows[1:]:
-        if str(sheet_cell(reuniao_row, 9)).strip().lower() != "finalizada":
-            continue
-        name = canonical_family_name(sheet_cell(reuniao_row, 3))
-        key = normalized_lookup_key(name)
-        if not key or key in existing:
-            continue
-        additions.append(build_family_row({
-            "nome": name,
-            "icone": sheet_cell(reuniao_row, 4),
-            "mercado": "Aberto",
-            "observacao": "Incluída automaticamente após a finalização de uma reunião.",
-        }))
-        existing[key] = (None, additions[-1])
-
-    if additions:
-        worksheet.append_rows(additions, value_input_option="RAW")
-        changed = True
 
     if changed:
         invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
@@ -2221,7 +2189,7 @@ def validate_encomenda_items(raw_items):
         })
 
     if not items:
-        raise ValueError("Informe a quantidade de pelo menos um produto: L85 ou Seringa.")
+        raise ValueError("Informe a quantidade de pelo menos um produto: L85, Seringa ou Circuito Eletrônico.")
 
     total = round(sum(item["valor_total"] for item in items), 2)
     if total > MAX_MONEY_VALUE:
@@ -4416,19 +4384,6 @@ def delete_familia(registro_id):
                 sheet_cell(row, FAMILIAS_HEADERS.index("flyer_url_2")),
             ]
 
-            encomendas_worksheet = get_encomendas_worksheet()
-            encomendas_rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, encomendas_worksheet, force=True)
-            family_id_index = ENCOMENDAS_HEADERS.index("familia_id")
-            linked_orders = sum(
-                1 for order_row in encomendas_rows[1:]
-                if str(sheet_cell(order_row, family_id_index)).strip() == registro_id
-            )
-            if linked_orders:
-                return error_response(
-                    f"{name} possui {linked_orders} encomenda(s) pendente(s). Edite ou conclua essas encomendas antes de remover a família.",
-                    409,
-                )
-
             worksheet.delete_rows(row_index)
             invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
         for reference in flyer_references:
@@ -4436,7 +4391,10 @@ def delete_familia(registro_id):
                 delete_family_flyer_reference(reference)
             except Exception as cleanup_error:
                 log_error("Flyer da família removida não pôde ser apagado do Bucket", cleanup_error)
-        return jsonify({"ok": True, "message": f"{name} foi removida da aba Famílias."})
+        return jsonify({
+            "ok": True,
+            "message": f"{name} foi excluída do cadastro. As transações e encomendas anteriores foram preservadas.",
+        })
     except Exception as e:
         log_error("Falha em /api/familias/<id> [DELETE]", e)
         return error_response(str(e))

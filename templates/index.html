@@ -9,9 +9,9 @@
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260818-observacao-encomendas" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260827-edicao-familias" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260903-hud-natural-v2" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -27,15 +27,15 @@
       </div>
 
       <nav class="nav" aria-label="Navegação principal">
-        <button class="nav-link active" data-target="dashboard"><span class="nav-icon">⌂</span><span>Visão geral</span></button>
-        <button class="nav-link" data-target="compras"><span class="nav-icon">↓</span><span>Compras</span></button>
-        <button class="nav-link" data-target="vendas"><span class="nav-icon">↑</span><span>Vendas</span></button>
-        <button class="nav-link" data-target="encomendas"><span class="nav-icon">◇</span><span>Encomendas</span></button>
-        <button class="nav-link" data-target="relatorios"><span class="nav-icon">▥</span><span>Relatórios</span></button>
-        <button class="nav-link" data-target="reunioes"><span class="nav-icon">◷</span><span>Reuniões</span></button>
-        <button class="nav-link" data-target="familias"><span class="nav-icon">◎</span><span>Famílias</span></button>
-        {% if is_admin %}<button class="nav-link" data-target="metas"><span class="nav-icon">✓</span><span>Salas de Meta</span></button>{% endif %}
-        <button class="nav-link" data-target="craft"><span class="nav-icon">⌁</span><span>Craft</span></button>
+        <button class="nav-link active" data-target="dashboard"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></span><span>Visão geral</span></button>
+        <button class="nav-link" data-target="compras"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 7h12l1 14H5L6 7Z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/><path d="m9 15 3 3 3-3"/><path d="M12 11v7"/></svg></span><span>Compras</span></button>
+        <button class="nav-link" data-target="vendas"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 19 10 13l4 4 6-8"/><path d="M15 9h5v5"/></svg></span><span>Vendas</span></button>
+        <button class="nav-link" data-target="encomendas"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7 8 4 8-4v10l-8 4-8-4V7Z"/><path d="M12 11v10"/></svg></span><span>Encomendas</span></button>
+        <button class="nav-link" data-target="relatorios"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></span><span>Relatórios</span></button>
+        <button class="nav-link" data-target="reunioes"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/><path d="M8 14h3M8 17h6"/></svg></span><span>Reuniões</span></button>
+        <button class="nav-link" data-target="familias"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M14 16a4.5 4.5 0 0 1 6.5 4"/></svg></span><span>Famílias</span></button>
+        {% if is_admin %}<button class="nav-link" data-target="metas"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 7-7M16 5h3v3"/></svg></span><span>Salas de Meta</span></button>{% endif %}
+        <button class="nav-link" data-target="craft"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14 6 4-4 4 4-4 4"/><path d="m18 6-7 7"/><path d="m5 12 7 7-3 3-7-7 3-3Z"/><path d="m7 14-2 2M10 17l-2 2"/></svg></span><span>Craft</span></button>
       </nav>
 
       <div class="sidebar-panel">
@@ -523,6 +523,20 @@
                       </label>
                       <label for="e_seringa_valor">Valor unitário
                         <input id="e_seringa_valor" type="number" min="0" step="0.01" placeholder="0,00" />
+                      </label>
+                    </div>
+                  </div>
+                  <div class="order-item-card">
+                    <div class="order-item-title">
+                      <strong>Circuito Eletrônico</strong>
+                      <span id="e_circuito_subtotal">R$ 0,00</span>
+                    </div>
+                    <div class="order-item-fields">
+                      <label for="e_circuito_quantidade">Quantidade
+                        <input id="e_circuito_quantidade" type="number" min="0" step="1" placeholder="0" />
+                      </label>
+                      <label for="e_circuito_valor">Valor unitário
+                        <input id="e_circuito_valor" type="number" min="0" step="0.01" placeholder="0,00" />
                       </label>
                     </div>
                   </div>
@@ -1091,6 +1105,27 @@
     </section>
   </div>
 
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260827-semanas-familias-circuito"></script>
+  <div class="meta-confirm-overlay family-delete-confirm" id="familyDeleteConfirm" data-status="unpaid" hidden>
+    <section class="meta-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="familyDeleteConfirmTitle" aria-describedby="familyDeleteConfirmText">
+      <span class="meta-confirm-icon" aria-hidden="true">×</span>
+      <p class="panel-kicker">Exclusão permanente</p>
+      <h3 id="familyDeleteConfirmTitle">Excluir família?</h3>
+      <p id="familyDeleteConfirmText">Ela deixará de aparecer nos cadastros e seletores.</p>
+      <div class="family-delete-retention">
+        <strong>O histórico será mantido</strong>
+        <span>Compras, vendas, encomendas e demais transações já registradas não serão apagadas.</span>
+      </div>
+      <label class="family-delete-confirm-field" for="familyDeleteConfirmInput">
+        Digite <strong id="familyDeleteConfirmName"></strong> para confirmar
+        <input id="familyDeleteConfirmInput" type="text" autocomplete="off" spellcheck="false" />
+      </label>
+      <div class="meta-confirm-actions">
+        <button type="button" class="ghost-btn" id="familyDeleteConfirmCancel">Voltar</button>
+        <button type="button" class="primary-btn meta-confirm-submit" id="familyDeleteConfirmSubmit" disabled>Excluir definitivamente</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260903-hud-natural-v2"></script>
 </body>
 </html>

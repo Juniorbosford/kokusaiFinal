@@ -143,11 +143,20 @@ const metaReviewConfirmTitle = document.getElementById("metaReviewConfirmTitle")
 const metaReviewConfirmText = document.getElementById("metaReviewConfirmText");
 const metaReviewConfirmCancel = document.getElementById("metaReviewConfirmCancel");
 const metaReviewConfirmSubmit = document.getElementById("metaReviewConfirmSubmit");
+const familyDeleteConfirm = document.getElementById("familyDeleteConfirm");
+const familyDeleteConfirmTitle = document.getElementById("familyDeleteConfirmTitle");
+const familyDeleteConfirmText = document.getElementById("familyDeleteConfirmText");
+const familyDeleteConfirmName = document.getElementById("familyDeleteConfirmName");
+const familyDeleteConfirmInput = document.getElementById("familyDeleteConfirmInput");
+const familyDeleteConfirmCancel = document.getElementById("familyDeleteConfirmCancel");
+const familyDeleteConfirmSubmit = document.getElementById("familyDeleteConfirmSubmit");
 let metaRoomsCache = [];
 let selectedMetaRoomUserId = null;
 let activeMetaWeek = null;
 let pendingMetaReview = null;
 let metaConfirmPreviousFocus = null;
+let pendingFamilyDelete = null;
+let familyDeletePreviousFocus = null;
 const craftForm = document.getElementById("craftForm");
 const craftInputs = document.querySelectorAll("[data-craft-input]");
 const craftTable = document.getElementById("craftTable");
@@ -467,6 +476,8 @@ onInput("e_l85_quantidade", updatePreviewEncomenda);
 onInput("e_l85_valor", updatePreviewEncomenda);
 onInput("e_seringa_quantidade", updatePreviewEncomenda);
 onInput("e_seringa_valor", updatePreviewEncomenda);
+onInput("e_circuito_quantidade", updatePreviewEncomenda);
+onInput("e_circuito_valor", updatePreviewEncomenda);
 onInput("e_tipo_dinheiro", updatePreviewEncomenda);
 onInput("e_percentual_dinheiro_sujo", updatePreviewEncomenda);
 
@@ -562,9 +573,11 @@ function updatePreviewEncomenda(){
   const percentage = syncDirtyPercentageField("e_tipo_dinheiro", "e_percentual_field", "e_percentual_dinheiro_sujo");
   const l85Base = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
   const seringaBase = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
+  const circuitoBase = Math.max(0, Number(inputValue("e_circuito_quantidade") || 0)) * Math.max(0, Number(inputValue("e_circuito_valor") || 0));
   setText("e_l85_subtotal", currency(moneyPricing(l85Base, moneyType, percentage).total));
   setText("e_seringa_subtotal", currency(moneyPricing(seringaBase, moneyType, percentage).total));
-  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase, moneyType, percentage);
+  setText("e_circuito_subtotal", currency(moneyPricing(circuitoBase, moneyType, percentage).total));
+  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase + circuitoBase, moneyType, percentage);
 }
 
 function resetEncomendaForm(){
@@ -867,6 +880,7 @@ function iniciarEdicaoEncomenda(id){
   const itens = Array.isArray(item.itens) ? item.itens : [];
   const l85 = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "l85");
   const seringa = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "seringa");
+  const circuito = itens.find(produto => normalizeFamilyFlyerKey(produto.produto) === "circuito eletronico");
   const family = familyForOrder(item);
 
   encomendaEmEdicaoId = id;
@@ -876,15 +890,18 @@ function iniciarEdicaoEncomenda(id){
   document.getElementById("e_l85_valor").value = l85?.valor_unitario ?? "";
   document.getElementById("e_seringa_quantidade").value = seringa?.quantidade || "";
   document.getElementById("e_seringa_valor").value = seringa?.valor_unitario ?? "";
+  document.getElementById("e_circuito_quantidade").value = circuito?.quantidade || "";
+  document.getElementById("e_circuito_valor").value = circuito?.valor_unitario ?? "";
 
   // Compatibilidade com encomendas antigas, anteriores ao campo itens_json.
   if(!itens.length){
     const texto = String(item.o_que_pediu || "");
-    const match = texto.match(/^\s*(?:(\d+)\s*x?\s*)?(L85|Seringa)\s*$/i);
+    const match = texto.match(/^\s*(?:(\d+)\s*x?\s*)?(L85|Seringa|Circuito Eletr[oô]nico)\s*$/i);
     if(match){
       const quantidade = Number(match[1] || 1);
       const valorUnitario = quantidade > 0 ? Number(item.valor_base || item.valor || 0) / quantidade : 0;
-      const prefixo = match[2].toLowerCase() === "l85" ? "e_l85" : "e_seringa";
+      const produtoNormalizado = normalizeFamilyFlyerKey(match[2]);
+      const prefixo = produtoNormalizado === "l85" ? "e_l85" : (produtoNormalizado === "seringa" ? "e_seringa" : "e_circuito");
       document.getElementById(`${prefixo}_quantidade`).value = quantidade;
       document.getElementById(`${prefixo}_valor`).value = Number(valorUnitario.toFixed(2));
     }
@@ -1018,10 +1035,15 @@ encomendaForm?.addEventListener("submit", async (e) => {
       quantidade:Number(inputValue("e_seringa_quantidade") || 0),
       valor_unitario:Number(inputValue("e_seringa_valor") || 0),
     },
+    {
+      produto:"Circuito Eletrônico",
+      quantidade:Number(inputValue("e_circuito_quantidade") || 0),
+      valor_unitario:Number(inputValue("e_circuito_valor") || 0),
+    },
   ];
 
   if(!itens.some(item => Number.isInteger(item.quantidade) && item.quantidade > 0)){
-    setFeedback(encomendaFeedback, "Informe a quantidade de L85, Seringa ou dos dois produtos.", true);
+    setFeedback(encomendaFeedback, "Informe a quantidade de L85, Seringa ou Circuito Eletrônico.", true);
     return;
   }
   if(itens.some(item => item.quantidade < 0 || !Number.isInteger(item.quantidade))){
@@ -1427,6 +1449,74 @@ function familyPayloadFromItem(item, overrides = {}){
   };
 }
 
+function closeFamilyDeleteConfirm(){
+  if(!familyDeleteConfirm) return;
+  familyDeleteConfirm.hidden = true;
+  pendingFamilyDelete = null;
+  if(familyDeleteConfirmInput){
+    familyDeleteConfirmInput.value = "";
+    familyDeleteConfirmInput.disabled = false;
+  }
+  if(familyDeleteConfirmSubmit){
+    familyDeleteConfirmSubmit.disabled = true;
+    familyDeleteConfirmSubmit.textContent = "Excluir definitivamente";
+  }
+  if(familyDeletePreviousFocus?.isConnected) familyDeletePreviousFocus.focus();
+  familyDeletePreviousFocus = null;
+}
+
+function syncFamilyDeleteConfirmation(){
+  if(!familyDeleteConfirmInput || !familyDeleteConfirmSubmit || !pendingFamilyDelete) return;
+  familyDeleteConfirmSubmit.disabled = normalizeFamilyFlyerKey(familyDeleteConfirmInput.value) !== normalizeFamilyFlyerKey(pendingFamilyDelete.nome);
+}
+
+function openFamilyDeleteConfirm(item){
+  if(!item || !familyDeleteConfirm){
+    setFeedback(familiaFeedback, "Não foi possível abrir a confirmação de exclusão.", true);
+    return;
+  }
+  pendingFamilyDelete = {id:item.id, nome:item.nome || "Família"};
+  familyDeletePreviousFocus = document.activeElement;
+  if(familyDeleteConfirmTitle) familyDeleteConfirmTitle.textContent = `Excluir ${pendingFamilyDelete.nome}?`;
+  if(familyDeleteConfirmText) familyDeleteConfirmText.textContent = `${pendingFamilyDelete.nome} deixará de aparecer no cadastro e não poderá receber novas movimentações.`;
+  if(familyDeleteConfirmName) familyDeleteConfirmName.textContent = pendingFamilyDelete.nome;
+  if(familyDeleteConfirmInput){
+    familyDeleteConfirmInput.value = "";
+    familyDeleteConfirmInput.disabled = false;
+  }
+  if(familyDeleteConfirmSubmit){
+    familyDeleteConfirmSubmit.disabled = true;
+    familyDeleteConfirmSubmit.textContent = "Excluir definitivamente";
+  }
+  familyDeleteConfirm.hidden = false;
+  requestAnimationFrame(() => familyDeleteConfirmInput?.focus());
+}
+
+async function submitFamilyDelete(){
+  if(!pendingFamilyDelete || !familyDeleteConfirmSubmit || familyDeleteConfirmSubmit.disabled || !canWrite) return;
+  const item = {...pendingFamilyDelete};
+  familyDeleteConfirmSubmit.disabled = true;
+  familyDeleteConfirmSubmit.textContent = "Excluindo...";
+  if(familyDeleteConfirmInput) familyDeleteConfirmInput.disabled = true;
+  try{
+    const {res, data} = await fetchJson(`/api/familias/${encodeURIComponent(item.id)}`, {
+      method:"DELETE",
+      headers:csrfHeaders(),
+    });
+    setFeedback(familiaFeedback, data.message || (res.ok ? "Família excluída." : "Erro ao excluir família."), !res.ok);
+    if(res.ok){
+      closeFamilyDeleteConfirm();
+      await loadFamilias();
+      return;
+    }
+  }catch(error){
+    setFeedback(familiaFeedback, `Falha ao excluir família: ${error.message}`, true);
+  }
+  if(familyDeleteConfirmInput) familyDeleteConfirmInput.disabled = false;
+  familyDeleteConfirmSubmit.textContent = "Excluir definitivamente";
+  syncFamilyDeleteConfirmation();
+}
+
 familiasGrid?.addEventListener("click", async (event) => {
   const contactButton = event.target.closest("[data-toggle-family-contact]");
   if(contactButton){
@@ -1471,20 +1561,7 @@ familiasGrid?.addEventListener("click", async (event) => {
   if(!deleteButton || !canWrite) return;
   const id = deleteButton.dataset.apagarFamilia;
   const item = familiasCache.find(familia => familia.id === id);
-  if(!window.confirm(`Remover ${item?.nome || "esta família"} da aba Famílias?`)) return;
-  deleteButton.disabled = true;
-  try{
-    const {res, data} = await fetchJson(`/api/familias/${encodeURIComponent(id)}`, {
-      method:"DELETE",
-      headers:csrfHeaders()
-    });
-    setFeedback(familiaFeedback, data.message || (res.ok ? "Família removida." : "Erro ao remover família."), !res.ok);
-    if(res.ok) await loadFamilias();
-  }catch(error){
-    setFeedback(familiaFeedback, `Falha ao remover família: ${error.message}`, true);
-  }finally{
-    deleteButton.disabled = false;
-  }
+  openFamilyDeleteConfirm(item);
 });
 
 function integer(value){
@@ -1923,6 +2000,7 @@ async function loadFamilias(){
             <div class="family-card-controls">
               <span class="market-status ${market.className}">${escapeHtml(market.label)}</span>
               ${canWrite ? `<button type="button" class="family-quick-edit" data-editar-familia="${escapeHtml(item.id)}" aria-label="Editar informações de ${escapeHtml(item.nome)}">Editar</button>` : ""}
+              ${canWrite ? `<button type="button" class="family-quick-delete" data-apagar-familia="${escapeHtml(item.id)}" aria-label="Excluir permanentemente ${escapeHtml(item.nome)}">Excluir</button>` : ""}
             </div>
           </div>
           <div class="family-responsible-card"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato || "A definir")}</strong></div>
@@ -1936,7 +2014,7 @@ async function loadFamilias(){
               </div>
               ${contactsHtml}
               ${item.observacao ? `<p class="family-note">${escapeHtml(item.observacao)}</p>` : ""}
-              ${canWrite ? `<div class="family-actions">${flyerUrls.length ? `<button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button>` : ""}<button type="button" class="family-delete-btn" data-apagar-familia="${escapeHtml(item.id)}">Remover família</button></div>` : ""}
+              ${canWrite && flyerUrls.length ? `<div class="family-actions"><button type="button" class="family-flyer-delete-btn" data-remover-flyer="${escapeHtml(item.id)}">Remover flyers</button></div>` : ""}
             </div>
           </details>
         </div>
@@ -2157,8 +2235,19 @@ metaReviewConfirmSubmit?.addEventListener("click", async () => {
 metaReviewConfirm?.addEventListener("click", event => {
   if(event.target === metaReviewConfirm) closeMetaReviewConfirm();
 });
+familyDeleteConfirmInput?.addEventListener("input", syncFamilyDeleteConfirmation);
+familyDeleteConfirmCancel?.addEventListener("click", closeFamilyDeleteConfirm);
+familyDeleteConfirmSubmit?.addEventListener("click", submitFamilyDelete);
+familyDeleteConfirm?.addEventListener("click", event => {
+  if(event.target === familyDeleteConfirm) closeFamilyDeleteConfirm();
+});
 document.addEventListener("keydown", event => {
   if(event.key === "Escape" && metaReviewConfirm && !metaReviewConfirm.hidden) closeMetaReviewConfirm();
+  if(event.key === "Escape" && familyDeleteConfirm && !familyDeleteConfirm.hidden) closeFamilyDeleteConfirm();
+  if(event.key === "Enter" && familyDeleteConfirm && !familyDeleteConfirm.hidden && !familyDeleteConfirmSubmit?.disabled){
+    event.preventDefault();
+    submitFamilyDelete();
+  }
 });
 
 finalizeMetaWeekBtn?.addEventListener("click", async () => {
