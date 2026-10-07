@@ -1,8 +1,43 @@
-# KOKUSAI — HUD Natural V2 2026.09.03
+# KOKUSAI — Remover compra e M16 2026.10.07
+
+Identificador: `2026.10.07-remover-compra-m16`
+
+Esta versão inclui:
+
+- Botão **Remover** em cada compra (somente administrador), com confirmação mostrando a compra e rota `DELETE /api/compras/<id>`. A remoção é registrada no log do servidor.
+- Atalho de venda do **M16**, disponível por 7 dias (07/10/2026 a 13/10/2026). Some automaticamente depois da data final, sem precisar publicar de novo.
+- Novo mecanismo `TEMPORARY_SALE_PRODUCTS` no `main.py` para liberar outros produtos por período.
+- Nova rota `GET /api/produtos-temporarios` (equipe autenticada) com os produtos ativos no dia.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-remover-compra-m16"`.
+
+---
+
+# Versão anterior — Registro Baú e segurança 2026.10.01
+
+Identificador: `2026.10.01-registro-bau`
+
+Esta versão inclui:
+
+- Nova aba **Registro Baú**: envio de fotos (arrastar, selecionar ou colar), legenda opcional, galeria por mês, ampliação da foto, edição de legenda e exclusão (somente administrador).
+- Fotos do baú armazenadas no Bucket privado, com índice permanente no banco (`bau_registros`).
+- O app não inicia no Railway sem `SECRET_KEY` (antes subia com a chave padrão do código).
+- Limite de tentativas de login passou a usar o IP real do proxy (`ProxyFix`) e ignora `X-Forwarded-For` forjado; novo limite por usuário.
+- Hash do administrador e hashes dos membros saíram do código: agora vêm de `KOKUSAI_PASSWORD_HASH` e `META_MEMBERS_JSON`.
+- `scripts/generate_password_hash.py` gera hashes com 600 mil iterações.
+- Se a lista de membros vier vazia, o sistema não desativa os membros existentes.
+
+**Antes de publicar:** cadastre `KOKUSAI_PASSWORD_HASH` e `META_MEMBERS_JSON` no Railway (valores no arquivo `railway-variaveis.txt`) e confirme que `SECRET_KEY` existe.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.01-registro-bau"`.
+
+---
+
+# Versão anterior — HUD Natural V2 2026.09.03
 
 Identificador: `2026.09.03-hud-natural-v2`
 
-Esta versão inclui:
+Incluía:
 
 - Correção automática de fotos antigas vinculadas à semana atual.
 - Reassociação das fotos à semana correta pela data real do envio.
@@ -28,9 +63,3 @@ Esta versão inclui:
 - Navegação com cor visível no ícone, indicador lateral e seleção da aba.
 - Vermelho removido dos grandes cartões, cabeçalhos de tabelas e sidebar.
 - Fundo geral preservado conforme a direção aprovada.
-
-Depois do deploy, abra `/health` e confirme:
-
-```json
-"version": "2026.09.03-hud-natural-v2"
-```

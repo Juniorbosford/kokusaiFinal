@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, date, timezone
 from functools import wraps
 import unicodedata
 from urllib.parse import urlparse, unquote
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, jsonify, render_template, request, redirect, session, url_for, g, send_file, Response
 import gspread
 from google.oauth2.service_account import Credentials
@@ -27,14 +28,27 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.09.03-hud-natural-v2"
+APP_RELEASE = "2026.10.07-remover-compra-m16"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
     or os.getenv("RAILWAY_ENVIRONMENT_NAME")
     or os.getenv("RAILWAY_PROJECT_ID")
 )
-app.secret_key = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
+app.secret_key = os.getenv("SECRET_KEY", "").strip() or DEFAULT_SECRET_KEY
+if IS_RAILWAY and app.secret_key == DEFAULT_SECRET_KEY:
+    # Com a chave padrão (pública no código) qualquer pessoa conseguiria forjar
+    # um cookie de sessão de administrador. Em produção o app se recusa a iniciar.
+    raise RuntimeError(
+        "SECRET_KEY não configurada. Defina uma SECRET_KEY longa e aleatória nas variáveis do Railway antes de publicar."
+    )
+
+# Quantidade de proxies confiáveis à frente do app (Railway = 1). Com ProxyFix,
+# request.remote_addr passa a ser o IP real registrado pelo proxy, e não o valor
+# de X-Forwarded-For enviado pelo cliente (que pode ser forjado).
+TRUSTED_PROXY_COUNT = int(os.getenv("TRUSTED_PROXY_COUNT", "1" if IS_RAILWAY else "0"))
+if TRUSTED_PROXY_COUNT > 0:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=TRUSTED_PROXY_COUNT, x_proto=TRUSTED_PROXY_COUNT)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=12)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -97,6 +111,9 @@ _familias_maintenance_cache = {"checked_at": 0}
 # limites curtos já reduzem bastante risco de força bruta e payload gigante.
 LOGIN_ATTEMPTS = {}
 LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+# Limite por usuário (somando todos os IPs): freia ataques distribuídos sem permitir
+# que um terceiro bloqueie o login de alguém com poucas tentativas.
+LOGIN_MAX_ATTEMPTS_PER_USER = int(os.getenv("LOGIN_MAX_ATTEMPTS_PER_USER", "25"))
 LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "900"))
 MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
 MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
@@ -108,18 +125,27 @@ MAX_DIRTY_MONEY_PERCENTAGE = 30.0
 SHEET_FORMULA_PREFIXES = ("=", "+", "-", "@")
 
 
-# Usuários do sistema. As senhas não ficam salvas em texto puro: são hashes PBKDF2-SHA256.
-# Para trocar senha depois, gere um novo hash e substitua o valor correspondente.
-AUTH_USERS = {
-    "kokusai": {
+# Usuário administrador. A senha nunca fica no código: o hash PBKDF2-SHA256 vem da
+# variável KOKUSAI_PASSWORD_HASH (gere com: python scripts/generate_password_hash.py).
+ADMIN_PASSWORD_HASH = os.getenv("KOKUSAI_PASSWORD_HASH", "").strip()
+if not ADMIN_PASSWORD_HASH and IS_RAILWAY:
+    raise RuntimeError(
+        "KOKUSAI_PASSWORD_HASH não configurada. Cole a variável do arquivo railway-variaveis.txt "
+        "nas variáveis do Railway antes de publicar."
+    )
+if not ADMIN_PASSWORD_HASH:
+    print(
+        "[KOKUSAI][AVISO] KOKUSAI_PASSWORD_HASH não definida: o login do administrador está desativado neste ambiente.",
+        flush=True,
+    )
+
+AUTH_USERS = {}
+if ADMIN_PASSWORD_HASH:
+    AUTH_USERS["kokusai"] = {
         "display_name": "Kokusai",
         "role": "admin",
-        "password_hash": os.getenv(
-            "KOKUSAI_PASSWORD_HASH",
-            "pbkdf2_sha256$260000$UNqSVZhNiPV2DIIY+tj5wg==$roxLIJfeZrFmQJ7CUMI8RZ4b0xKKpKWrXch8RugQCuI="
-        ),
-    },
-}
+        "password_hash": ADMIN_PASSWORD_HASH,
+    }
 
 
 COMPRAS_HEADERS = [
@@ -731,6 +757,22 @@ def ensure_meta_database_ready():
                 "CREATE INDEX IF NOT EXISTS idx_meta_submissions_week ON meta_submissions(week_start)",
                 "CREATE INDEX IF NOT EXISTS idx_meta_photos_submission ON meta_photos(submission_id)",
                 "CREATE INDEX IF NOT EXISTS idx_meta_closures_week ON meta_week_closures(week_start)",
+                """
+                CREATE TABLE IF NOT EXISTS bau_registros (
+                    id TEXT PRIMARY KEY,
+                    object_key TEXT NOT NULL,
+                    original_name TEXT NOT NULL,
+                    content_type TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    legenda TEXT NOT NULL DEFAULT '',
+                    registrado_por TEXT NOT NULL DEFAULT '',
+                    mes TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    created_ts TEXT NOT NULL
+                )
+                """,
+                "CREATE INDEX IF NOT EXISTS idx_bau_registros_ts ON bau_registros(created_ts)",
+                "CREATE INDEX IF NOT EXISTS idx_bau_registros_mes ON bau_registros(mes)",
             ]
             for statement in statements:
                 cursor.execute(statement)
@@ -739,7 +781,8 @@ def ensure_meta_database_ready():
             # A lista em meta_members.py é a fonte atual da equipe. Membros
             # removidos ficam inativos para preservar semanas, fotos e logs
             # antigos, enquanto os presentes na lista são ativados novamente.
-            cursor.execute("UPDATE meta_users SET active = 0 WHERE role = 'member'")
+            if META_MEMBERS:
+                cursor.execute("UPDATE meta_users SET active = 0 WHERE role = 'member'")
             seed_query = meta_sql(
                 """
                 INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at)
@@ -1209,22 +1252,26 @@ def csrf_error_if_invalid():
 
 
 def get_client_ip():
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()
+    # Nunca lemos X-Forwarded-For diretamente: o cliente consegue forjar esse cabeçalho
+    # e escapar do limite de tentativas. O ProxyFix (acima) já entrega o IP correto aqui.
     return request.remote_addr or "unknown"
 
 
 def login_attempt_key(username):
-    return f"{get_client_ip()}:{str(username or '').lower()}"
+    return f"{get_client_ip()}:{str(username or '').lower()[:64]}"
 
 
-def is_login_limited(key):
+def login_user_key(username):
+    return f"user:{str(username or '').lower()[:64]}"
+
+
+def is_login_limited(key, limit=None):
+    limit = LOGIN_MAX_ATTEMPTS if limit is None else limit
     now = time.time()
     with _sheets_lock:
         attempts = [ts for ts in LOGIN_ATTEMPTS.get(key, []) if now - ts < LOGIN_WINDOW_SECONDS]
         LOGIN_ATTEMPTS[key] = attempts
-        return len(attempts) >= LOGIN_MAX_ATTEMPTS
+        return len(attempts) >= limit
 
 
 def record_failed_login(key):
@@ -1233,6 +1280,11 @@ def record_failed_login(key):
         attempts = [ts for ts in LOGIN_ATTEMPTS.get(key, []) if now - ts < LOGIN_WINDOW_SECONDS]
         attempts.append(now)
         LOGIN_ATTEMPTS[key] = attempts
+        if len(LOGIN_ATTEMPTS) > 5000:
+            # Evita crescimento indefinido da memória com chaves antigas.
+            stale = [k for k, v in LOGIN_ATTEMPTS.items() if not v or now - v[-1] >= LOGIN_WINDOW_SECONDS]
+            for stale_key in stale:
+                LOGIN_ATTEMPTS.pop(stale_key, None)
 
 
 def clear_login_attempts(key):
@@ -2763,8 +2815,9 @@ def login():
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "")
         key = login_attempt_key(username)
+        user_key = login_user_key(username)
 
-        if is_login_limited(key):
+        if is_login_limited(key) or is_login_limited(user_key, LOGIN_MAX_ATTEMPTS_PER_USER):
             error = "Muitas tentativas de login. Aguarde alguns minutos e tente novamente."
             return render_template("login.html", error=error, next_url=next_url), 429
 
@@ -2781,6 +2834,7 @@ def login():
             return redirect(safe_next_url(request.form.get("next") or next_url))
 
         record_failed_login(key)
+        record_failed_login(user_key)
         error = "Usuário ou senha inválidos."
 
     return render_template("login.html", error=error, next_url=next_url)
@@ -3349,6 +3403,74 @@ def create_compra():
 
     except Exception as e:
         log_error("Falha em /api/compras [POST]", e)
+        return error_response(str(e))
+
+
+@app.delete("/api/compras/<registro_id>")
+@require_admin
+def delete_compra(registro_id):
+    try:
+        with _sheets_lock:
+            worksheet = get_compras_worksheet()
+            row_index, row = find_row_by_id(worksheet, registro_id)
+            if not row_index:
+                return error_response("Compra não encontrada.", 404)
+            compra = normalize_compra(row)
+            worksheet.delete_rows(row_index)
+            invalidate_values_cache(COMPRAS_WORKSHEET_NAME)
+
+        user = get_current_user()
+        # A linha some da planilha de forma definitiva; este log é o único rastro de quem removeu o quê.
+        log_info(
+            "Compra removida. "
+            f"ID={registro_id} produto={compra.get('produto')} quantidade={compra.get('quantidade')} "
+            f"total={compra.get('valor_total')} por={user['display_name'] if user else '?'}"
+        )
+        return jsonify({
+            "ok": True,
+            "message": "Compra removida com sucesso.",
+            "id": registro_id,
+        })
+    except Exception as e:
+        log_error("Falha em /api/compras/<id> [DELETE]", e)
+        return error_response(str(e))
+
+
+# ---------------------------------------------------------------------------
+# Produtos de venda por tempo limitado
+# ---------------------------------------------------------------------------
+# Cada item aparece como atalho no formulário de Vendas apenas entre "inicio" e "fim"
+# (datas inclusivas, no fuso do sistema) e some sozinho depois. Para liberar outro
+# produto temporário, basta incluir uma linha aqui.
+TEMPORARY_SALE_PRODUCTS = [
+    {"nome": "M16", "inicio": "2026-10-07", "fim": "2026-10-13"},  # 7 dias
+]
+
+
+def active_temporary_sale_products():
+    today = now_local().date()
+    active = []
+    for product in TEMPORARY_SALE_PRODUCTS:
+        start = datetime.strptime(product["inicio"], "%Y-%m-%d").date()
+        end = datetime.strptime(product["fim"], "%Y-%m-%d").date()
+        if start <= today <= end:
+            active.append({
+                "nome": product["nome"],
+                "ate": end.strftime("%d/%m/%Y"),
+                "dias_restantes": (end - today).days + 1,
+            })
+    return active
+
+
+@app.get("/api/produtos-temporarios")
+@require_staff
+def list_temporary_sale_products():
+    try:
+        response = jsonify({"ok": True, "items": active_temporary_sale_products()})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except Exception as e:
+        log_error("Falha em /api/produtos-temporarios [GET]", e)
         return error_response(str(e))
 
 
@@ -4437,6 +4559,199 @@ def resumo_metas():
     except Exception as e:
         log_error("Falha em /api/resumo-metas", e)
         return error_response(str(e))
+
+
+# ---------------------------------------------------------------------------
+# Registro do Baú: fotos arquivadas (arquivo no Bucket + índice no banco)
+# ---------------------------------------------------------------------------
+BAU_MAX_CAPTION_LENGTH = 200
+BAU_PAGE_SIZE_DEFAULT = 24
+BAU_PAGE_SIZE_MAX = 60
+BAU_MONTH_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def clean_plain_text(value, label, max_length, required=False):
+    """Texto de linha única para o banco (sem a proteção de fórmulas do Google Sheets)."""
+    text = "".join(ch for ch in str(value or "").replace("\x00", "") if ord(ch) >= 32 or ch in "\n\t")
+    text = re.sub(r"\s+", " ", text).strip()
+    if required and not text:
+        raise ValueError(f"{label} é obrigatório.")
+    if len(text) > max_length:
+        raise ValueError(f"{label} deve ter no máximo {max_length} caracteres.")
+    return text
+
+
+def store_bau_photo(upload, month):
+    image_bytes = prepare_image_upload(upload, "foto")
+    object_key = f"bau/{month}/{uuid.uuid4().hex}.webp"
+    client = get_storage_client()
+    if client:
+        client.put_object(Bucket=META_BUCKET_NAME, Key=object_key, Body=image_bytes, ContentType="image/webp")
+    else:
+        if IS_RAILWAY:
+            raise RuntimeError("Bucket de fotos não configurado no Railway.")
+        local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/"))
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as file_handle:
+            file_handle.write(image_bytes)
+    return {
+        "object_key": object_key,
+        "original_name": os.path.basename(upload.filename or "")[:180] or "imagem",
+        "content_type": "image/webp",
+        "size_bytes": len(image_bytes),
+    }
+
+
+def serialize_bau(row):
+    return {
+        "id": row["id"],
+        "legenda": row["legenda"] or "",
+        "registrado_por": row["registrado_por"] or "",
+        "created_at": row["created_at"],
+        "mes": row["mes"],
+        "original_name": row["original_name"],
+        "size_bytes": int(row["size_bytes"] or 0),
+        # URL estável dentro do próprio sistema: a sessão é checada a cada acesso.
+        "url": url_for("bau_photo_file", photo_id=row["id"]),
+    }
+
+
+@app.get("/api/bau")
+@require_staff
+def list_bau():
+    try:
+        month = str(request.args.get("mes") or "").strip()
+        if month and not BAU_MONTH_PATTERN.match(month):
+            return error_response("Mês inválido.", 400)
+        try:
+            offset = max(0, int(request.args.get("offset", 0)))
+            limit = min(max(1, int(request.args.get("limit", BAU_PAGE_SIZE_DEFAULT))), BAU_PAGE_SIZE_MAX)
+        except (TypeError, ValueError):
+            return error_response("Paginação inválida.", 400)
+
+        columns = "id, original_name, content_type, size_bytes, legenda, registrado_por, mes, created_at"
+        if month:
+            total_row = meta_query_one("SELECT COUNT(*) AS total FROM bau_registros WHERE mes = ?", (month,))
+            rows = meta_query_all(
+                f"SELECT {columns} FROM bau_registros WHERE mes = ? ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?",
+                (month, limit, offset),
+            )
+        else:
+            total_row = meta_query_one("SELECT COUNT(*) AS total FROM bau_registros")
+            rows = meta_query_all(
+                f"SELECT {columns} FROM bau_registros ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            )
+        months = meta_query_all("SELECT mes, COUNT(*) AS total FROM bau_registros GROUP BY mes ORDER BY mes DESC")
+        total = int((total_row or {}).get("total") or 0)
+
+        response = jsonify({
+            "ok": True,
+            "items": [serialize_bau(row) for row in rows],
+            "total": total,
+            "offset": offset,
+            "has_more": offset + len(rows) < total,
+            "months": [{"mes": row["mes"], "total": int(row["total"] or 0)} for row in months],
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except Exception as error:
+        log_error("Falha em /api/bau [GET]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/bau/photos")
+@require_admin
+def upload_bau_photo():
+    try:
+        legenda = clean_plain_text(request.form.get("legenda"), "Legenda", BAU_MAX_CAPTION_LENGTH)
+        now = now_local()
+        stored = store_bau_photo(request.files.get("photo"), now.strftime("%Y-%m"))
+        user = get_current_user()
+        record_id = f"BAU-{uuid.uuid4().hex}"
+        try:
+            meta_execute(
+                """
+                INSERT INTO bau_registros
+                    (id, object_key, original_name, content_type, size_bytes, legenda, registrado_por, mes, created_at, created_ts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record_id, stored["object_key"], stored["original_name"], stored["content_type"],
+                    stored["size_bytes"], legenda, user["display_name"], now.strftime("%Y-%m"),
+                    format_timestamp(now), now.strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                ),
+            )
+        except Exception:
+            delete_meta_photo_object(stored["object_key"])
+            raise
+        log_info(f"Foto do baú registrada. ID={record_id}")
+        return jsonify({"ok": True, "message": "Foto registrada com sucesso.", "id": record_id}), 201
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/bau/photos [POST]", error)
+        return error_response(str(error))
+
+
+@app.put("/api/bau/photos/<photo_id>")
+@require_admin
+def update_bau_photo(photo_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        legenda = clean_plain_text(data.get("legenda"), "Legenda", BAU_MAX_CAPTION_LENGTH)
+        updated = meta_execute("UPDATE bau_registros SET legenda = ? WHERE id = ?", (legenda, photo_id))
+        if not updated:
+            return error_response("Registro não encontrado.", 404)
+        return jsonify({"ok": True, "message": "Legenda atualizada.", "legenda": legenda})
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/bau/photos [PUT]", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/bau/photos/<photo_id>")
+@require_admin
+def delete_bau_photo(photo_id):
+    try:
+        row = meta_query_one("SELECT id, object_key FROM bau_registros WHERE id = ?", (photo_id,))
+        if not row:
+            return error_response("Registro não encontrado.", 404)
+        meta_execute("DELETE FROM bau_registros WHERE id = ?", (photo_id,))
+        try:
+            delete_meta_photo_object(row["object_key"])
+        except Exception as storage_error:
+            # O registro já saiu da lista; se o arquivo não puder ser apagado agora, apenas registramos.
+            log_error("Foto do baú removida do banco, mas o arquivo permaneceu no Bucket", storage_error)
+        return jsonify({"ok": True, "message": "Foto removida do registro."})
+    except Exception as error:
+        log_error("Falha em /api/bau/photos [DELETE]", error)
+        return error_response(str(error))
+
+
+@app.get("/bau/foto/<photo_id>")
+@require_staff
+def bau_photo_file(photo_id):
+    try:
+        row = meta_query_one("SELECT id, object_key, content_type FROM bau_registros WHERE id = ?", (photo_id,))
+        if not row:
+            return error_response("Foto não encontrada.", 404)
+        if storage_bucket_configured():
+            response = redirect(meta_photo_access_url({"object_key": row["object_key"], "id": row["id"]}))
+            response.headers["Cache-Control"] = "private, max-age=120"
+            return response
+
+        local_root = os.path.abspath(META_LOCAL_UPLOAD_DIR)
+        local_path = os.path.abspath(os.path.join(META_LOCAL_UPLOAD_DIR, *row["object_key"].split("/")))
+        if not local_path.startswith(local_root + os.sep) or not os.path.isfile(local_path):
+            return error_response("Arquivo da foto não encontrado.", 404)
+        response = send_file(local_path, mimetype=row.get("content_type") or "image/webp")
+        response.headers["Cache-Control"] = "private, max-age=120"
+        return response
+    except Exception as error:
+        log_error("Falha ao servir foto do baú", error)
+        return error_response(str(error))
 
 
 if __name__ == "__main__":

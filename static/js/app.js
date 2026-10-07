@@ -12,6 +12,7 @@ const VIEW_META = {
   reunioes:{kicker:"Agenda", title:"Reuniões", subtitle:"Compromissos e alinhamentos externos."},
   familias:{kicker:"Relacionamento", title:"Famílias", subtitle:"Mercados, responsáveis e condições comerciais."},
   metas:{kicker:"Controle semanal", title:"Salas de Meta", subtitle:"Comprovantes, conferência e fechamento."},
+  "registro-bau":{kicker:"Arquivo", title:"Registro Baú", subtitle:"Fotos do baú guardadas para consulta futura."},
   craft:{kicker:"Produção", title:"Craft", subtitle:"Cálculo objetivo de materiais e faltas."},
 };
 
@@ -1704,14 +1705,15 @@ async function loadResumo(){
 }
 
 async function loadCompras(){
+  const comprasColspan = canWrite ? 9 : 8;
   try{
     const {res, data} = await fetchJson("/api/compras");
     if(!res.ok){
-      setTableContent(comprasTable, `<tr><td colspan="8">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="${comprasColspan}">${escapeHtml(data.error || "Erro ao carregar compras.")}</td></tr>`);
       return;
     }
     if(!Array.isArray(data) || !data.length){
-      setTableContent(comprasTable, `<tr><td colspan="8">Nenhuma compra registrada.</td></tr>`);
+      setTableContent(comprasTable, `<tr><td colspan="${comprasColspan}">Nenhuma compra registrada.</td></tr>`);
       return;
     }
     setTableContent(comprasTable, data.map(item => {
@@ -1729,10 +1731,11 @@ async function loadCompras(){
         <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
         <td>${currency(item.valor_total)}</td>
         <td>${escapeHtml(item.observacao || "—")}</td>
+        ${canWrite ? `<td><button type="button" class="danger-btn table-action-btn" data-remover-compra="${escapeHtml(item.id)}" data-compra-desc="${escapeHtml(`${item.quantidade}x ${item.produto} — ${currency(item.valor_total)} (${item.data})`)}">Remover</button></td>` : ""}
       </tr>`;
     }).join(""));
   }catch(error){
-    setTableContent(comprasTable, `<tr><td colspan="8">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
+    setTableContent(comprasTable, `<tr><td colspan="${comprasColspan}">Falha ao carregar compras: ${escapeHtml(error.message)}</td></tr>`);
   }
 }
 
@@ -2331,13 +2334,345 @@ async function loadMetas(){
   }
 }
 
+/* ===== Registro Baú ===== */
+const BAU_PAGE_SIZE = 24;
+const BAU_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const bauView = document.getElementById("registro-bau");
+const bauUploadZone = document.getElementById("bauUploadZone");
+const bauPhotoInput = document.getElementById("bauPhotoInput");
+const bauSelectionPreview = document.getElementById("bauSelectionPreview");
+const bauLegendaInput = document.getElementById("bauLegenda");
+const bauSelectedCounter = document.getElementById("bauSelectedCounter");
+const bauUploadBtn = document.getElementById("bauUploadBtn");
+const bauFeedback = document.getElementById("bauFeedback");
+const bauGrid = document.getElementById("bauGrid");
+const bauCount = document.getElementById("bauCount");
+const bauMonthFilter = document.getElementById("bauMonthFilter");
+const bauLoadMore = document.getElementById("bauLoadMore");
+const bauLightbox = document.getElementById("bauLightbox");
+const bauLightboxImg = document.getElementById("bauLightboxImg");
+const bauLightboxCaption = document.getElementById("bauLightboxCaption");
+const bauLightboxClose = document.getElementById("bauLightboxClose");
+
+const bauState = {items: [], total: 0, month: "", loading: false, uploading: false};
+let bauSelected = []; // [{file, previewUrl}]
+
+function isBauImage(file){
+  return /^image\/(jpeg|jpg|png|webp)$/i.test(file.type || "") || /\.(jpe?g|png|webp)$/i.test(file.name || "");
+}
+
+function bauSignature(file){
+  return `${file.name}|${file.size}|${file.lastModified}`;
+}
+
+function bauMonthLabel(value){
+  const [year, month] = String(value || "").split("-").map(Number);
+  if(!year || !month) return String(value || "");
+  const label = new Date(year, month - 1, 1).toLocaleDateString("pt-BR", {month:"long", year:"numeric"});
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function clearBauSelection(){
+  bauSelected.forEach(item => URL.revokeObjectURL(item.previewUrl));
+  bauSelected = [];
+  renderBauSelection();
+}
+
+function renderBauSelection(){
+  if(!bauSelectionPreview) return;
+  bauSelectionPreview.textContent = "";
+  bauSelectionPreview.hidden = bauSelected.length === 0;
+  bauSelected.forEach((item, index) => {
+    const card = document.createElement("article");
+    card.className = "member-selected-photo";
+    const img = document.createElement("img");
+    img.src = item.previewUrl;
+    img.alt = `Prévia da foto ${index + 1}`;
+    const info = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `Foto ${index + 1}`;
+    const name = document.createElement("small");
+    name.textContent = item.file.name || "Imagem colada";
+    info.append(title, name);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.dataset.bauRemove = String(index);
+    remove.setAttribute("aria-label", `Remover foto ${index + 1} da seleção`);
+    remove.textContent = "×";
+    card.append(img, info, remove);
+    bauSelectionPreview.append(card);
+  });
+  const total = bauSelected.length;
+  if(bauSelectedCounter){
+    bauSelectedCounter.textContent = total
+      ? `${total} foto${total === 1 ? " selecionada" : "s selecionadas"}`
+      : "Nenhuma foto selecionada";
+  }
+  bauUploadZone?.classList.toggle("has-files", total > 0);
+  if(bauUploadBtn) bauUploadBtn.disabled = total === 0 || bauState.uploading;
+}
+
+function addBauFiles(fileList){
+  const incoming = Array.from(fileList || []).filter(Boolean);
+  if(!incoming.length) return;
+  const known = new Set(bauSelected.map(item => bauSignature(item.file)));
+  let rejectedType = 0, rejectedSize = 0;
+  incoming.forEach(file => {
+    if(!isBauImage(file)){ rejectedType += 1; return; }
+    if(file.size > BAU_MAX_FILE_BYTES){ rejectedSize += 1; return; }
+    const signature = bauSignature(file);
+    if(known.has(signature)) return;
+    known.add(signature);
+    bauSelected.push({file, previewUrl: URL.createObjectURL(file)});
+  });
+  renderBauSelection();
+  const warnings = [];
+  if(rejectedType) warnings.push("Use somente imagens JPG, PNG ou WEBP.");
+  if(rejectedSize) warnings.push("Cada foto deve ter no máximo 10 MB.");
+  if(warnings.length) setFeedback(bauFeedback, warnings.join(" "), true);
+}
+
+function bauCardHtml(item){
+  const id = escapeHtml(item.id);
+  const caption = item.legenda
+    ? `<p class="bau-caption">${escapeHtml(item.legenda)}</p>`
+    : '<p class="bau-caption bau-no-caption">Sem legenda</p>';
+  const actions = canWrite
+    ? `<div class="bau-card-actions"><button type="button" class="ghost-btn" data-bau-edit="${id}">Editar legenda</button><button type="button" class="danger-btn" data-bau-delete="${id}">Excluir</button></div>`
+    : "";
+  return `<article class="bau-card">
+    <button type="button" class="bau-thumb" data-bau-open="${id}" aria-label="Ampliar foto">
+      <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.legenda || "Foto do baú")}" loading="lazy" />
+    </button>
+    <div class="bau-card-body">
+      ${caption}
+      <small>${escapeHtml(item.created_at)} · ${escapeHtml(item.registrado_por || "—")}</small>
+    </div>
+    ${actions}
+  </article>`;
+}
+
+function renderBauMonths(months){
+  if(!bauMonthFilter) return;
+  const current = bauState.month;
+  const options = ['<option value="">Todos os meses</option>']
+    .concat((months || []).map(item => `<option value="${escapeHtml(item.mes)}">${escapeHtml(bauMonthLabel(item.mes))} (${integer(item.total)})</option>`));
+  bauMonthFilter.innerHTML = options.join("");
+  bauMonthFilter.value = (months || []).some(item => item.mes === current) ? current : "";
+  bauState.month = bauMonthFilter.value;
+}
+
+function renderBauGrid(hasMore){
+  if(!bauGrid) return;
+  if(bauCount) bauCount.textContent = `${bauState.total} foto${bauState.total === 1 ? "" : "s"}`;
+  bauGrid.innerHTML = bauState.items.length
+    ? bauState.items.map(bauCardHtml).join("")
+    : '<div class="meta-empty-state">Nenhuma foto registrada ainda.</div>';
+  if(bauLoadMore){
+    bauLoadMore.hidden = !hasMore;
+    bauLoadMore.disabled = false;
+  }
+}
+
+async function loadBau({append = false} = {}){
+  if(!bauGrid || bauState.loading) return;
+  bauState.loading = true;
+  try{
+    const params = new URLSearchParams({offset: String(append ? bauState.items.length : 0), limit: String(BAU_PAGE_SIZE)});
+    if(bauState.month) params.set("mes", bauState.month);
+    const {res, data} = await fetchJson(`/api/bau?${params.toString()}`);
+    if(!res.ok){
+      bauGrid.innerHTML = `<div class="meta-empty-state">${escapeHtml(data.error || "Erro ao carregar o registro do baú.")}</div>`;
+      if(bauLoadMore) bauLoadMore.hidden = true;
+      return;
+    }
+    bauState.items = append ? bauState.items.concat(data.items || []) : (data.items || []);
+    bauState.total = data.total || 0;
+    renderBauMonths(data.months);
+    renderBauGrid(Boolean(data.has_more));
+  }catch(error){
+    bauGrid.innerHTML = `<div class="meta-empty-state">Falha ao carregar o registro do baú: ${escapeHtml(error.message)}</div>`;
+  }finally{
+    bauState.loading = false;
+  }
+}
+
+async function uploadBauSelection(){
+  if(!bauSelected.length || bauState.uploading) return;
+  bauState.uploading = true;
+  if(bauUploadBtn) bauUploadBtn.disabled = true;
+  const legenda = (bauLegendaInput?.value || "").trim();
+  const queue = [...bauSelected];
+  const failed = [];
+  let sent = 0;
+  for(const item of queue){
+    setFeedback(bauFeedback, `Enviando foto ${sent + failed.length + 1} de ${queue.length}...`);
+    try{
+      const body = new FormData();
+      body.append("photo", item.file, item.file.name || "imagem.png");
+      body.append("legenda", legenda);
+      const {res, data} = await fetchJson("/api/bau/photos", {method:"POST", headers: csrfHeaders(), body});
+      if(!res.ok) throw new Error(data.error || "Falha ao enviar a foto.");
+      sent += 1;
+      URL.revokeObjectURL(item.previewUrl);
+      bauSelected = bauSelected.filter(selected => selected !== item);
+    }catch(error){
+      failed.push(`${item.file.name || "Imagem colada"}: ${error.message}`);
+    }
+  }
+  bauState.uploading = false;
+  renderBauSelection();
+  if(sent && bauLegendaInput && !failed.length) bauLegendaInput.value = "";
+  if(failed.length){
+    setFeedback(bauFeedback, `${sent} enviada(s). Não foi possível enviar: ${failed.join(" | ")}`, true);
+  }else{
+    setFeedback(bauFeedback, `${sent} foto${sent === 1 ? "" : "s"} registrada${sent === 1 ? "" : "s"} com sucesso.`);
+  }
+  if(sent) await loadBau();
+}
+
+function openBauLightbox(item){
+  if(!bauLightbox || !item) return;
+  bauLightboxImg.src = item.url;
+  bauLightboxImg.alt = item.legenda || "Foto do baú";
+  bauLightboxCaption.textContent = [item.legenda, `${item.created_at} · ${item.registrado_por || "—"}`].filter(Boolean).join(" — ");
+  bauLightbox.hidden = false;
+  bauLightboxClose?.focus();
+}
+
+function closeBauLightbox(){
+  if(!bauLightbox || bauLightbox.hidden) return;
+  bauLightbox.hidden = true;
+  bauLightboxImg.removeAttribute("src");
+}
+
+async function editBauCaption(item){
+  if(!canWrite || !item) return;
+  const next = window.prompt("Legenda da foto (até 200 caracteres):", item.legenda || "");
+  if(next === null) return;
+  const {res, data} = await fetchJson(`/api/bau/photos/${encodeURIComponent(item.id)}`, {
+    method:"PUT",
+    headers: csrfHeaders({"Content-Type":"application/json"}),
+    body: JSON.stringify({legenda: next}),
+  });
+  if(!res.ok){ window.alert(data.error || "Não foi possível atualizar a legenda."); return; }
+  item.legenda = data.legenda ?? next.trim();
+  renderBauGrid(!bauLoadMore?.hidden);
+}
+
+async function deleteBauPhoto(item){
+  if(!canWrite || !item) return;
+  if(!window.confirm("Excluir esta foto do registro? Essa ação não pode ser desfeita.")) return;
+  const {res, data} = await fetchJson(`/api/bau/photos/${encodeURIComponent(item.id)}`, {method:"DELETE", headers: csrfHeaders()});
+  if(!res.ok){ window.alert(data.error || "Não foi possível excluir a foto."); return; }
+  await loadBau();
+}
+
+bauPhotoInput?.addEventListener("change", () => {
+  addBauFiles(bauPhotoInput.files);
+  bauPhotoInput.value = "";
+});
+["dragenter", "dragover"].forEach(name => {
+  bauUploadZone?.addEventListener(name, event => { event.preventDefault(); bauUploadZone.classList.add("drag-over"); });
+});
+bauUploadZone?.addEventListener("dragleave", event => {
+  if(!bauUploadZone.contains(event.relatedTarget)) bauUploadZone.classList.remove("drag-over");
+});
+bauUploadZone?.addEventListener("drop", event => {
+  event.preventDefault();
+  bauUploadZone.classList.remove("drag-over");
+  addBauFiles(event.dataTransfer?.files);
+});
+bauUploadZone?.addEventListener("keydown", event => {
+  if(event.key === "Enter" || event.key === " "){ event.preventDefault(); bauPhotoInput?.click(); }
+});
+document.addEventListener("paste", event => {
+  if(!bauUploadZone || !bauView?.classList.contains("active")) return;
+  const files = Array.from(event.clipboardData?.files || []).filter(file => String(file.type || "").toLowerCase().startsWith("image/"));
+  if(!files.length) return;
+  event.preventDefault();
+  addBauFiles(files);
+  bauUploadZone.classList.add("paste-success");
+  window.setTimeout(() => bauUploadZone.classList.remove("paste-success"), 700);
+});
+bauSelectionPreview?.addEventListener("click", event => {
+  const button = event.target.closest("[data-bau-remove]");
+  if(!button) return;
+  const [removed] = bauSelected.splice(Number(button.dataset.bauRemove), 1);
+  if(removed) URL.revokeObjectURL(removed.previewUrl);
+  renderBauSelection();
+});
+bauUploadBtn?.addEventListener("click", uploadBauSelection);
+bauMonthFilter?.addEventListener("change", () => { bauState.month = bauMonthFilter.value; loadBau(); });
+bauLoadMore?.addEventListener("click", () => { bauLoadMore.disabled = true; loadBau({append: true}); });
+bauGrid?.addEventListener("click", event => {
+  const findItem = id => bauState.items.find(item => item.id === id);
+  const open = event.target.closest("[data-bau-open]");
+  if(open){ openBauLightbox(findItem(open.dataset.bauOpen)); return; }
+  const edit = event.target.closest("[data-bau-edit]");
+  if(edit){ editBauCaption(findItem(edit.dataset.bauEdit)); return; }
+  const remove = event.target.closest("[data-bau-delete]");
+  if(remove){ deleteBauPhoto(findItem(remove.dataset.bauDelete)); }
+});
+bauLightbox?.addEventListener("click", event => { if(event.target === bauLightbox) closeBauLightbox(); });
+bauLightboxClose?.addEventListener("click", closeBauLightbox);
+document.addEventListener("keydown", event => { if(event.key === "Escape") closeBauLightbox(); });
+
+/* ===== Remover compra ===== */
+comprasTable?.addEventListener("click", async event => {
+  const button = event.target.closest("[data-remover-compra]");
+  if(!button || !canWrite) return;
+  const description = button.dataset.compraDesc || "esta compra";
+  if(!window.confirm(`Remover esta compra?\n\n${description}\n\nEla será apagada da planilha e deixará de entrar nos totais e no ranking. Essa ação não pode ser desfeita.`)) return;
+  button.disabled = true;
+  try{
+    const {res, data} = await fetchJson(`/api/compras/${encodeURIComponent(button.dataset.removerCompra)}`, {
+      method:"DELETE",
+      headers: csrfHeaders()
+    });
+    if(!res.ok){
+      window.alert(data.error || "Não foi possível remover a compra.");
+      button.disabled = false;
+      return;
+    }
+    setFeedback(document.getElementById("formFeedback"), data.message || "Compra removida com sucesso.");
+    await Promise.all([loadCompras(), loadResumo(), loadRelatorio()]);
+  }catch(error){
+    window.alert(`Falha ao remover a compra: ${error.message}`);
+    button.disabled = false;
+  }
+});
+
+/* ===== Produtos de venda por tempo limitado (ex.: M16) ===== */
+const vendaQuickProducts = document.getElementById("v_quick_products");
+
+async function loadProdutosTemporarios(){
+  if(!vendaQuickProducts) return;
+  try{
+    const {res, data} = await fetchJson("/api/produtos-temporarios");
+    const items = res.ok && Array.isArray(data.items) ? data.items : [];
+    vendaQuickProducts.hidden = items.length === 0;
+    vendaQuickProducts.innerHTML = items.map(item => `<button type="button" class="quick-product-btn" data-quick-produto="${escapeHtml(item.nome)}" title="Disponível até ${escapeHtml(item.ate)}">${escapeHtml(item.nome)} <small>até ${escapeHtml(String(item.ate).slice(0, 5))}</small></button>`).join("");
+  }catch{
+    vendaQuickProducts.hidden = true;
+  }
+}
+
+vendaQuickProducts?.addEventListener("click", event => {
+  const button = event.target.closest("[data-quick-produto]");
+  if(!button) return;
+  const produto = document.getElementById("v_produto");
+  if(produto) produto.value = button.dataset.quickProduto;
+  document.getElementById("v_valor_unitario")?.focus();
+});
+
 async function loadAll(){
   if(refreshBtn){
     refreshBtn.disabled = true;
     refreshBtn.textContent = "Atualizando...";
   }
   try{
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosTemporarios()]);
     updateLastSync();
   }finally{
     if(refreshBtn){

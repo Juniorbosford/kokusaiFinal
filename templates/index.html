@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kokusai | Compras, Vendas, Encomendas, Relatórios, Famílias, Metas e Craft</title>
+  <title>Kokusai | Compras, Vendas, Encomendas, Relatórios, Famílias, Metas, Baú e Craft</title>
   <meta name="description" content="Painel operacional Kokusai para controle de compras, vendas, encomendas, relatórios, famílias, metas e craft no GTARP." />
   <meta name="csrf-token" content="{{ csrf_token }}" />
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260818-observacao-encomendas" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260903-hud-natural-v2" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-remover-compra-m16" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-remover-compra-m16" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -35,6 +35,7 @@
         <button class="nav-link" data-target="reunioes"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/><path d="M8 14h3M8 17h6"/></svg></span><span>Reuniões</span></button>
         <button class="nav-link" data-target="familias"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M14 16a4.5 4.5 0 0 1 6.5 4"/></svg></span><span>Famílias</span></button>
         {% if is_admin %}<button class="nav-link" data-target="metas"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 7-7M16 5h3v3"/></svg></span><span>Salas de Meta</span></button>{% endif %}
+        <button class="nav-link" data-target="registro-bau"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 11V9a8 8 0 0 1 16 0v2"/><rect x="3" y="11" width="18" height="9" rx="2"/><path d="M3 15h18"/><rect x="10.5" y="13.5" width="3" height="3" rx=".7"/></svg></span><span>Registro Baú</span></button>
         <button class="nav-link" data-target="craft"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14 6 4-4 4 4-4 4"/><path d="m18 6-7 7"/><path d="m5 12 7 7-3 3-7-7 3-3Z"/><path d="m7 14-2 2M10 17l-2 2"/></svg></span><span>Craft</span></button>
       </nav>
 
@@ -245,6 +246,7 @@
                     <th>Pagamento</th>
                     <th>Total</th>
                     <th>Justificativa</th>
+                    {% if is_admin %}<th>Ações</th>{% endif %}
                   </tr>
                 </thead>
                 <tbody id="comprasTable"></tbody>
@@ -277,6 +279,7 @@
               <div class="field">
                 <label for="v_produto">Produto</label>
                 <input id="v_produto" placeholder="Ex.: Munição" required />
+                <div class="quick-products" id="v_quick_products" hidden aria-label="Produtos liberados por tempo limitado"></div>
               </div>
 
               <div class="field">
@@ -977,6 +980,59 @@
       </section>
       {% endif %}
 
+      <section class="view" id="registro-bau">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Registro Baú</p>
+            <h3>Fotos do baú guardadas para consulta</h3>
+          </div>
+          <p>Envie prints do baú com uma legenda opcional. As fotos ficam arquivadas e podem ser consultadas por mês sempre que for preciso.</p>
+        </div>
+
+        {% if is_admin %}
+        <section class="panel-card bau-upload-card">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Novo registro</p>
+              <h3>Enviar fotos do baú</h3>
+            </div>
+          </div>
+          <div class="member-upload-zone" id="bauUploadZone" tabindex="0" role="button" aria-label="Selecionar, arrastar ou colar fotos do baú">
+            <input id="bauPhotoInput" type="file" accept="image/jpeg,image/jpg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple />
+            <div>
+              <strong>Arraste, selecione ou cole as fotos do baú</strong>
+              <p>JPG, PNG ou WEBP de até 10 MB cada. Você também pode colar com <kbd>Ctrl</kbd> + <kbd>V</kbd>.</p>
+            </div>
+          </div>
+          <div class="member-selection-preview" id="bauSelectionPreview" hidden aria-live="polite"></div>
+          <label class="bau-caption-field" for="bauLegenda">
+            Legenda <small>(opcional — vale para todas as fotos deste envio)</small>
+            <input id="bauLegenda" type="text" maxlength="200" autocomplete="off" placeholder="Ex.: Conferência do baú após a entrega" />
+          </label>
+          <div class="member-upload-actions">
+            <span><strong id="bauSelectedCounter">Nenhuma foto selecionada</strong></span>
+            <button class="primary-btn" type="button" id="bauUploadBtn" disabled>Enviar fotos</button>
+          </div>
+          <div class="feedback" id="bauFeedback">Aguardando envio.</div>
+        </section>
+        {% endif %}
+
+        <section class="panel-card bau-gallery-card">
+          <div class="panel-head bau-gallery-head">
+            <div>
+              <p class="panel-kicker">Arquivo</p>
+              <h3>Fotos registradas</h3>
+            </div>
+            <div class="bau-filter">
+              <span id="bauCount">0 fotos</span>
+              <select id="bauMonthFilter" aria-label="Filtrar fotos por mês"><option value="">Todos os meses</option></select>
+            </div>
+          </div>
+          <div class="bau-grid" id="bauGrid"><div class="meta-empty-state">Carregando registros...</div></div>
+          <div class="bau-more"><button class="ghost-btn" type="button" id="bauLoadMore" hidden>Carregar mais</button></div>
+        </section>
+      </section>
+
       <section class="view" id="craft">
         <div class="section-intro">
           <div>
@@ -1126,6 +1182,14 @@
     </section>
   </div>
 
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20260903-hud-natural-v2"></script>
+  <div class="bau-lightbox" id="bauLightbox" hidden role="dialog" aria-modal="true" aria-label="Foto do baú ampliada">
+    <button type="button" class="bau-lightbox-close" id="bauLightboxClose" aria-label="Fechar">×</button>
+    <figure>
+      <img id="bauLightboxImg" alt="" />
+      <figcaption id="bauLightboxCaption"></figcaption>
+    </figure>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-remover-compra-m16"></script>
 </body>
 </html>

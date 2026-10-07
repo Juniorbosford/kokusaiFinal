@@ -9,3 +9,5 @@ service_account.json
 data/
 CREDENCIAIS_METAS.txt
 .DS_Store
+meta_members.local.json
+railway-variaveis.txt

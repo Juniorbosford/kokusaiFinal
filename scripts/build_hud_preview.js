@@ -161,6 +161,12 @@ function mockBackendScript() {
         {user_id:"meta-yuri",display_name:"Yuri",username:"yuri",status:"Pendente",photo_count:0,consecutive_unpaid_weeks:0,payment_warning:false}
       ];
 
+      const bauItems = [
+        {id:"bau-1",legenda:"Conferência do baú após a entrega",registrado_por:"Kokusai",created_at:"20/08/2026 16:05:10",mes:"2026-08",url:"static/images/flyers/leviata.webp"},
+        {id:"bau-2",legenda:"Reposição semanal de materiais",registrado_por:"Kokusai",created_at:"18/08/2026 21:40:02",mes:"2026-08",url:"static/images/flyers/distrito.webp"},
+        {id:"bau-3",legenda:"",registrado_por:"Kokusai",created_at:"15/08/2026 12:11:47",mes:"2026-08",url:"static/images/flyers/ballas.webp"}
+      ];
+
       const report = {
         mes:"2026-08",
         mes_label:"agosto de 2026",
@@ -191,6 +197,7 @@ function mockBackendScript() {
         if (url === "/api/resumo-metas") return jsonResponse({total:31,pagos:24,nao_pagos:2,faltam_confirmar:5,confirmados:26,semana_label:"14/08/2026 até 19/08/2026"});
         if (url === "/api/compras") return jsonResponse(purchases);
         if (url === "/api/vendas") return jsonResponse(sales);
+        if (url === "/api/produtos-temporarios") return jsonResponse({ok:true,items:[{nome:"M16",ate:"13/10/2026",dias_restantes:7}]});
         if (url === "/api/encomendas") return jsonResponse(orders);
         if (url === "/api/familias") return jsonResponse(families);
         if (url === "/api/reunioes") return jsonResponse(meetings);
@@ -211,6 +218,7 @@ function mockBackendScript() {
             limits:{max_photos:10,max_file_mb:10}
           });
         }
+        if (url.startsWith("/api/bau")) return jsonResponse({ok:true,items:bauItems,total:bauItems.length,offset:0,has_more:false,months:[{mes:"2026-08",total:bauItems.length}]});
         return jsonResponse({message:"Conteúdo simulado."});
       };
     })();

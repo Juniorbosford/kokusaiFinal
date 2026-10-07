@@ -1121,6 +1121,7 @@ tbody tr:hover{background:rgba(255,45,79,.035)}
 .nav-link[data-target="reunioes"]{--icon-color:#dfbd5d;--icon-bg:rgba(223,189,93,.10);--icon-bg-active:rgba(223,189,93,.18);--icon-border:rgba(223,189,93,.29)}
 .nav-link[data-target="familias"]{--icon-color:#58c0c4;--icon-bg:rgba(88,192,196,.10);--icon-bg-active:rgba(88,192,196,.18);--icon-border:rgba(88,192,196,.29)}
 .nav-link[data-target="metas"]{--icon-color:#e8759d;--icon-bg:rgba(232,117,157,.10);--icon-bg-active:rgba(232,117,157,.18);--icon-border:rgba(232,117,157,.29)}
+.nav-link[data-target="registro-bau"]{--icon-color:#d98e5f;--icon-bg:rgba(217,142,95,.10);--icon-bg-active:rgba(217,142,95,.18);--icon-border:rgba(217,142,95,.29)}
 .nav-link[data-target="craft"]{--icon-color:#b4bac5;--icon-bg:rgba(180,186,197,.10);--icon-bg-active:rgba(180,186,197,.17);--icon-border:rgba(180,186,197,.27)}
 .nav-icon{
   border-color:var(--icon-border,rgba(184,190,203,.12));

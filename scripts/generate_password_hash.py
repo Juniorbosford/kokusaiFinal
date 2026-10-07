@@ -3,7 +3,8 @@ import getpass
 import hashlib
 import os
 
-ITERATIONS = 260000
+# 600 mil iterações: valor atual recomendado pela OWASP para PBKDF2-HMAC-SHA256.
+ITERATIONS = 600000
 
 password = getpass.getpass("Nova senha: ")
 confirm = getpass.getpass("Confirmar senha: ")

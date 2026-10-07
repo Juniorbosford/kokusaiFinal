@@ -1,39 +1,75 @@
-"""Usuários iniciais das salas de meta.
+"""Membros das salas de meta.
 
-Este arquivo contém somente hashes de senha. As senhas em texto puro ficam
-no arquivo local CREDENCIAIS_METAS.txt, que é ignorado pelo Git.
+Os hashes de senha NÃO ficam mais no código nem no repositório. Eles são lidos de:
+
+1. variável de ambiente META_MEMBERS_JSON (produção / Railway); ou
+2. arquivo local meta_members.local.json (desenvolvimento; ignorado pelo Git).
+
+Formato esperado (lista JSON):
+
+    [{"username": "ana", "display_name": "Ana", "password_hash": "pbkdf2_sha256$..."}]
+
+Para gerar um hash novo, use: python scripts/generate_password_hash.py
 """
+import json
+import os
 
-META_MEMBERS = [
-    {"username": "amara", "display_name": "Amara", "password_hash": "pbkdf2_sha256$260000$kfk5fDNca5J8RYnSlXPVSw==$j6aFd61gCBiaJpbpKpkh0tJcDgN12voLrPUs6gc60Nw="},
-    {"username": "astrid", "display_name": "Astrid", "password_hash": "pbkdf2_sha256$260000$3o3eTHFrSIfuhBi1Srd6jw==$pfFoFW229vGmumC0bQDgDXPZAtgKPiuYOhJ6hAM/O1g="},
-    {"username": "ayanna", "display_name": "Ayanna", "password_hash": "pbkdf2_sha256$260000$EpEN/6CkUkqIks71++/TeA==$bW0uU6QLbFruCw5Q0I25EaJFVMB7BDRP3A9PpGJFnXQ="},
-    {"username": "dulce", "display_name": "Dulce", "password_hash": "pbkdf2_sha256$260000$SueGLvmMndKH+qx3TWiErw==$BYl3wavehNC2C04MAKCXaWG3Q1K6TUfjAvQF0ZGW2bA="},
-    {"username": "gb", "display_name": "GB", "password_hash": "pbkdf2_sha256$260000$35emvfgz9yhojtu1Au3UOg==$01iJ5wSOrpgRH8J7WgOXHW+Rw16a7nSIGZeU1CqUHqc="},
-    {"username": "gohan", "display_name": "Gohan", "password_hash": "pbkdf2_sha256$260000$IetlJQUrIqNkhns2LtJDLg==$6W0c22psYXbIulzcnSTHIFRfp3pHUJ8SMKoLBVr21jg="},
-    {"username": "harper", "display_name": "Harper", "password_hash": "pbkdf2_sha256$260000$Voam+SaPkS1SOsAF7aZltA==$URJK9XgosTi7W2B+I1ue1gP74CmvyWnflHo/vOBKVdU="},
-    {"username": "hinata", "display_name": "Hinata", "password_hash": "pbkdf2_sha256$260000$vFsO7Vfi5AI/hMJGQxWf0A==$+GrXNq49/uMsyABHkKqLz5HFowwAT2k1IYbISGhaFv0="},
-    {"username": "joao", "display_name": "João", "password_hash": "pbkdf2_sha256$260000$9xg/h9g5W2rdyhOyeYdvng==$k2SpyEXnFdgj6yqjMKy8/MnAztmZS2V0W22CoBasNKY="},
-    {"username": "junior.azul", "display_name": "Junior (Azulzin)", "password_hash": "pbkdf2_sha256$260000$le77i+4cBCV4IRaGo0NoZQ==$YY9Uf6qSY8mQYSi2zyG/r3DkW8hlyyG7hfXUM8pHtxs="},
-    {"username": "kiyomi", "display_name": "Kiyomi", "password_hash": "pbkdf2_sha256$260000$UzFSqLwzOiJUUSaD+8QBxw==$7a7QcdEHNVR7JcWpFq7BHxfzX72WG4Y4MOIL8TdhLhs="},
-    {"username": "kyotaka", "display_name": "Kiyotaka", "password_hash": "pbkdf2_sha256$260000$Buibv4HjRTAJ3Q+iSf7sgQ==$lJW6PSBLARAP0ez1cyvKk60cmWb1kIb9nFlOyg5GG+4="},
-    {"username": "lara.salles", "display_name": "Lara Salles", "password_hash": "pbkdf2_sha256$260000$MM7P004zW8rW+ylVdEWRxQ==$6g5XBOcTVgieuubqA53CYBsPrAckupRcauwk/Rkgm/U="},
-    {"username": "larissa", "display_name": "Larissa", "password_hash": "pbkdf2_sha256$260000$Nz5Og9ppnQLI/5piQEcr9w==$inPXRY0yGUWERB36st78hnc9L4GYMJaKaR/RAX7X8Tg="},
-    {"username": "liam", "display_name": "Liam", "password_hash": "pbkdf2_sha256$260000$zgdiB3tIcYBTbMzTNieQZQ==$icless0ddN5HRj2IZpWDnK/G+UBBrYqk9oPuAXTSWhw="},
-    {"username": "lipe", "display_name": "Lipe", "password_hash": "pbkdf2_sha256$260000$ckG3DaMzPq33O/p2OgcDBQ==$DH3uuEG7SSrRvdgb5sVU+gBTxc8w6FpsxLJ8MJJVXJk="},
-    {"username": "lucas.diaz", "display_name": "Lucas Diaz", "password_hash": "pbkdf2_sha256$260000$Eg3lQwZ9QqlPvr3r5g3fpQ==$dy91ChGf44kf8vQSurOV31eEYTFP2wEUIrGgaWh/978="},
-    {"username": "lucas.ricci", "display_name": "Lucas Ricci", "password_hash": "pbkdf2_sha256$260000$OVbQ9DLjd4FpJQ1VGO8BGg==$tgscQzO7K8vZbjq/tcV9/ws/TNqXBgZyyWdgEvvy2vE="},
-    {"username": "matheus", "display_name": "Matheus", "password_hash": "pbkdf2_sha256$260000$g1R5lNIswrqHkz6tpRQ2Nw==$pe46YrdGj2e2pked+PbfDivSyMIPFh8gPAGxh63HZJ8="},
-    {"username": "max", "display_name": "Max", "password_hash": "pbkdf2_sha256$260000$Scm6oM1VsfF5Vi6OH3dCZw==$GgH8mcfO0Oykw3/uBeUl72UnK+WK688lXngOqrmPmzE="},
-    {"username": "mina", "display_name": "Mina", "password_hash": "pbkdf2_sha256$260000$3IxqklnrGzSsDQxvZVG8MQ==$DhulkMI2VTLdIeLRB5Q0xcwWaOFrJFmWkhnaiZnIFUU="},
-    {"username": "morgan", "display_name": "Morgan", "password_hash": "pbkdf2_sha256$260000$KK3DtQhVE/OQNYXLd+7TNw==$+mVn+lhIYrskx2/Jv34PHxIonXeeJrhjCftT9DSNBHg="},
-    {"username": "nanami", "display_name": "Nanami", "password_hash": "pbkdf2_sha256$260000$fTB2MTXmp2NcIZKbatmD0A==$EwXEzUyjA21sX+VUKD7whZbEZWAk1Zr9RVX5kuh6nAM="},
-    {"username": "philippe", "display_name": "Philippe", "password_hash": "pbkdf2_sha256$260000$fWjSybVAwiW7XH7kZH/P7A==$3WjdQG5hXL4yoiAmlIT7Xg5cFiqQch4fEvrvYwPrNjU="},
-    {"username": "ricardo", "display_name": "Ricardo", "password_hash": "pbkdf2_sha256$260000$myFVpcjWIl6PWVghH3k8xw==$+k5IsFgj396sHXN3KQVhv1kgt9QqxHWa6OQPrejEW3g="},
-    {"username": "semente", "display_name": "Semente", "password_hash": "pbkdf2_sha256$260000$Y4bgL412Acykk83oI9C/vA==$ixn8Nc7CoXS6p9bYlSbrfZ0HF3VFlu558uMV0KwPYH4="},
-    {"username": "viny", "display_name": "Viny", "password_hash": "pbkdf2_sha256$260000$1LwusOVA4AL25cOkc2UAtQ==$I6f0inrTG3LOhQE3Vt+Ag3DPZMvcUM62bcF2/uoVSIg="},
-    {"username": "yan.gordin", "display_name": "Yan (Gordin)", "password_hash": "pbkdf2_sha256$260000$WKjpMdcqpFMzc7g3M7jPjg==$OVmKQmf6BPx3ER1sj5zlEoz4GWpvjHGF2tDRcVM7UQQ="},
-    {"username": "yori", "display_name": "Yori", "password_hash": "pbkdf2_sha256$260000$RlQ+unDq2Psq4AMPPbZw7w==$YdomDTv3eo2dYNzBYUotxZklyUP90dF/EYotUP27768="},
-    {"username": "yuri", "display_name": "Yuri", "password_hash": "pbkdf2_sha256$260000$2LBRXA7vsA+tA8Uhb8ybTg==$F9WKp+oXCPx8G8PPbsxj9Nb8kpjmS3BybvBxW43yD44="},
-    {"username": "wanda", "display_name": "Wanda", "password_hash": "pbkdf2_sha256$260000$YgpvYDLnb8LtyR2JzKqK9A==$P21Ep/DetJWHuotbMcOpJsZuWH4MDsoVbHocVlE94xU="},
-]
+LOCAL_MEMBERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "meta_members.local.json")
+_REQUIRED_FIELDS = ("username", "display_name", "password_hash")
+
+
+def _running_on_railway():
+    return bool(
+        os.getenv("RAILWAY_ENVIRONMENT")
+        or os.getenv("RAILWAY_ENVIRONMENT_NAME")
+        or os.getenv("RAILWAY_PROJECT_ID")
+    )
+
+
+def _load_members():
+    raw = os.getenv("META_MEMBERS_JSON", "").strip()
+    source = "META_MEMBERS_JSON"
+
+    if not raw and os.path.isfile(LOCAL_MEMBERS_FILE):
+        with open(LOCAL_MEMBERS_FILE, encoding="utf-8") as file_handle:
+            raw = file_handle.read().strip()
+        source = "meta_members.local.json"
+
+    if not raw:
+        if _running_on_railway():
+            raise RuntimeError(
+                "META_MEMBERS_JSON não configurada. Cole a variável do arquivo railway-variaveis.txt "
+                "nas variáveis do Railway antes de publicar."
+            )
+        print(
+            "[KOKUSAI][AVISO] Nenhum membro de meta carregado. Crie meta_members.local.json "
+            "ou defina META_MEMBERS_JSON para habilitar as salas individuais.",
+            flush=True,
+        )
+        return []
+
+    try:
+        data = json.loads(raw)
+    except ValueError as error:
+        raise RuntimeError(f"{source} não contém um JSON válido.") from error
+    if not isinstance(data, list):
+        raise RuntimeError(f"{source} deve ser uma lista de membros.")
+
+    members = []
+    seen = set()
+    for index, entry in enumerate(data, start=1):
+        if not isinstance(entry, dict) or any(not str(entry.get(field) or "").strip() for field in _REQUIRED_FIELDS):
+            raise RuntimeError(f"{source}: o membro nº {index} precisa de username, display_name e password_hash.")
+        username = str(entry["username"]).strip().lower()
+        if username in seen:
+            continue
+        seen.add(username)
+        members.append({
+            "username": username,
+            "display_name": str(entry["display_name"]).strip(),
+            "password_hash": str(entry["password_hash"]).strip(),
+        })
+    return members
+
+
+META_MEMBERS = _load_members()

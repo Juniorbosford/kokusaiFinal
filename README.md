@@ -1,13 +1,13 @@
 # KOKUSAI
 
-Painel interno para compras, vendas, encomendas, famílias, reuniões, relatórios, craft e salas semanais de meta.
+Painel interno para compras, vendas, encomendas, famílias, reuniões, relatórios, craft, registro de fotos do baú e salas semanais de meta.
 
 ## Estrutura do projeto
 
 ```text
 kokusaiFinal/
 ├── main.py                 # Aplicação Flask, APIs e regras de negócio
-├── meta_members.py         # Membros e hashes de acesso das salas de meta
+├── meta_members.py         # Carregador dos membros das salas de meta (hashes vêm de META_MEMBERS_JSON)
 ├── KOKUSAI_PREVIEW_HUD.html # Prévia completa em um único arquivo
 ├── requirements.txt        # Dependências Python
 ├── Procfile                # Comando de inicialização do Railway
@@ -51,8 +51,8 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 ## Onde os dados ficam
 
 - **Google Sheets:** compras, vendas, encomendas, famílias e reuniões.
-- **PostgreSQL:** usuários das metas, semanas, status, histórico e fechamentos.
-- **Railway Bucket privado:** fotos das metas e flyers enviados pelo painel.
+- **PostgreSQL:** usuários das metas, semanas, status, histórico e fechamentos, além do índice do Registro Baú (tabela `bau_registros`).
+- **Railway Bucket privado:** fotos das metas, fotos do Registro Baú (pasta `bau/AAAA-MM/`) e flyers enviados pelo painel.
 - **SQLite + `data/meta_uploads` e `data/flyer_uploads`:** alternativa automática somente para desenvolvimento local.
 
 ## Fluxo semanal das metas
@@ -70,6 +70,26 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - Cada membro pode manter até **10 fotos por semana**.
 - Depois de **3 semanas finalizadas consecutivas** com resultado `Não pago`, o sistema exibe um aviso na sala individual e no painel do administrador.
 - Ao retirar alguém de `meta_members.py`, o acesso é desativado sem apagar o histórico antigo, as fotos ou os logs.
+
+## Remover compra
+
+- Na aba de compras, o administrador vê a coluna **Ações** com o botão **Remover**. Antes de apagar, o painel mostra a compra (quantidade, produto, total e data) e pede confirmação.
+- A linha é apagada da planilha de forma definitiva e a compra deixa de entrar nos totais e no ranking mensal. Não há como desfazer pelo painel.
+- O servidor registra no log quem removeu e qual compra era (`Compra removida. ID=...`), já que a planilha não guarda esse histórico.
+
+## Produtos de venda por tempo limitado
+
+- Produtos liberados por período aparecem como atalho (botão) logo abaixo do campo **Produto** no formulário de Vendas e somem sozinhos depois da data final.
+- A lista fica em `TEMPORARY_SALE_PRODUCTS` no `main.py` (nome, início e fim, datas inclusivas no fuso do sistema). Atualmente: **M16**, de 07/10/2026 a 13/10/2026 (7 dias).
+- O campo Produto continua livre: o atalho apenas preenche o nome. Para liberar outro produto temporário, basta incluir uma linha na lista e publicar.
+
+## Registro Baú
+
+- Aba **Registro Baú** no painel: o administrador envia fotos (arrastando, selecionando ou colando com `Ctrl + V`) com uma legenda opcional.
+- Cada foto é validada, convertida para WEBP e guardada no Bucket privado; o banco guarda o índice (data, quem registrou, legenda). Nada é apagado automaticamente.
+- A galeria mostra as fotos mais recentes primeiro, com filtro por mês, paginação e visualização ampliada.
+- Somente o administrador envia, edita a legenda ou exclui; a equipe com acesso de leitura apenas consulta. Membros das salas de meta não acessam esta aba.
+- As fotos são entregues pelo próprio sistema (`/bau/foto/<id>`), que confere o login a cada acesso.
 
 ## Persistência dos flyers
 
@@ -115,6 +135,8 @@ O Railway usa o `Procfile` da raiz para iniciar o Gunicorn. Não é necessário 
 
 ```text
 SECRET_KEY=chave_grande_e_aleatoria
+KOKUSAI_PASSWORD_HASH=hash_do_administrador
+META_MEMBERS_JSON=[{"username":"ana","display_name":"Ana","password_hash":"pbkdf2_sha256$..."}]
 SESSION_COOKIE_SECURE=true
 SPREADSHEET_ID=id_da_planilha
 GOOGLE_CREDENTIALS_JSON=json_completo_da_service_account
@@ -128,10 +150,14 @@ SECRET_ACCESS_KEY=${{Bucket.SECRET_ACCESS_KEY}}
 
 Troque `Postgres` e `Bucket` se os serviços tiverem outros nomes no projeto Railway.
 
+No Railway o app **se recusa a iniciar** sem `SECRET_KEY`, `KOKUSAI_PASSWORD_HASH` e `META_MEMBERS_JSON`. Isso é proposital: evita subir em produção com chave padrão ou sem credenciais.
+
 ### Variáveis opcionais
 
 ```text
-KOKUSAI_PASSWORD_HASH=hash_do_administrador
+TRUSTED_PROXY_COUNT=1
+LOGIN_MAX_ATTEMPTS=5
+LOGIN_MAX_ATTEMPTS_PER_USER=25
 APP_TIMEZONE=America/Sao_Paulo
 META_MAX_FILE_BYTES=10485760
 SHEETS_CACHE_SECONDS=45
@@ -149,6 +175,8 @@ python scripts/generate_password_hash.py
 ```
 
 Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo deploy. Nunca salve a senha em texto puro no GitHub.
+
+O mesmo script gera os hashes dos membros das salas de meta (PBKDF2-SHA256 com 600 mil iterações). Para adicionar, trocar a senha ou remover alguém, edite o JSON de `META_MEMBERS_JSON` no Railway. Em desenvolvimento local, use um arquivo `meta_members.local.json` com a mesma lista (ele é ignorado pelo Git). Sem `KOKUSAI_PASSWORD_HASH` localmente, o login do administrador fica desativado.
 
 ## Regras principais
 
@@ -173,8 +201,10 @@ Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo depl
 
 ## Segurança
 
-- Não publique `service_account.json`, `.env`, `CREDENCIAIS_METAS.txt` ou a pasta `data`.
-- Use uma `SECRET_KEY` forte no Railway.
+- Não publique `service_account.json`, `.env`, `CREDENCIAIS_METAS.txt`, `meta_members.local.json`, `railway-variaveis.txt` ou a pasta `data`.
+- Use uma `SECRET_KEY` forte no Railway (o app não inicia em produção sem ela).
+- Hashes de senha ficam apenas nas variáveis do Railway, nunca no código.
+- O limite de tentativas de login usa o IP registrado pelo proxy do Railway (`TRUSTED_PROXY_COUNT=1`); o cabeçalho `X-Forwarded-For` enviado pelo cliente é ignorado. Há também um limite por usuário.
 - O Bucket deve continuar privado; o sistema gera links temporários após validar o usuário.
 - A rota `/api/debug-config` permanece desligada, salvo quando `ENABLE_DEBUG_CONFIG=true` for configurado temporariamente.
 - Se uma chave da conta de serviço Google tiver sido exposta, revogue-a no Google Cloud e crie outra.
