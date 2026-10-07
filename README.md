@@ -114,6 +114,7 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - **Conta por aba:** cada página guarda a conta em que foi aberta (`<meta name="kokusai-account">`) e o `account.js` envia o cabeçalho `X-Kokusai-Conta` em todo pedido. Assim, trocar de conta numa aba não muda a conta das outras. O cabeçalho só escolhe entre contas já autenticadas neste navegador; se a conta da aba saiu, a API responde 409 pedindo para recarregar.
 - **Contas salvas:** a lista fica só no navegador de cada pessoa (`localStorage`), com usuário, nome, apelido e miniatura da foto. **Nunca** guarda senha ou token. O botão × esquece uma conta e "Esquecer contas salvas" limpa tudo; a caixa "Lembrar esta conta neste aparelho" controla se a conta é salva.
 - **Perfil (`/perfil`):** foto (recortada em quadrado e guardada no banco como WEBP), apelido (até 30 caracteres), troca de senha e "Sair de todos os aparelhos". O **nome** não é editável porque alimenta o painel de metas.
+- **Foto em todo o painel:** a foto do perfil aparece em Salas de Meta (lista, sala aberta, Gerenciar membros), na sala do próprio membro e ao lado de nomes de membros nas tabelas e cartões (quando o texto bate com nome, apelido ou usuário). Servida por `/avatar/<id>?v=<versão>` com cache longo; a equipe vê todas, cada membro só a própria.
 - **Conta `kokusai`:** é compartilhada pela equipe, então o perfil dela é somente leitura e a senha só muda pelo Railway (`KOKUSAI_PASSWORD_HASH`).
 - **Senha dos membros:** quem troca a senha pelo perfil passa a usar a nova; os outros aparelhos são desconectados. O valor de `META_MEMBERS_JSON` vira apenas a senha inicial: os deploys **não** sobrescrevem mais senhas já trocadas. Para redefinir a senha de alguém, gere um hash novo e troque o `password_hash` dele no `META_MEMBERS_JSON`: a nova senha vale a partir do próximo deploy e as sessões antigas dele caem.
 - **Tabela nova:** `user_profiles` (criada sozinha na primeira execução) guarda apelido, foto, versão da sessão e o hash inicial de cada membro.
@@ -121,10 +122,12 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 
 ## Registro Baú
 
-- Aba **Registro Baú** no painel: o administrador envia fotos (arrastando, selecionando ou colando com `Ctrl + V`) com uma legenda opcional.
-- Cada foto é validada, convertida para WEBP e guardada no Bucket privado; o banco guarda o índice (data, quem registrou, legenda). Nada é apagado automaticamente.
-- A galeria mostra as fotos mais recentes primeiro, com filtro por mês, paginação e visualização ampliada.
-- Somente o administrador envia, edita a legenda ou exclui; a equipe com acesso de leitura apenas consulta. Membros das salas de meta não acessam esta aba.
+- Aba **Registro Baú** no painel: o administrador envia fotos (arrastando, selecionando ou colando com `Ctrl + V`) informando **quem está registrando** (obrigatório, porque a conta kokusai é compartilhada) e uma legenda opcional.
+- **Data e hora** são gravadas pelo servidor (fuso `APP_TIMEZONE`, padrão Brasília) no momento do envio; o navegador não tem como alterá-las.
+- Cada foto é validada, convertida para WEBP e guardada no Bucket privado; o banco guarda o índice (data, hora, quem registrou, conta usada, legenda).
+- **Nada é apagado:** o botão Arquivar pede quem está arquivando, tira a foto da galeria e a guarda em **Arquivadas** (com data, hora e nome), de onde pode ser restaurada. O arquivo continua no Bucket. Foto arquivada não tem a legenda editada.
+- A galeria mostra as fotos mais recentes primeiro, com filtro por mês, alternância Registradas/Arquivadas, paginação e visualização ampliada.
+- Somente o administrador envia, edita a legenda, arquiva ou restaura; a equipe com acesso de leitura apenas consulta. Membros das salas de meta não acessam esta aba.
 - As fotos são entregues pelo próprio sistema (`/bau/foto/<id>`), que confere o login a cada acesso.
 
 ## Persistência dos flyers

@@ -162,9 +162,9 @@ function mockBackendScript() {
       ];
 
       const bauItems = [
-        {id:"bau-1",legenda:"Conferência do baú após a entrega",registrado_por:"Kokusai",created_at:"20/08/2026 16:05:10",mes:"2026-08",url:"static/images/flyers/leviata.webp"},
-        {id:"bau-2",legenda:"Reposição semanal de materiais",registrado_por:"Kokusai",created_at:"18/08/2026 21:40:02",mes:"2026-08",url:"static/images/flyers/distrito.webp"},
-        {id:"bau-3",legenda:"",registrado_por:"Kokusai",created_at:"15/08/2026 12:11:47",mes:"2026-08",url:"static/images/flyers/ballas.webp"}
+        {id:"bau-1",legenda:"Conferência do baú após a entrega",registrado_por:"Kokusai",responsavel:"Kiyotaka",created_at:"20/08/2026 16:05:10",mes:"2026-08",url:"static/images/flyers/leviata.webp"},
+        {id:"bau-2",legenda:"Reposição semanal de materiais",registrado_por:"Kokusai",responsavel:"Kiyotaka",created_at:"18/08/2026 21:40:02",mes:"2026-08",url:"static/images/flyers/distrito.webp"},
+        {id:"bau-3",legenda:"",registrado_por:"Kokusai",responsavel:"Gohan",created_at:"15/08/2026 12:11:47",mes:"2026-08",url:"static/images/flyers/ballas.webp"}
       ];
 
       const report = {
@@ -204,6 +204,7 @@ function mockBackendScript() {
         if (url === "/api/familias") return jsonResponse(families);
         if (url === "/api/reunioes") return jsonResponse(meetings);
         if (url.startsWith("/api/relatorios/gangues")) return jsonResponse(report);
+        if (url === "/api/pessoas") return jsonResponse({ok:true,pessoas:[]});
         if (url === "/api/meta-members") return jsonResponse({ok:true,members:rooms.map(item => ({id:item.user_id,username:item.username,display_name:item.display_name,apelido:"",active:true,in_env:true})).concat([{id:"meta-ex",username:"exmembro",display_name:"Ex-membro",apelido:"",active:false,in_env:false}])});
         if (url === "/api/meta-rooms") return jsonResponse({
           rooms,
@@ -221,7 +222,7 @@ function mockBackendScript() {
             limits:{max_photos:10,max_file_mb:10}
           });
         }
-        if (url.startsWith("/api/bau")) return jsonResponse({ok:true,items:bauItems,total:bauItems.length,offset:0,has_more:false,months:[{mes:"2026-08",total:bauItems.length}]});
+        if (url.startsWith("/api/bau")) return jsonResponse({ok:true,items:bauItems,total:bauItems.length,offset:0,has_more:false,months:[{mes:"2026-08",total:bauItems.length}],total_arquivadas:0});
         return jsonResponse({message:"Conteúdo simulado."});
       };
     })();

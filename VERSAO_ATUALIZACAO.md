@@ -1,4 +1,37 @@
-# KOKUSAI — Usuário kiyotaka 2026.10.07
+# KOKUSAI — Fotos de perfil no painel 2026.10.07
+
+Identificador: `2026.10.07-fotos-perfil`
+
+Esta versão inclui:
+
+- A foto que cada membro coloca no perfil agora aparece para a administração em **Salas de Meta**: na lista de salas, no topo da sala aberta (foto maior, para conferir na hora de fechar a meta) e em **Gerenciar membros**.
+- A própria sala do membro mostra a foto dele no topo.
+- **Em todo o painel:** quando um nome escrito nas tabelas e cartões bate com o nome, apelido ou usuário de um membro com foto, a foto aparece ao lado (Compras "quem pediu", Vendas "quem vende", Encomendas "negociou", responsável das Famílias e Reuniões, "registrado por" do Baú). Nomes que não são de membros (ex.: "Estoque") continuam só texto.
+- As fotos são entregues por `/avatar/<id>` com cache: carregam uma vez e só são baixadas de novo quando a pessoa troca a foto. A equipe vê a foto de todos; cada membro vê apenas a própria.
+- Nova rota `GET /api/pessoas` (equipe) com os membros ativos e o endereço da foto.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-fotos-perfil"`.
+
+---
+
+# Versão anterior — Registro Baú protegido (`2026.10.07-bau-arquivo`)
+
+Identificador: `2026.10.07-bau-arquivo`
+
+Esta versão inclui:
+
+- **Quem registrou:** o envio de fotos do baú pede o nome de quem está registrando (a conta kokusai é compartilhada). O nome fica gravado junto da foto e aparece no cartão e na foto ampliada. O aparelho lembra o último nome usado.
+- **Data e hora automáticas:** continuam sendo gravadas pelo servidor (horário de Brasília) no momento do envio; o navegador não consegue alterar. O formulário agora avisa isso.
+- **Excluir virou Arquivar:** nenhuma foto é apagada de verdade. Ao arquivar, o site pede quem está arquivando; a foto sai da galeria e vai para **Arquivadas** (com data, hora e quem arquivou), continua no Bucket e pode ser restaurada.
+- Fotos arquivadas não podem ter a legenda editada (restaure antes).
+- Banco: a tabela `bau_registros` ganha as colunas `responsavel`, `arquivado`, `arquivado_em` e `arquivado_por` automaticamente no primeiro start; registros antigos continuam iguais (o "registrado por" deles mostra a conta, já que não tinham o nome).
+- Rotas: `GET /api/bau?arquivadas=1`, `DELETE /api/bau/photos/<id>` agora arquiva (exige `responsavel`), novo `POST /api/bau/photos/<id>/restaurar`.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-bau-arquivo"`.
+
+---
+
+# Versão anterior — Usuário kiyotaka (`2026.10.07-kiyotaka`)
 
 Identificador: `2026.10.07-kiyotaka`
 

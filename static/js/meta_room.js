@@ -180,6 +180,17 @@ async function loadMemberRoom(){
     currentRoom = data;
     const weekLabel = `${data.submission.week_start} até ${data.submission.week_end}`;
     document.getElementById("memberRoomTitle").textContent = `Meta de ${data.member.display_name}`;
+    const avatarBox = document.getElementById("memberRoomAvatar");
+    if(avatarBox){
+      avatarBox.textContent = "";
+      if(data.member.avatar){
+        const photo = document.createElement("img");
+        photo.src = data.member.avatar;
+        photo.alt = "";
+        avatarBox.appendChild(photo);
+      }
+      avatarBox.hidden = !data.member.avatar;
+    }
     document.getElementById("memberWeekLabel").textContent = weekLabel;
     document.getElementById("memberWeekMini").textContent = weekLabel;
     setMemberStatus(data.submission.status);

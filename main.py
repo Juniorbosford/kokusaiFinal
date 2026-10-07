@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-kiyotaka"
+APP_RELEASE = "2026.10.07-fotos-perfil"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -398,6 +398,28 @@ def verify_password(password, password_hash):
 
 def meta_db_uses_postgres():
     return bool(META_DATABASE_URL)
+
+
+# Colunas acrescentadas depois que a tabela já existia em produção.
+BAU_EXTRA_COLUMNS = {
+    "responsavel": "TEXT NOT NULL DEFAULT ''",
+    "arquivado": "INTEGER NOT NULL DEFAULT 0",
+    "arquivado_em": "TEXT NOT NULL DEFAULT ''",
+    "arquivado_por": "TEXT NOT NULL DEFAULT ''",
+}
+
+
+def ensure_table_columns(cursor, table, columns):
+    """Acrescenta colunas que faltam (SQLite e Postgres), sem mexer nos dados existentes."""
+    if meta_db_uses_postgres():
+        for name, ddl in columns.items():
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {ddl}")
+        return
+    cursor.execute(f"PRAGMA table_info({table})")
+    existing = {row[1] for row in cursor.fetchall()}
+    for name, ddl in columns.items():
+        if name not in existing:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def meta_db_connect():
@@ -835,7 +857,11 @@ def ensure_meta_database_ready():
                     registrado_por TEXT NOT NULL DEFAULT '',
                     mes TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    created_ts TEXT NOT NULL
+                    created_ts TEXT NOT NULL,
+                    responsavel TEXT NOT NULL DEFAULT '',
+                    arquivado INTEGER NOT NULL DEFAULT 0,
+                    arquivado_em TEXT NOT NULL DEFAULT '',
+                    arquivado_por TEXT NOT NULL DEFAULT ''
                 )
                 """,
                 "CREATE INDEX IF NOT EXISTS idx_bau_registros_ts ON bau_registros(created_ts)",
@@ -857,6 +883,7 @@ def ensure_meta_database_ready():
             ]
             for statement in statements:
                 cursor.execute(statement)
+            ensure_table_columns(cursor, "bau_registros", BAU_EXTRA_COLUMNS)
 
             created_at = format_timestamp()
             # META_MEMBERS_JSON só CADASTRA quem ainda não existe no banco. Quem entra e quem
@@ -3234,6 +3261,7 @@ def build_meta_room_payload(user_id, week_start=None):
     if not submission:
         raise ValueError("Sala semanal não encontrada.")
     photos = get_meta_photos(submission["id"])
+    profile = get_member_profile(user_id)
     history = get_meta_room_history(user_id, exclude_week_start=submission["week_start"])
     start_date = parse_date_br(submission["week_start"])
     schedule = meta_week_payload(start_date) if start_date else {}
@@ -3245,6 +3273,9 @@ def build_meta_room_payload(user_id, week_start=None):
             "id": member["id"],
             "username": member["username"],
             "display_name": member["display_name"],
+            "apelido": profile.get("apelido") or "",
+            "avatar": member_avatar_url(member["id"], profile.get("avatar_version"), profile.get("thumb_b64"), thumb=False),
+            "thumb": member_avatar_url(member["id"], profile.get("avatar_version"), profile.get("thumb_b64")),
         },
         "submission": submission,
         "schedule": {
@@ -3422,9 +3453,13 @@ def list_meta_rooms():
             """
             SELECT u.id AS user_id, u.username, u.display_name, s.id AS submission_id,
                    s.status, s.admin_note, s.submitted_at, s.reviewed_at,
-                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count
+                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
+                   COALESCE(pr.apelido, '') AS apelido,
+                   COALESCE(pr.avatar_version, 0) AS avatar_version,
+                   CASE WHEN COALESCE(pr.thumb_b64, '') <> '' THEN 1 ELSE 0 END AS has_photo
             FROM meta_users u
             JOIN meta_submissions s ON s.user_id = u.id AND s.week_start = ?
+            LEFT JOIN user_profiles pr ON pr.user_id = u.id
             WHERE u.role = 'member' AND u.active = 1
             ORDER BY u.display_name ASC
             """,
@@ -3432,6 +3467,7 @@ def list_meta_rooms():
         )
         unpaid_streaks = get_meta_unpaid_streaks()
         for room in rooms:
+            room["avatar"] = member_avatar_url(room["user_id"], room.pop("avatar_version"), room.pop("has_photo"))
             streak = int(unpaid_streaks.get(room["user_id"], 0))
             room["consecutive_unpaid_weeks"] = streak
             room["payment_warning"] = streak >= 3
@@ -4941,6 +4977,7 @@ def resumo_metas():
 # Registro do Baú: fotos arquivadas (arquivo no Bucket + índice no banco)
 # ---------------------------------------------------------------------------
 BAU_MAX_CAPTION_LENGTH = 200
+BAU_MAX_PERSON_LENGTH = 40
 BAU_PAGE_SIZE_DEFAULT = 24
 BAU_PAGE_SIZE_MAX = 60
 BAU_MONTH_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -4983,6 +5020,10 @@ def serialize_bau(row):
         "id": row["id"],
         "legenda": row["legenda"] or "",
         "registrado_por": row["registrado_por"] or "",
+        "responsavel": row.get("responsavel") or "",
+        "arquivado": bool(row.get("arquivado")),
+        "arquivado_em": row.get("arquivado_em") or "",
+        "arquivado_por": row.get("arquivado_por") or "",
         "created_at": row["created_at"],
         "mes": row["mes"],
         "original_name": row["original_name"],
@@ -5004,21 +5045,26 @@ def list_bau():
             limit = min(max(1, int(request.args.get("limit", BAU_PAGE_SIZE_DEFAULT))), BAU_PAGE_SIZE_MAX)
         except (TypeError, ValueError):
             return error_response("Paginação inválida.", 400)
+        archived = 1 if str(request.args.get("arquivadas") or "") == "1" else 0
 
-        columns = "id, original_name, content_type, size_bytes, legenda, registrado_por, mes, created_at"
+        columns = (
+            "id, original_name, content_type, size_bytes, legenda, registrado_por, responsavel, "
+            "arquivado, arquivado_em, arquivado_por, mes, created_at"
+        )
+        where, params = "arquivado = ?", [archived]
         if month:
-            total_row = meta_query_one("SELECT COUNT(*) AS total FROM bau_registros WHERE mes = ?", (month,))
-            rows = meta_query_all(
-                f"SELECT {columns} FROM bau_registros WHERE mes = ? ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?",
-                (month, limit, offset),
-            )
-        else:
-            total_row = meta_query_one("SELECT COUNT(*) AS total FROM bau_registros")
-            rows = meta_query_all(
-                f"SELECT {columns} FROM bau_registros ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            )
-        months = meta_query_all("SELECT mes, COUNT(*) AS total FROM bau_registros GROUP BY mes ORDER BY mes DESC")
+            where += " AND mes = ?"
+            params.append(month)
+        total_row = meta_query_one(f"SELECT COUNT(*) AS total FROM bau_registros WHERE {where}", tuple(params))
+        rows = meta_query_all(
+            f"SELECT {columns} FROM bau_registros WHERE {where} ORDER BY created_ts DESC, id DESC LIMIT ? OFFSET ?",
+            tuple(params + [limit, offset]),
+        )
+        months = meta_query_all(
+            "SELECT mes, COUNT(*) AS total FROM bau_registros WHERE arquivado = ? GROUP BY mes ORDER BY mes DESC",
+            (archived,),
+        )
+        archived_row = meta_query_one("SELECT COUNT(*) AS total FROM bau_registros WHERE arquivado = 1")
         total = int((total_row or {}).get("total") or 0)
 
         response = jsonify({
@@ -5028,6 +5074,8 @@ def list_bau():
             "offset": offset,
             "has_more": offset + len(rows) < total,
             "months": [{"mes": row["mes"], "total": int(row["total"] or 0)} for row in months],
+            "arquivadas": bool(archived),
+            "total_arquivadas": int((archived_row or {}).get("total") or 0),
         })
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -5041,6 +5089,8 @@ def list_bau():
 def upload_bau_photo():
     try:
         legenda = clean_plain_text(request.form.get("legenda"), "Legenda", BAU_MAX_CAPTION_LENGTH)
+        # A conta kokusai é compartilhada: o nome de quem está registrando vai junto da foto.
+        responsavel = clean_plain_text(request.form.get("responsavel"), "Quem registrou", BAU_MAX_PERSON_LENGTH, required=True)
         now = now_local()
         stored = store_bau_photo(request.files.get("photo"), now.strftime("%Y-%m"))
         user = get_current_user()
@@ -5049,19 +5099,20 @@ def upload_bau_photo():
             meta_execute(
                 """
                 INSERT INTO bau_registros
-                    (id, object_key, original_name, content_type, size_bytes, legenda, registrado_por, mes, created_at, created_ts)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, object_key, original_name, content_type, size_bytes, legenda, registrado_por, responsavel,
+                     mes, created_at, created_ts)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id, stored["object_key"], stored["original_name"], stored["content_type"],
-                    stored["size_bytes"], legenda, user["display_name"], now.strftime("%Y-%m"),
+                    stored["size_bytes"], legenda, user["display_name"], responsavel, now.strftime("%Y-%m"),
                     format_timestamp(now), now.strftime("%Y-%m-%dT%H:%M:%S.%f"),
                 ),
             )
         except Exception:
             delete_meta_photo_object(stored["object_key"])
             raise
-        log_info(f"Foto do baú registrada. ID={record_id}")
+        log_info(f"Foto do baú registrada. ID={record_id} quem={responsavel} conta={user['username']} em={format_timestamp(now)}")
         return jsonify({"ok": True, "message": "Foto registrada com sucesso.", "id": record_id}), 201
     except ValueError as error:
         return error_response(str(error), 400)
@@ -5076,9 +5127,12 @@ def update_bau_photo(photo_id):
     try:
         data = request.get_json(silent=True) or {}
         legenda = clean_plain_text(data.get("legenda"), "Legenda", BAU_MAX_CAPTION_LENGTH)
-        updated = meta_execute("UPDATE bau_registros SET legenda = ? WHERE id = ?", (legenda, photo_id))
-        if not updated:
+        row = meta_query_one("SELECT id, arquivado FROM bau_registros WHERE id = ?", (photo_id,))
+        if not row:
             return error_response("Registro não encontrado.", 404)
+        if row["arquivado"]:
+            return error_response("Restaure a foto antes de editar a legenda.", 409)
+        meta_execute("UPDATE bau_registros SET legenda = ? WHERE id = ?", (legenda, photo_id))
         return jsonify({"ok": True, "message": "Legenda atualizada.", "legenda": legenda})
     except ValueError as error:
         return error_response(str(error), 400)
@@ -5089,20 +5143,47 @@ def update_bau_photo(photo_id):
 
 @app.delete("/api/bau/photos/<photo_id>")
 @require_admin
-def delete_bau_photo(photo_id):
+def archive_bau_photo(photo_id):
+    """Arquiva (não apaga). A foto continua no Bucket e no banco e pode ser restaurada."""
     try:
-        row = meta_query_one("SELECT id, object_key FROM bau_registros WHERE id = ?", (photo_id,))
+        data = request.get_json(silent=True) or {}
+        responsavel = clean_plain_text(data.get("responsavel"), "Quem está arquivando", BAU_MAX_PERSON_LENGTH, required=True)
+        row = meta_query_one("SELECT id, arquivado FROM bau_registros WHERE id = ?", (photo_id,))
         if not row:
             return error_response("Registro não encontrado.", 404)
-        meta_execute("DELETE FROM bau_registros WHERE id = ?", (photo_id,))
-        try:
-            delete_meta_photo_object(row["object_key"])
-        except Exception as storage_error:
-            # O registro já saiu da lista; se o arquivo não puder ser apagado agora, apenas registramos.
-            log_error("Foto do baú removida do banco, mas o arquivo permaneceu no Bucket", storage_error)
-        return jsonify({"ok": True, "message": "Foto removida do registro."})
+        if row["arquivado"]:
+            return error_response("Esta foto já está arquivada.", 409)
+        quando = format_timestamp()
+        meta_execute(
+            "UPDATE bau_registros SET arquivado = 1, arquivado_em = ?, arquivado_por = ? WHERE id = ?",
+            (quando, responsavel, photo_id),
+        )
+        log_info(f"Foto do baú arquivada. ID={photo_id} quem={responsavel} conta={get_current_user()['username']} em={quando}")
+        return jsonify({"ok": True, "message": "Foto arquivada. Ela continua guardada em Arquivadas."})
+    except ValueError as error:
+        return error_response(str(error), 400)
     except Exception as error:
         log_error("Falha em /api/bau/photos [DELETE]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/bau/photos/<photo_id>/restaurar")
+@require_admin
+def restore_bau_photo(photo_id):
+    try:
+        row = meta_query_one("SELECT id, arquivado FROM bau_registros WHERE id = ?", (photo_id,))
+        if not row:
+            return error_response("Registro não encontrado.", 404)
+        if not row["arquivado"]:
+            return error_response("Esta foto não está arquivada.", 409)
+        meta_execute(
+            "UPDATE bau_registros SET arquivado = 0, arquivado_em = '', arquivado_por = '' WHERE id = ?",
+            (photo_id,),
+        )
+        log_info(f"Foto do baú restaurada. ID={photo_id} conta={get_current_user()['username']} em={format_timestamp()}")
+        return jsonify({"ok": True, "message": "Foto restaurada para o registro."})
+    except Exception as error:
+        log_error("Falha em /api/bau/photos/restaurar [POST]", error)
         return error_response(str(error))
 
 
@@ -5269,6 +5350,76 @@ def bump_member_session_version(user_id, new_password_hash=None):
 @require_login
 def profile_page():
     return render_template("perfil.html")
+
+
+def member_avatar_url(user_id, version, has_photo, thumb=True):
+    """Endereço da foto de perfil do membro (vazio se ele não tem foto).
+
+    A versão entra na URL: quando a foto muda, o endereço muda e o navegador busca de novo;
+    enquanto não muda, a imagem fica em cache e não pesa nas listas do painel.
+    """
+    if not has_photo:
+        return ""
+    params = {"user_id": user_id, "v": int(version or 0)}
+    if thumb:
+        params["t"] = 1
+    return url_for("member_avatar", **params)
+
+
+@app.get("/avatar/<user_id>")
+@require_login
+def member_avatar(user_id):
+    user = get_current_user()
+    # Membros veem só a própria foto; a equipe (admin e leitura) vê a de todos.
+    if user["role"] == "member" and user.get("user_id") != user_id:
+        return error_response("Sem acesso a esta foto.", 403)
+    row = meta_query_one(
+        "SELECT thumb_b64, avatar_b64, avatar_version FROM user_profiles WHERE user_id = ?",
+        (user_id,),
+    )
+    field = "thumb_b64" if request.args.get("t") == "1" else "avatar_b64"
+    data = (row or {}).get(field) or ""
+    if not data:
+        return error_response("Foto não encontrada.", 404)
+    response = Response(base64.b64decode(data), mimetype="image/webp")
+    current = str(int((row or {}).get("avatar_version") or 0))
+    if request.args.get("v") == current:
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+    else:
+        response.headers["Cache-Control"] = "private, no-cache"
+    response.headers["ETag"] = f'"{user_id}-{current}-{field[0]}"'
+    return response
+
+
+@app.get("/api/pessoas")
+@require_staff
+def list_people():
+    """Membros ativos com foto, para o painel mostrar o rosto ao lado do nome."""
+    try:
+        rows = meta_query_all(
+            """
+            SELECT u.id, u.username, u.display_name, COALESCE(p.apelido, '') AS apelido,
+                   COALESCE(p.avatar_version, 0) AS avatar_version,
+                   CASE WHEN COALESCE(p.thumb_b64, '') <> '' THEN 1 ELSE 0 END AS has_photo
+            FROM meta_users u
+            LEFT JOIN user_profiles p ON p.user_id = u.id
+            WHERE u.role = 'member' AND u.active = 1
+            ORDER BY u.display_name ASC
+            """
+        )
+        return json_no_store({
+            "ok": True,
+            "pessoas": [{
+                "id": row["id"],
+                "username": row["username"],
+                "display_name": row["display_name"],
+                "apelido": row["apelido"],
+                "avatar": member_avatar_url(row["id"], row["avatar_version"], row["has_photo"]),
+            } for row in rows],
+        })
+    except Exception as error:
+        log_error("Falha em /api/pessoas", error)
+        return error_response(str(error))
 
 
 @app.get("/api/perfil")
@@ -5440,7 +5591,9 @@ def list_meta_members():
         rows = meta_query_all(
             """
             SELECT u.id, u.username, u.display_name, u.active, u.created_at,
-                   COALESCE(p.apelido, '') AS apelido
+                   COALESCE(p.apelido, '') AS apelido,
+                   COALESCE(p.avatar_version, 0) AS avatar_version,
+                   CASE WHEN COALESCE(p.thumb_b64, '') <> '' THEN 1 ELSE 0 END AS has_photo
             FROM meta_users u
             LEFT JOIN user_profiles p ON p.user_id = u.id
             WHERE u.role = 'member'
@@ -5455,6 +5608,7 @@ def list_meta_members():
             "active": bool(row["active"]),
             "created_at": row["created_at"],
             "in_env": row["username"] in seeded,
+            "avatar": member_avatar_url(row["id"], row["avatar_version"], row["has_photo"]),
         } for row in rows]
         return json_no_store({"ok": True, "members": members})
     except Exception as error:

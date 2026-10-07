@@ -1105,7 +1105,17 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
 .meta-room-list-item:hover{background:rgba(255,232,228,.04)}
 .meta-room-list-item.active{background:linear-gradient(90deg,rgba(184,24,47,.22),rgba(184,24,47,.04) 80%);box-shadow:inset 2px 0 0 var(--laca-hi)}
 .meta-room-list-item.has-payment-warning{background:linear-gradient(90deg,rgba(184,24,47,.1),transparent)}
-.meta-room-avatar{width:32px;height:32px;border:0;border-radius:50%;background:var(--sumi-800);color:var(--washi-2);font-size:.82rem;font-weight:700}
+.meta-room-avatar{flex:none;overflow:hidden;width:32px;height:32px;border:0;border-radius:50%;background:var(--sumi-800);color:var(--washi-2);font-size:.82rem;font-weight:700}
+.meta-room-avatar img,.meta-detail-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+
+/* Foto de perfil ao lado do nome das pessoas (tabelas, cartões, baú) */
+.person-chip{display:inline-flex;align-items:center;gap:7px;max-width:100%;vertical-align:middle}
+.person-chip>span{min-width:0;overflow-wrap:normal}
+.person-avatar{flex:none;width:20px;height:20px;border:1px solid var(--line-strong);border-radius:50%;background:var(--sumi-800);object-fit:cover}
+.bau-meta .person-chip{gap:5px}
+.bau-meta .person-avatar{width:18px;height:18px}
+.meta-detail-person{display:flex;align-items:center;gap:14px;min-width:0}
+.meta-detail-avatar{display:grid;place-items:center;flex:none;overflow:hidden;width:56px;height:56px;border:1px solid var(--line-strong);border-radius:50%;background:var(--sumi-800);color:var(--washi-2);font-family:var(--font-display);font-size:1.4rem;font-weight:700}
 .meta-room-person strong{color:var(--washi);font-size:.86rem;font-weight:600}
 .meta-room-person small,.meta-room-list-info small{color:var(--ash);font-size:.74rem}
 .meta-payment-alert{display:inline-flex;align-items:center;min-height:19px;padding:0 6px;border:0;border-radius:5px;background:rgba(184,24,47,.2);color:#ffc2ca!important;font-size:.72rem;font-style:normal;font-weight:700;white-space:nowrap}
@@ -1139,7 +1149,9 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
 /* Gerenciar membros */
 .meta-members-note{color:var(--ash);font-size:.86rem}
 .meta-members-subtitle{color:var(--ash);font-size:.8rem;font-weight:500;letter-spacing:0;text-transform:none}
-.meta-member-row{padding:10px 12px;border:0;border-radius:var(--r-md);background:rgba(255,232,228,.03)}
+.meta-member-row{gap:12px;padding:10px 12px;border:0;border-radius:var(--r-md);background:rgba(255,232,228,.03)}
+.meta-member-row .meta-room-avatar{display:grid;place-items:center}
+.meta-member-row .meta-member-info{flex:1}
 .meta-member-row:hover{background:rgba(255,232,228,.05)}
 .meta-member-info strong{color:var(--washi);font-weight:600}
 .meta-member-info small{color:var(--ash)}
@@ -1194,6 +1206,14 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
 .member-admin-note{border:1px solid rgba(215,162,75,.3);border-radius:var(--r-md);background:rgba(215,162,75,.06);color:#ecca8e}
 .history-status{font-weight:600}
 .bau-caption-field small{color:var(--ash);font-weight:500}
+.bau-fields{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:14px;margin-top:4px}
+.bau-fields .bau-caption-field{margin-top:14px}
+.bau-auto-note{margin:10px 0 0;color:var(--ash);font-size:.8rem}
+.bau-filter select{min-width:0}
+.bau-card.is-archived{border-style:dashed}
+.bau-card.is-archived .bau-thumb img{filter:grayscale(.55) brightness(.8)}
+.bau-archived-note{color:var(--laca-soft)!important}
+@media (max-width:760px){.bau-fields{grid-template-columns:1fr;gap:0}}
 .bau-filter{color:var(--ash);font-weight:500;white-space:nowrap}
 .bau-grid{gap:12px}
 .bau-card{border:1px solid var(--line);border-radius:12px;background:var(--sumi-850)}
@@ -1234,6 +1254,10 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
     var(--sumi-900);
   box-shadow:none;
 }
+.member-room-header{align-items:center;gap:22px}
+.member-room-header>div{flex:1;min-width:0}
+.member-room-avatar{width:72px;height:72px;border-color:rgba(224,67,90,.35);box-shadow:0 0 0 4px rgba(184,24,47,.12)}
+.member-room-avatar[hidden]{display:none}
 .member-room-header h2{margin:4px 0 8px;color:var(--washi);font-size:clamp(1.6rem,2.4vw,2.1rem)}
 .member-room-header p{max-width:680px;color:var(--washi-2);font-size:.9rem;line-height:1.55}
 .member-room-header p:last-child{color:var(--washi-2)}
@@ -1290,6 +1314,10 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
   .report-stats-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
   .app-shell{grid-template-columns:212px minmax(0,1fr)}
   .main-content{padding-left:28px;padding-right:28px}
+  .encomendas-table .person-avatar{display:none}
+}
+
+@media (max-width:1560px){
   /* Encomendas em notebook: a coluna de prioridade vira só o marcador
      (a faixa vermelha da linha e o prazo já dizem o resto) */
   .encomendas-table .order-priority-badge{font-size:0;gap:0;padding:0 5px;min-height:22px}
@@ -1394,7 +1422,7 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
   .meta-room-sidebar .account-link{width:auto;white-space:nowrap}
   .meta-room-sidebar .member-week-mini{display:none}
   .meta-room-main{padding:18px 14px 28px}
-  .member-room-header{padding:22px 20px}
+  .member-room-header{padding:22px 20px;align-items:flex-start}
 }
 
 @media (max-width:520px){

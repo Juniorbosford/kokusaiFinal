@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Shippori+Mincho:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-laca" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-laca" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-fotos-perfil" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-laca" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
@@ -1059,10 +1059,17 @@
             </div>
           </div>
           <div class="member-selection-preview" id="bauSelectionPreview" hidden aria-live="polite"></div>
-          <label class="bau-caption-field" for="bauLegenda">
-            Legenda <small>(opcional — vale para todas as fotos deste envio)</small>
-            <input id="bauLegenda" type="text" maxlength="200" autocomplete="off" placeholder="Ex.: Conferência do baú após a entrega" />
-          </label>
+          <div class="bau-fields">
+            <label class="bau-caption-field" for="bauResponsavel">
+              Quem está registrando <small>obrigatório: a conta kokusai é usada por várias pessoas</small>
+              <input id="bauResponsavel" type="text" maxlength="40" autocomplete="off" placeholder="Ex.: Kiyotaka" required />
+            </label>
+            <label class="bau-caption-field" for="bauLegenda">
+              Legenda <small>opcional, vale para todas as fotos deste envio</small>
+              <input id="bauLegenda" type="text" maxlength="200" autocomplete="off" placeholder="Ex.: Conferência do baú após a entrega" />
+            </label>
+          </div>
+          <p class="bau-auto-note">A data e a hora são gravadas automaticamente pelo servidor no momento do envio e não podem ser alteradas.</p>
           <div class="member-upload-actions">
             <span><strong id="bauSelectedCounter">Nenhuma foto selecionada</strong></span>
             <button class="primary-btn" type="button" id="bauUploadBtn" disabled>Enviar fotos</button>
@@ -1075,10 +1082,14 @@
           <div class="panel-head bau-gallery-head">
             <div>
               <p class="panel-kicker">Arquivo</p>
-              <h3>Fotos registradas</h3>
+              <h3 id="bauGalleryTitle">Fotos registradas</h3>
             </div>
             <div class="bau-filter">
               <span id="bauCount">0 fotos</span>
+              <select id="bauStatusFilter" aria-label="Mostrar fotos registradas ou arquivadas">
+                <option value="">Registradas</option>
+                <option value="1">Arquivadas</option>
+              </select>
               <select id="bauMonthFilter" aria-label="Filtrar fotos por mês"><option value="">Todos os meses</option></select>
             </div>
           </div>
@@ -1245,6 +1256,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-kiyotaka"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-conta-aba"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-fotos-perfil"></script>
 </body>
 </html>

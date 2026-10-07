@@ -835,7 +835,7 @@ function renderEncomendas(){
       <td>${familyChipHtml(family, {nome:familyName, icone:familyIcon, responsavel:familyResponsible, linked})}</td>
       <td><div class="order-product-cell"><span>${escapeHtml(item.o_que_pediu)}</span>${observationButton}</div></td>
       <td>${orderDeadlineHtml(item)}</td>
-      <td>${escapeHtml(item.quem_negociou)}</td>
+      <td>${personHtml(item.quem_negociou)}</td>
       <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
       <td>${currency(item.valor)}</td>
       <td>${deliveryControl(item)}</td>
@@ -1759,7 +1759,7 @@ async function loadCompras(){
       return `<tr>
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
-        <td>${escapeHtml(item.quem_pediu)}</td>
+        <td>${personHtml(item.quem_pediu)}</td>
         <td>${seller}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
@@ -1794,7 +1794,7 @@ async function loadVendas(){
         <td>${escapeHtml(item.data)}</td>
         <td>${escapeHtml(item.produto)}</td>
         <td>${linked ? familyChipHtml(family, {nome:familyName, icone:familyIcon, responsavel:familyResponsible, linked:true}) : escapeHtml(item.quem_compra)}</td>
-        <td>${escapeHtml(item.quem_vende)}</td>
+        <td>${personHtml(item.quem_vende)}</td>
         <td>${escapeHtml(item.quantidade)}</td>
         <td>${moneyTypeBadge(item.tipo_dinheiro, item.percentual_dinheiro_sujo)}</td>
         <td>${currency(item.valor_total)}</td>
@@ -2040,7 +2040,7 @@ async function loadFamilias(){
               ${canWrite ? `<button type="button" class="family-quick-delete" data-apagar-familia="${escapeHtml(item.id)}" aria-label="Excluir permanentemente ${escapeHtml(item.nome)}">Excluir</button>` : ""}
             </div>
           </div>
-          <div class="family-responsible-card"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato || "A definir")}</strong></div>
+          <div class="family-responsible-card"><span>Responsável pelo contato</span><strong>${personHtml(item.responsavel_contato || "A definir")}</strong></div>
           <details class="entity-details family-card-details">
             <summary><span>Cadastro e condições</span><b aria-hidden="true">+</b></summary>
             <div class="entity-details-body">
@@ -2098,7 +2098,7 @@ async function loadReunioes(){
       const date = item.data ? new Date(`${item.data}T12:00:00`) : null;
       const dateLabel = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString("pt-BR", {weekday:"short", day:"2-digit", month:"short"}) : item.data;
       const relationship = item.responsavel_contato
-        ? `<div class="meeting-relationship"><span>Responsável pelo contato</span><strong>${escapeHtml(item.responsavel_contato)}</strong></div>`
+        ? `<div class="meeting-relationship"><span>Responsável pelo contato</span><strong>${personHtml(item.responsavel_contato)}</strong></div>`
         : "";
       const extraDetails = item.local || item.pauta || done || canceled || canWrite;
       return `<article class="meeting-card ${statusClass}">
@@ -2147,7 +2147,7 @@ function renderMetaRooms(){
       : "";
     return `
     <button type="button" class="meta-room-list-item ${room.user_id === selectedMetaRoomUserId ? "active" : ""} ${room.payment_warning ? "has-payment-warning" : ""}" data-meta-room-user="${escapeHtml(room.user_id)}">
-      <span class="meta-room-avatar">${escapeHtml(String(room.display_name || "?").slice(0, 1).toUpperCase())}</span>
+      <span class="meta-room-avatar">${room.avatar ? personAvatarImg(room.avatar, "") : escapeHtml(String(room.display_name || "?").slice(0, 1).toUpperCase())}</span>
       <span class="meta-room-person"><strong>${escapeHtml(room.display_name)}</strong><small>@${escapeHtml(room.username)}</small></span>
       <span class="meta-room-list-info"><span class="meta-status-badge ${metaStatusClass(room.status)}">${escapeHtml(room.status)}</span><small>${integer(room.photo_count || 0)} foto(s)</small>${paymentAlert}</span>
     </button>`;
@@ -2184,7 +2184,10 @@ async function loadMetaRoomDetail(userId){
 
     metaRoomDetail.innerHTML = `
       <div class="meta-room-detail-head">
-        <div><p class="panel-kicker">Sala individual</p><h3>${escapeHtml(data.member.display_name)}</h3><small>@${escapeHtml(data.member.username)}</small></div>
+        <div class="meta-detail-person">
+          <span class="meta-detail-avatar">${data.member.avatar ? personAvatarImg(data.member.avatar, "") : escapeHtml(String(data.member.display_name || "?").slice(0, 1).toUpperCase())}</span>
+          <div><p class="panel-kicker">Sala individual</p><h3>${escapeHtml(data.member.display_name)}</h3><small>@${escapeHtml(data.member.username)}${data.member.apelido ? ` · ${escapeHtml(data.member.apelido)}` : ""}</small></div>
+        </div>
         <span class="meta-status-badge ${metaStatusClass(submission.status)}">${escapeHtml(submission.status || "Pendente")}</span>
       </div>
       ${paymentWarningHtml}
@@ -2377,6 +2380,9 @@ const bauUploadZone = document.getElementById("bauUploadZone");
 const bauPhotoInput = document.getElementById("bauPhotoInput");
 const bauSelectionPreview = document.getElementById("bauSelectionPreview");
 const bauLegendaInput = document.getElementById("bauLegenda");
+const bauResponsavelInput = document.getElementById("bauResponsavel");
+const bauStatusFilter = document.getElementById("bauStatusFilter");
+const BAU_RESPONSAVEL_KEY = "kokusai.bau.responsavel";
 const bauSelectedCounter = document.getElementById("bauSelectedCounter");
 const bauUploadBtn = document.getElementById("bauUploadBtn");
 const bauFeedback = document.getElementById("bauFeedback");
@@ -2389,7 +2395,16 @@ const bauLightboxImg = document.getElementById("bauLightboxImg");
 const bauLightboxCaption = document.getElementById("bauLightboxCaption");
 const bauLightboxClose = document.getElementById("bauLightboxClose");
 
-const bauState = {items: [], total: 0, month: "", loading: false, uploading: false};
+const bauState = {items: [], total: 0, month: "", archived: false, archivedTotal: 0, loading: false, uploading: false};
+
+// Lembra neste aparelho o nome de quem costuma registrar (só por conveniência).
+function savedBauResponsavel(){
+  try{ return localStorage.getItem(BAU_RESPONSAVEL_KEY) || ""; }catch{ return ""; }
+}
+function rememberBauResponsavel(name){
+  try{ if(name) localStorage.setItem(BAU_RESPONSAVEL_KEY, name); }catch{ /* sem armazenamento */ }
+}
+if(bauResponsavelInput && !bauResponsavelInput.value) bauResponsavelInput.value = savedBauResponsavel();
 let bauSelected = []; // [{file, previewUrl}]
 
 function isBauImage(file){
@@ -2472,16 +2487,24 @@ function bauCardHtml(item){
   const caption = item.legenda
     ? `<p class="bau-caption">${escapeHtml(item.legenda)}</p>`
     : '<p class="bau-caption bau-no-caption">Sem legenda</p>';
-  const actions = canWrite
-    ? `<div class="bau-card-actions"><button type="button" class="ghost-btn" data-bau-edit="${id}">Editar legenda</button><button type="button" class="danger-btn" data-bau-delete="${id}">Excluir</button></div>`
+  const quem = item.responsavel || item.registrado_por || "—";
+  let actions = "";
+  if(canWrite){
+    actions = item.arquivado
+      ? `<div class="bau-card-actions"><button type="button" class="ghost-btn" data-bau-restore="${id}">Restaurar</button></div>`
+      : `<div class="bau-card-actions"><button type="button" class="ghost-btn" data-bau-edit="${id}">Editar legenda</button><button type="button" class="danger-btn" data-bau-delete="${id}">Arquivar</button></div>`;
+  }
+  const archivedNote = item.arquivado
+    ? `<small class="bau-archived-note">Arquivada em ${escapeHtml(item.arquivado_em || "—")} por ${escapeHtml(item.arquivado_por || "—")}</small>`
     : "";
-  return `<article class="bau-card">
+  return `<article class="bau-card${item.arquivado ? " is-archived" : ""}">
     <button type="button" class="bau-thumb" data-bau-open="${id}" aria-label="Ampliar foto">
       <img src="${escapeHtml(item.url)}" alt="${escapeHtml(item.legenda || "Foto do baú")}" loading="lazy" />
     </button>
     <div class="bau-card-body">
       ${caption}
-      <small>${escapeHtml(item.created_at)} · ${escapeHtml(item.registrado_por || "—")}</small>
+      <small class="bau-meta">${escapeHtml(item.created_at)} · registrado por ${personHtml(quem)}</small>
+      ${archivedNote}
     </div>
     ${actions}
   </article>`;
@@ -2499,10 +2522,16 @@ function renderBauMonths(months){
 
 function renderBauGrid(hasMore){
   if(!bauGrid) return;
-  if(bauCount) bauCount.textContent = `${bauState.total} foto${bauState.total === 1 ? "" : "s"}`;
+  if(bauCount) bauCount.textContent = `${bauState.total} foto${bauState.total === 1 ? "" : "s"}${bauState.archived ? (bauState.total === 1 ? " arquivada" : " arquivadas") : ""}`;
+  const galleryTitle = document.getElementById("bauGalleryTitle");
+  if(galleryTitle) galleryTitle.textContent = bauState.archived ? "Fotos arquivadas" : "Fotos registradas";
+  if(bauStatusFilter){
+    const archivedOption = bauStatusFilter.querySelector('option[value="1"]');
+    if(archivedOption) archivedOption.textContent = `Arquivadas (${integer(bauState.archivedTotal)})`;
+  }
   bauGrid.innerHTML = bauState.items.length
     ? bauState.items.map(bauCardHtml).join("")
-    : '<div class="meta-empty-state">Nenhuma foto registrada ainda.</div>';
+    : `<div class="meta-empty-state">${bauState.archived ? "Nenhuma foto arquivada." : "Nenhuma foto registrada ainda."}</div>`;
   if(bauLoadMore){
     bauLoadMore.hidden = !hasMore;
     bauLoadMore.disabled = false;
@@ -2515,6 +2544,7 @@ async function loadBau({append = false} = {}){
   try{
     const params = new URLSearchParams({offset: String(append ? bauState.items.length : 0), limit: String(BAU_PAGE_SIZE)});
     if(bauState.month) params.set("mes", bauState.month);
+    if(bauState.archived) params.set("arquivadas", "1");
     const {res, data} = await fetchJson(`/api/bau?${params.toString()}`);
     if(!res.ok){
       bauGrid.innerHTML = `<div class="meta-empty-state">${escapeHtml(data.error || "Erro ao carregar o registro do baú.")}</div>`;
@@ -2523,6 +2553,7 @@ async function loadBau({append = false} = {}){
     }
     bauState.items = append ? bauState.items.concat(data.items || []) : (data.items || []);
     bauState.total = data.total || 0;
+    bauState.archivedTotal = data.total_arquivadas || 0;
     renderBauMonths(data.months);
     renderBauGrid(Boolean(data.has_more));
   }catch(error){
@@ -2534,6 +2565,13 @@ async function loadBau({append = false} = {}){
 
 async function uploadBauSelection(){
   if(!bauSelected.length || bauState.uploading) return;
+  const responsavel = (bauResponsavelInput?.value || "").trim();
+  if(!responsavel){
+    setFeedback(bauFeedback, "Informe quem está registrando antes de enviar.", true);
+    bauResponsavelInput?.focus();
+    return;
+  }
+  rememberBauResponsavel(responsavel);
   bauState.uploading = true;
   if(bauUploadBtn) bauUploadBtn.disabled = true;
   const legenda = (bauLegendaInput?.value || "").trim();
@@ -2546,6 +2584,7 @@ async function uploadBauSelection(){
       const body = new FormData();
       body.append("photo", item.file, item.file.name || "imagem.png");
       body.append("legenda", legenda);
+      body.append("responsavel", responsavel);
       const {res, data} = await fetchJson("/api/bau/photos", {method:"POST", headers: csrfHeaders(), body});
       if(!res.ok) throw new Error(data.error || "Falha ao enviar a foto.");
       sent += 1;
@@ -2570,7 +2609,8 @@ function openBauLightbox(item){
   if(!bauLightbox || !item) return;
   bauLightboxImg.src = item.url;
   bauLightboxImg.alt = item.legenda || "Foto do baú";
-  bauLightboxCaption.textContent = [item.legenda, `${item.created_at} · ${item.registrado_por || "—"}`].filter(Boolean).join(" — ");
+  const quem = item.responsavel || item.registrado_por || "—";
+  bauLightboxCaption.textContent = [item.legenda, `${item.created_at} · registrado por ${quem}`, item.arquivado ? `arquivada em ${item.arquivado_em} por ${item.arquivado_por}` : ""].filter(Boolean).join(" — ");
   bauLightbox.hidden = false;
   bauLightboxClose?.focus();
 }
@@ -2595,11 +2635,30 @@ async function editBauCaption(item){
   renderBauGrid(!bauLoadMore?.hidden);
 }
 
-async function deleteBauPhoto(item){
+async function archiveBauPhoto(item){
   if(!canWrite || !item) return;
-  if(!window.confirm("Excluir esta foto do registro? Essa ação não pode ser desfeita.")) return;
-  const {res, data} = await fetchJson(`/api/bau/photos/${encodeURIComponent(item.id)}`, {method:"DELETE", headers: csrfHeaders()});
-  if(!res.ok){ window.alert(data.error || "Não foi possível excluir a foto."); return; }
+  const name = window.prompt(
+    "Arquivar esta foto?\n\nEla sai da galeria, mas continua guardada (com data, hora e quem registrou) e pode ser restaurada em \"Arquivadas\".\n\nQuem está arquivando?",
+    savedBauResponsavel()
+  );
+  if(name === null) return;
+  const responsavel = name.trim();
+  if(!responsavel){ window.alert("Informe quem está arquivando."); return; }
+  rememberBauResponsavel(responsavel);
+  const {res, data} = await fetchJson(`/api/bau/photos/${encodeURIComponent(item.id)}`, {
+    method:"DELETE",
+    headers: csrfHeaders({"Content-Type":"application/json"}),
+    body: JSON.stringify({responsavel}),
+  });
+  if(!res.ok){ window.alert(data.error || "Não foi possível arquivar a foto."); return; }
+  await loadBau();
+}
+
+async function restoreBauPhoto(item){
+  if(!canWrite || !item) return;
+  if(!window.confirm("Restaurar esta foto para o registro?")) return;
+  const {res, data} = await fetchJson(`/api/bau/photos/${encodeURIComponent(item.id)}/restaurar`, {method:"POST", headers: csrfHeaders()});
+  if(!res.ok){ window.alert(data.error || "Não foi possível restaurar a foto."); return; }
   await loadBau();
 }
 
@@ -2639,6 +2698,11 @@ bauSelectionPreview?.addEventListener("click", event => {
 });
 bauUploadBtn?.addEventListener("click", uploadBauSelection);
 bauMonthFilter?.addEventListener("change", () => { bauState.month = bauMonthFilter.value; loadBau(); });
+bauStatusFilter?.addEventListener("change", () => {
+  bauState.archived = bauStatusFilter.value === "1";
+  bauState.month = "";
+  loadBau();
+});
 bauLoadMore?.addEventListener("click", () => { bauLoadMore.disabled = true; loadBau({append: true}); });
 bauGrid?.addEventListener("click", event => {
   const findItem = id => bauState.items.find(item => item.id === id);
@@ -2647,7 +2711,9 @@ bauGrid?.addEventListener("click", event => {
   const edit = event.target.closest("[data-bau-edit]");
   if(edit){ editBauCaption(findItem(edit.dataset.bauEdit)); return; }
   const remove = event.target.closest("[data-bau-delete]");
-  if(remove){ deleteBauPhoto(findItem(remove.dataset.bauDelete)); }
+  if(remove){ archiveBauPhoto(findItem(remove.dataset.bauDelete)); return; }
+  const restore = event.target.closest("[data-bau-restore]");
+  if(restore){ restoreBauPhoto(findItem(restore.dataset.bauRestore)); }
 });
 bauLightbox?.addEventListener("click", event => { if(event.target === bauLightbox) closeBauLightbox(); });
 bauLightboxClose?.addEventListener("click", closeBauLightbox);
@@ -2791,6 +2857,7 @@ function renderMetaMembers(){
   const removed = metaMembersCache.filter(member => !member.active);
   const row = (member, actions) => `
     <div class="meta-member-row${member.active ? "" : " is-removed"}">
+      <span class="meta-room-avatar">${member.avatar ? personAvatarImg(member.avatar, "") : escapeHtml(String(member.display_name || "?").slice(0, 1).toUpperCase())}</span>
       <div class="meta-member-info">
         <strong>${escapeHtml(member.display_name)}</strong>
         <small>@${escapeHtml(member.username)}${member.apelido ? ` · ${escapeHtml(member.apelido)}` : ""}</small>
@@ -2910,12 +2977,55 @@ document.getElementById("memberSecretCopy")?.addEventListener("click", async () 
   }
 });
 
+/* ===== Fotos de perfil das pessoas (aparecem ao lado do nome em todo o painel) ===== */
+const pessoasPorNome = new Map();
+
+function personKey(value){
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/^@/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function loadPessoas(){
+  try{
+    const {res, data} = await fetchJson("/api/pessoas");
+    if(!res.ok || !Array.isArray(data.pessoas)) return;
+    pessoasPorNome.clear();
+    data.pessoas.forEach(pessoa => {
+      if(!pessoa.avatar) return;
+      [pessoa.display_name, pessoa.apelido, pessoa.username].forEach(name => {
+        const key = personKey(name);
+        if(key && !pessoasPorNome.has(key)) pessoasPorNome.set(key, pessoa);
+      });
+    });
+  }catch{
+    /* sem fotos: os nomes aparecem como texto normal */
+  }
+}
+
+function personAvatarImg(url, className = "person-avatar"){
+  return url ? `<img class="${className}" src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" />` : "";
+}
+
+// Nome com a foto da pessoa, quando o texto bate com o nome, apelido ou usuário de um membro.
+function personHtml(name){
+  const text = String(name ?? "").trim();
+  const pessoa = text ? pessoasPorNome.get(personKey(text)) : null;
+  if(!pessoa) return escapeHtml(text || "—");
+  return `<span class="person-chip">${personAvatarImg(pessoa.avatar)}<span>${escapeHtml(text)}</span></span>`;
+}
+
 async function loadAll(){
   if(refreshBtn){
     refreshBtn.disabled = true;
     refreshBtn.textContent = "Atualizando...";
   }
   try{
+    await loadPessoas();
     await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosVenda(), loadMetaMembers()]);
     updateLastSync();
   }finally{
