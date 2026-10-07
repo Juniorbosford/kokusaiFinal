@@ -13,6 +13,42 @@
 
   const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content || "";
 
+  /* ---------- conta da aba ----------
+   * Cada página sabe em qual conta foi aberta. Todo pedido ao servidor leva essa conta,
+   * então trocar de conta em outra aba não faz esta aba agir com a conta errada
+   * (ex.: enviar a meta do Gohan enquanto outra aba está na conta Kokusai). */
+  const TAB_ACCOUNT_HEADER = "X-Kokusai-Conta";
+  const tabAccount = document.querySelector('meta[name="kokusai-account"]')?.content?.trim() || "";
+
+  function withTabAccount(headers) {
+    if (headers && typeof Headers !== "undefined" && headers instanceof Headers) {
+      if (!headers.has(TAB_ACCOUNT_HEADER)) headers.set(TAB_ACCOUNT_HEADER, tabAccount);
+      return headers;
+    }
+    if (Array.isArray(headers)) {
+      return headers.some(([name]) => String(name).toLowerCase() === TAB_ACCOUNT_HEADER.toLowerCase())
+        ? headers
+        : headers.concat([[TAB_ACCOUNT_HEADER, tabAccount]]);
+    }
+    return Object.assign({ [TAB_ACCOUNT_HEADER]: tabAccount }, headers || {});
+  }
+
+  if (tabAccount && typeof window.fetch === "function") {
+    const originalFetch = window.fetch;
+    window.fetch = function kokusaiFetch(input, init) {
+      try {
+        const rawUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+        if (new URL(rawUrl, window.location.href).origin === window.location.origin) {
+          init = Object.assign({}, init || {});
+          init.headers = withTabAccount(init.headers);
+        }
+      } catch (error) {
+        /* URL estranha: segue sem o cabeçalho */
+      }
+      return originalFetch.call(window, input, init);
+    };
+  }
+
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;

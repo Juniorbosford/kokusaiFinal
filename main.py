@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-visual-laca"
+APP_RELEASE = "2026.10.07-conta-por-aba"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -1352,10 +1352,39 @@ def _resolve_current_user():
         session["username"] = username = fallback
 
 
+# Cada página aberta informa em qual conta foi carregada (cabeçalho enviado pelo account.js).
+# Assim, trocar de conta numa aba não faz as outras abas agirem com a conta errada:
+# a sala de metas aberta como "gohan" continua enviando fotos como "gohan" mesmo que
+# outra aba tenha passado para a conta "kokusai". Só vale para contas já autenticadas
+# neste navegador; o cabeçalho não dá acesso a nenhuma conta que não esteja aberta.
+TAB_ACCOUNT_HEADER = "X-Kokusai-Conta"
+_TAB_MISMATCH_KEY = "_kokusai_tab_account_missing"
+
+
+def requested_tab_account():
+    value = str(request.headers.get(TAB_ACCOUNT_HEADER) or "").strip().lower()
+    return value[:64] or None
+
+
+def resolve_open_account(username):
+    """Payload da conta se ela estiver aberta e válida neste navegador; senão None."""
+    accounts = read_session_accounts()
+    if not username or not accounts or username not in accounts:
+        return None
+    record = lookup_account_record(username)
+    if not account_is_valid(username, record, accounts):
+        return None
+    return account_payload(username, record)
+
+
 def get_current_user():
     if _USER_CACHE_KEY in g:
         return g.get(_USER_CACHE_KEY)
     user = _resolve_current_user()
+    wanted = requested_tab_account() if user else None
+    if wanted and wanted != user["username"]:
+        user = resolve_open_account(wanted)
+        setattr(g, _TAB_MISMATCH_KEY, user is None)
     setattr(g, _USER_CACHE_KEY, user)
     return user
 
@@ -1404,11 +1433,23 @@ def start_session_for(username, record):
     invalidate_current_user()
 
 
-def leave_current_account():
-    """Sai da conta ativa. Devolve a URL de destino (a outra conta aberta, ou o login)."""
-    username = session.get("username")
+def leave_current_account(username=None):
+    """Sai de uma conta (por padrão, a ativa). Devolve a URL de destino.
+
+    Se a conta que saiu não era a ativa (pedido vindo de outra aba), a ativa continua.
+    Senão, passa para a outra conta aberta, ou volta para o login.
+    """
+    active = session.get("username")
+    username = username or active
     accounts = read_session_accounts() or {}
     accounts.pop(username, None)
+    if username != active and active in accounts:
+        record = lookup_account_record(active)
+        if account_is_valid(active, record, accounts):
+            write_session_accounts(accounts)
+            invalidate_current_user()
+            return home_url_for(account_payload(active, record))
+        accounts.pop(active, None)
     for candidate in list(accounts):
         record = lookup_account_record(candidate)
         if account_is_valid(candidate, record, accounts):
@@ -1616,6 +1657,12 @@ def require_admin(view):
 @app.before_request
 def load_logged_user():
     g.current_user = get_current_user()
+    if request.path.startswith("/api/") and g.get(_TAB_MISMATCH_KEY):
+        return error_response(
+            f"Esta aba foi aberta com a conta @{requested_tab_account()}, que não está mais conectada "
+            "neste navegador. Recarregue a página para continuar.",
+            409,
+        )
 
 
 @app.context_processor
@@ -3087,9 +3134,11 @@ def logout():
         csrf_error = csrf_error_if_invalid()
         if csrf_error:
             return csrf_error
-        # Por padrão sai só da conta ativa (e passa para a outra conta aberta, se houver).
+        # Por padrão sai só da conta da página (e passa para a outra conta aberta, se houver).
         if request.form.get("escopo") != "todas":
-            return redirect(leave_current_account())
+            conta = str(request.form.get("conta") or "").strip().lower()
+            accounts = read_session_accounts() or {}
+            return redirect(leave_current_account(conta if conta in accounts else None))
     session.clear()
     invalidate_current_user()
     return redirect(url_for("login"))
@@ -5316,7 +5365,7 @@ def sign_out_everywhere():
     try:
         user = get_current_user()
         bump_member_session_version(user["user_id"])
-        target = leave_current_account()
+        target = leave_current_account(user["username"])
         return json_no_store({"ok": True, "message": "Você saiu de todos os aparelhos.", "redirect": target})
     except Exception as error:
         log_error("Falha em /api/perfil/sair-todos [POST]", error)

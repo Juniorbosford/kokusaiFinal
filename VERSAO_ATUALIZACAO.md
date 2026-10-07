@@ -1,4 +1,18 @@
-# KOKUSAI — Visual "Laca" 2026.10.07
+# KOKUSAI — Conta por aba 2026.10.07
+
+Identificador: `2026.10.07-conta-por-aba`
+
+Esta versão inclui:
+
+- **Correção:** com duas contas abertas no mesmo navegador (ex.: `kokusai` e a conta pessoal), trocar de conta numa aba fazia as outras abas passarem a agir com a nova conta. Na sala de metas isso aparecia como "Esta ação é exclusiva dos membros das salas de meta." ao enviar fotos. Agora cada aba continua com a conta em que foi aberta.
+- Se a conta da aba não estiver mais conectada (saiu ou caiu a sessão), o site pede para recarregar a página em vez de usar outra conta.
+- "Sair" e "Sair de todos os aparelhos" agem sobre a conta da página onde foram clicados.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-conta-por-aba"`. Recarregue as abas abertas (Ctrl+F5) para pegar o novo `account.js`.
+
+---
+
+# Versão anterior — Visual "Laca" (`2026.10.07-visual-laca`)
 
 Identificador: `2026.10.07-visual-laca`
 
