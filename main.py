@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-conta-por-aba"
+APP_RELEASE = "2026.10.07-kiyotaka"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -464,6 +464,31 @@ def meta_member_id(username):
     return f"META-USER-{digest}"
 
 
+# Usuários de acesso renomeados (antigo -> novo). A conta continua a mesma (id, semanas,
+# fotos, perfil e senha); só o nome usado no login muda. O nome antigo ainda é aceito no
+# login e na variável META_MEMBERS_JSON, então não é preciso mexer no Railway.
+MEMBER_USERNAME_RENAMES = {
+    "kyotaka": "kiyotaka",
+}
+
+
+def canonical_member_username(username):
+    value = str(username or "").strip().lower()
+    return MEMBER_USERNAME_RENAMES.get(value, value)
+
+
+def apply_member_username_renames(cursor):
+    renamed = []
+    for old, new in MEMBER_USERNAME_RENAMES.items():
+        cursor.execute(meta_sql("SELECT id FROM meta_users WHERE username = ?"), (new,))
+        if cursor.fetchone():
+            continue  # já renomeado (ou o novo nome já existe): não mexe
+        cursor.execute(meta_sql("UPDATE meta_users SET username = ? WHERE username = ?"), (new, old))
+        if cursor.rowcount:
+            renamed.append(f"{old} -> {new}")
+    return renamed
+
+
 def canonical_meta_week_dates(week_start):
     """Converte ciclos antigos para o calendário sexta-feira–quarta-feira."""
     start_date = parse_date_br(week_start)
@@ -846,11 +871,16 @@ def ensure_meta_database_ready():
                     display_name = excluded.display_name
                 """
             )
+            renamed_usernames = apply_member_username_renames(cursor)
             for member in META_MEMBERS:
-                member_id = meta_member_id(member["username"])
+                username = canonical_member_username(member["username"])
+                # O id vem do banco quando a conta já existe (contas renomeadas mantêm o id antigo).
+                cursor.execute(meta_sql("SELECT id FROM meta_users WHERE username = ?"), (username,))
+                existing = cursor.fetchone()
+                member_id = existing[0] if existing else meta_member_id(username)
                 cursor.execute(seed_query, (
                     member_id,
-                    member["username"],
+                    username,
                     member["display_name"],
                     member["password_hash"],
                     created_at,
@@ -860,6 +890,8 @@ def ensure_meta_database_ready():
             repaired_photos = repair_meta_photo_week_assignments(connection)
             connection.commit()
             _meta_db_ready = True
+            if renamed_usernames:
+                log_info(f"Usuários de acesso renomeados: {', '.join(renamed_usernames)}")
             if migrated_weeks:
                 log_info(f"Semanas antigas de meta migradas para sexta–quarta: {migrated_weeks}")
             if repaired_photos:
@@ -3104,7 +3136,7 @@ def login():
         if csrf_error:
             return render_login("Sessão de login expirada. Atualize a página e tente novamente.", next_url=next_url, status=403)
 
-        username = request.form.get("username", "").strip().lower()
+        username = canonical_member_username(request.form.get("username", ""))
         password = request.form.get("password", "")
         key = login_attempt_key(username)
         user_key = login_user_key(username)
@@ -5450,6 +5482,8 @@ def add_meta_member():
         else:
             password = generate_temp_password()
 
+        if username in MEMBER_USERNAME_RENAMES:
+            return error_response(f"Esse usuário foi renomeado para {MEMBER_USERNAME_RENAMES[username]}. Escolha outro.", 409)
         existing = meta_query_one("SELECT id, active, role FROM meta_users WHERE username = ?", (username,))
         if existing:
             if existing["role"] != "member" or existing["active"]:
@@ -5459,6 +5493,8 @@ def add_meta_member():
             return error_response("Já existe um membro ativo com esse nome. Use um nome diferente para não confundir o painel de metas.", 409)
 
         user_id = meta_member_id(username)
+        if meta_query_one("SELECT id FROM meta_users WHERE id = ?", (user_id,)):
+            return error_response("Já existe um usuário com esse nome de acesso.", 409)
         meta_execute(
             "INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at) "
             "VALUES (?, ?, ?, ?, 'member', 1, ?)",

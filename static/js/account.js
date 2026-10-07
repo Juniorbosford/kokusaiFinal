@@ -246,8 +246,18 @@
     const active = normalize(data.active);
     if (active) {
       const pending = takePending();
-      if (pending && pending === active.username) saveAccount(active);
-      else refreshSaved(active);
+      const renamedFrom = pending && pending !== active.username
+        ? readSaved().find((item) => item.username === pending && item.display_name === active.display_name)
+        : null;
+      if (pending && pending === active.username) {
+        saveAccount(active);
+      } else if (renamedFrom) {
+        // Entrou com o nome antigo de uma conta renomeada: troca o cartão salvo pelo nome atual.
+        forgetAccount(pending);
+        saveAccount(active);
+      } else {
+        refreshSaved(active);
+      }
       (data.others || []).forEach(refreshSaved);
     }
 

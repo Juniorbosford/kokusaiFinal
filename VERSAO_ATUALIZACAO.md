@@ -1,4 +1,19 @@
-# KOKUSAI — Conta por aba 2026.10.07
+# KOKUSAI — Usuário kiyotaka 2026.10.07
+
+Identificador: `2026.10.07-kiyotaka`
+
+Esta versão inclui:
+
+- O usuário de acesso **kyotaka** passa a se chamar **kiyotaka**. É a mesma conta: semanas, fotos, perfil, apelido e senha continuam iguais. A troca acontece sozinha no primeiro start depois do deploy.
+- O nome antigo ainda é aceito no login (entra como kiyotaka) e na variável `META_MEMBERS_JSON`, então não precisa mexer no Railway. Quem estava conectado como kyotaka precisa entrar de novo uma vez.
+- Novo mecanismo `MEMBER_USERNAME_RENAMES` no `main.py` para futuras trocas de usuário de acesso.
+- Proteção: o painel não deixa criar um membro novo com um nome que foi renomeado ou que gere conflito de id.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-kiyotaka"`.
+
+---
+
+# Versão anterior — Conta por aba (`2026.10.07-conta-por-aba`)
 
 Identificador: `2026.10.07-conta-por-aba`
 

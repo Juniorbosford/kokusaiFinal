@@ -104,6 +104,7 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - Somente o `kokusai` vê o painel **Gerenciar membros** (aba Salas de Meta). Ele adiciona pessoas (usuário, nome e senha inicial opcional; sem senha, o sistema gera uma provisória exibida uma vez), remove quem saiu, reativa quem voltou e gera nova senha provisória para quem esqueceu.
 - Remover bloqueia o login e derruba as sessões abertas; semanas, fotos e logs antigos continuam no banco. A pessoa some do painel e dos totais da semana.
 - `META_MEMBERS_JSON` só **cadastra** quem ainda não existe no banco. Tirar alguém dessa variável não o desativa, um deploy não reativa quem foi removido pelo painel, e quem foi adicionado pelo painel não precisa estar na variável.
+- **Trocar o usuário de acesso de alguém:** inclua `"antigo": "novo"` em `MEMBER_USERNAME_RENAMES` no `main.py` e publique. A conta continua a mesma (id, histórico, perfil e senha) e o nome antigo segue aceito no login e na variável. Exemplo atual: `kyotaka` → `kiyotaka`.
 - Rotas (admin): `GET|POST /api/meta-members`, `DELETE /api/meta-members/<id>`, `POST /api/meta-members/<id>/reativar` e `POST /api/meta-members/<id>/redefinir-senha`.
 
 ## Contas, login e perfil
