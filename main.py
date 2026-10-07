@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-remover-compra-m16"
+APP_RELEASE = "2026.10.07-contas-perfil"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -114,6 +114,16 @@ LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
 # Limite por usuário (somando todos os IPs): freia ataques distribuídos sem permitir
 # que um terceiro bloqueie o login de alguém com poucas tentativas.
 LOGIN_MAX_ATTEMPTS_PER_USER = int(os.getenv("LOGIN_MAX_ATTEMPTS_PER_USER", "25"))
+
+# Contas e perfil.
+MAX_OPEN_ACCOUNTS = 2  # contas autenticadas ao mesmo tempo no mesmo navegador
+APELIDO_MAX_LENGTH = 30
+PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
+PASSWORD_MAX_LENGTH = 128
+PASSWORD_HASH_ITERATIONS = int(os.getenv("PASSWORD_HASH_ITERATIONS", "600000"))
+AVATAR_SIZE = 256
+AVATAR_THUMB_SIZE = 96
+AVATAR_WEBP_QUALITY = 86
 LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "900"))
 MAX_TEXT_LENGTH = int(os.getenv("MAX_TEXT_LENGTH", "120"))
 MAX_OBSERVATION_LENGTH = int(os.getenv("MAX_OBSERVATION_LENGTH", "500"))
@@ -686,6 +696,38 @@ def repair_meta_photo_week_assignments(connection):
     return repaired
 
 
+def apply_member_seed_password(cursor, user_id, env_hash, now_text):
+    """Aplica a senha vinda de META_MEMBERS_JSON somente quando ela mudou.
+
+    Antes, todo deploy regravava a senha do arquivo. Agora o hash aplicado por último
+    fica em user_profiles.seed_hash: se a variável do Railway não mudou, a senha que o
+    membro escolheu pelo perfil é preservada; se você troca o hash dele na variável,
+    isso vale como redefinição de senha e desconecta os aparelhos dele.
+    """
+    cursor.execute(meta_sql("SELECT seed_hash FROM user_profiles WHERE user_id = ?"), (user_id,))
+    row = cursor.fetchone()
+    if row is None:
+        cursor.execute(
+            meta_sql("INSERT INTO user_profiles (user_id, seed_hash, updated_at) VALUES (?, ?, ?)"),
+            (user_id, env_hash, now_text),
+        )
+        cursor.execute(meta_sql("UPDATE meta_users SET password_hash = ? WHERE id = ?"), (env_hash, user_id))
+    elif not row[0]:
+        cursor.execute(
+            meta_sql("UPDATE user_profiles SET seed_hash = ?, updated_at = ? WHERE user_id = ?"),
+            (env_hash, now_text, user_id),
+        )
+    elif row[0] != env_hash:
+        cursor.execute(meta_sql("UPDATE meta_users SET password_hash = ? WHERE id = ?"), (env_hash, user_id))
+        cursor.execute(
+            meta_sql(
+                "UPDATE user_profiles SET seed_hash = ?, session_version = session_version + 1, "
+                "password_changed_at = '', updated_at = ? WHERE user_id = ?"
+            ),
+            (env_hash, now_text, user_id),
+        )
+
+
 def ensure_meta_database_ready():
     global _meta_db_ready
     if _meta_db_ready:
@@ -773,6 +815,20 @@ def ensure_meta_database_ready():
                 """,
                 "CREATE INDEX IF NOT EXISTS idx_bau_registros_ts ON bau_registros(created_ts)",
                 "CREATE INDEX IF NOT EXISTS idx_bau_registros_mes ON bau_registros(mes)",
+                """
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    user_id TEXT PRIMARY KEY,
+                    apelido TEXT NOT NULL DEFAULT '',
+                    avatar_b64 TEXT NOT NULL DEFAULT '',
+                    thumb_b64 TEXT NOT NULL DEFAULT '',
+                    avatar_version INTEGER NOT NULL DEFAULT 0,
+                    session_version INTEGER NOT NULL DEFAULT 0,
+                    seed_hash TEXT NOT NULL DEFAULT '',
+                    password_changed_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    FOREIGN KEY(user_id) REFERENCES meta_users(id)
+                )
+                """,
             ]
             for statement in statements:
                 cursor.execute(statement)
@@ -789,18 +845,19 @@ def ensure_meta_database_ready():
                 VALUES (?, ?, ?, ?, 'member', 1, ?)
                 ON CONFLICT(username) DO UPDATE SET
                     display_name = excluded.display_name,
-                    password_hash = excluded.password_hash,
                     active = 1
                 """
             )
             for member in META_MEMBERS:
+                member_id = meta_member_id(member["username"])
                 cursor.execute(seed_query, (
-                    meta_member_id(member["username"]),
+                    member_id,
                     member["username"],
                     member["display_name"],
                     member["password_hash"],
                     created_at,
                 ))
+                apply_member_seed_password(cursor, member_id, member["password_hash"], created_at)
             migrated_weeks = migrate_legacy_meta_weeks(connection)
             repaired_photos = repair_meta_photo_week_assignments(connection)
             connection.commit()
@@ -819,7 +876,14 @@ def ensure_meta_database_ready():
 def get_meta_member_by_username(username):
     try:
         return meta_query_one(
-            "SELECT id, username, display_name, password_hash, role, active FROM meta_users WHERE username = ? AND active = 1",
+            """
+            SELECT u.id, u.username, u.display_name, u.password_hash, u.role, u.active,
+                   COALESCE(p.session_version, 0) AS session_version,
+                   COALESCE(p.apelido, '') AS apelido
+            FROM meta_users u
+            LEFT JOIN user_profiles p ON p.user_id = u.id
+            WHERE u.username = ? AND u.active = 1
+            """,
             (str(username or "").strip().lower(),),
         )
     except Exception as error:
@@ -1204,25 +1268,197 @@ def family_flyer_access_url(reference, family_id, slot):
     return url_for("family_flyer_file", registro_id=family_id, slot=int(slot))
 
 
-def get_current_user():
+_USER_CACHE_KEY = "_current_user_cache"
+
+
+def read_session_accounts():
+    """Contas abertas na sessão, em ordem (a mais recente por último). None = sessão antiga.
+
+    Guardamos uma lista de pares [usuario, versao] porque o Flask grava dicionários do
+    cookie em ordem alfabética, o que apagaria a informação de qual conta é a mais antiga.
+    """
+    raw = session.get("accounts")
+    if not isinstance(raw, list):
+        return None
+    accounts = {}
+    for entry in raw:
+        if isinstance(entry, (list, tuple)) and len(entry) == 2 and isinstance(entry[0], str):
+            accounts[entry[0]] = entry[1]
+    return accounts
+
+
+def write_session_accounts(accounts):
+    session["accounts"] = [[username, int(version)] for username, version in accounts.items()]
+
+
+def invalidate_current_user():
+    """Descarta o usuário em cache da requisição (chamar sempre que a sessão mudar)."""
+    g.pop(_USER_CACHE_KEY, None)
+
+
+def lookup_account_record(username):
+    """Registro do usuário (admin do ambiente ou membro ativo no banco), ou None."""
+    username = str(username or "").strip().lower()
+    admin = AUTH_USERS.get(username)
+    if admin:
+        return {**admin, "id": None, "session_version": 0, "apelido": ""}
+    return get_meta_member_by_username(username)
+
+
+def account_payload(username, record):
+    return {
+        "username": username,
+        "display_name": record["display_name"],
+        "apelido": str(record.get("apelido") or ""),
+        "role": record["role"],
+        "can_write": record["role"] == "admin",
+        "user_id": record.get("id"),
+    }
+
+
+def account_is_valid(username, record, accounts):
+    """A conta vale se existe, está ativa e a versão de sessão guardada ainda é a atual."""
+    if not record:
+        return False
+    if accounts is None:
+        return True  # cookie anterior ao recurso de contas múltiplas
+    stored = accounts.get(username)
+    try:
+        return stored is not None and int(stored) == int(record.get("session_version") or 0)
+    except (TypeError, ValueError):
+        return False
+
+
+def _resolve_current_user():
     username = session.get("username")
     if not username:
         return None
 
-    user = AUTH_USERS.get(username)
-    if not user:
-        user = get_meta_member_by_username(username)
-        if not user or not int(user.get("active") or 0):
+    accounts = read_session_accounts()
+
+    while True:
+        record = lookup_account_record(username)
+        if account_is_valid(username, record, accounts):
+            if accounts is None:
+                write_session_accounts({username: int(record.get("session_version") or 0)})
+            return account_payload(username, record)
+
+        # Conta inválida (removida, desativada ou "sair de todos" usado em outro aparelho).
+        if accounts is not None:
+            accounts.pop(username, None)
+        fallback = next(iter(accounts), None) if accounts else None
+        if not fallback:
             session.clear()
             return None
+        write_session_accounts(accounts)
+        session["username"] = username = fallback
 
-    return {
-        "username": username,
-        "display_name": user["display_name"],
-        "role": user["role"],
-        "can_write": user["role"] == "admin",
-        "user_id": user.get("id") if isinstance(user, dict) else None,
+
+def get_current_user():
+    if _USER_CACHE_KEY in g:
+        return g.get(_USER_CACHE_KEY)
+    user = _resolve_current_user()
+    setattr(g, _USER_CACHE_KEY, user)
+    return user
+
+
+def home_url_for(account):
+    if account and account.get("role") == "member":
+        return url_for("meta_room")
+    return url_for("home")
+
+
+def get_open_accounts():
+    """Contas autenticadas neste navegador (no máximo MAX_OPEN_ACCOUNTS), já validadas."""
+    active = get_current_user()
+    accounts = read_session_accounts()
+    if not active or accounts is None:
+        return []
+    result = []
+    for username in list(accounts):
+        record = lookup_account_record(username)
+        if account_is_valid(username, record, accounts):
+            payload = account_payload(username, record)
+            payload["active"] = username == active["username"]
+            result.append(payload)
+        else:
+            accounts.pop(username, None)
+    write_session_accounts(accounts)
+    return result
+
+
+def start_session_for(username, record):
+    """Autentica a conta neste navegador, mantendo a outra conta já aberta (se houver)."""
+    previous = get_open_accounts()
+    stored = read_session_accounts() or {}
+    kept = {
+        account["username"]: stored[account["username"]]
+        for account in previous
+        if account["username"] != username and account["username"] in stored
     }
+    kept = dict(list(kept.items())[-(MAX_OPEN_ACCOUNTS - 1):]) if MAX_OPEN_ACCOUNTS > 1 else {}
+    kept[username] = int(record.get("session_version") or 0)
+    session.clear()
+    session.permanent = True
+    write_session_accounts(kept)
+    session["username"] = username
+    get_csrf_token()
+    invalidate_current_user()
+
+
+def leave_current_account():
+    """Sai da conta ativa. Devolve a URL de destino (a outra conta aberta, ou o login)."""
+    username = session.get("username")
+    accounts = read_session_accounts() or {}
+    accounts.pop(username, None)
+    for candidate in list(accounts):
+        record = lookup_account_record(candidate)
+        if account_is_valid(candidate, record, accounts):
+            write_session_accounts(accounts)
+            session["username"] = candidate
+            invalidate_current_user()
+            return home_url_for(account_payload(candidate, record))
+        accounts.pop(candidate, None)
+    session.clear()
+    invalidate_current_user()
+    return url_for("login")
+
+
+def webp_data_uri(value):
+    return f"data:image/webp;base64,{value}" if value else ""
+
+
+def attach_thumbs(accounts):
+    """Acrescenta a miniatura (data URI) de cada conta de membro."""
+    ids = [account["user_id"] for account in accounts if account.get("user_id")]
+    thumbs = {}
+    if ids:
+        placeholders = ",".join("?" for _ in ids)
+        for row in meta_query_all(f"SELECT user_id, thumb_b64 FROM user_profiles WHERE user_id IN ({placeholders})", ids):
+            thumbs[row["user_id"]] = webp_data_uri(row["thumb_b64"])
+    return [{**account, "thumb": thumbs.get(account.get("user_id"), "")} for account in accounts]
+
+
+def public_account(account):
+    return {
+        "username": account["username"],
+        "display_name": account["display_name"],
+        "apelido": account.get("apelido") or "",
+        "role": account["role"],
+        "active": bool(account.get("active")),
+        "thumb": account.get("thumb") or "",
+    }
+
+
+def hash_password(password):
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", str(password).encode("utf-8"), salt, PASSWORD_HASH_ITERATIONS)
+    return "$".join([
+        "pbkdf2_sha256",
+        str(PASSWORD_HASH_ITERATIONS),
+        base64.b64encode(salt).decode("ascii"),
+        base64.b64encode(digest).decode("ascii"),
+    ])
 
 
 def wants_json_response():
@@ -2798,19 +3034,30 @@ def home():
     return render_template("index.html")
 
 
+def render_login(error=None, selected="", next_url=None, status=200):
+    return render_template(
+        "login.html",
+        error=error,
+        selected_username=selected,
+        next_url=next_url or safe_next_url(None),
+        open_accounts=[public_account(account) for account in attach_thumbs(get_open_accounts())],
+    ), status
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if get_current_user():
+    # Com ?trocar=1 a tela de escolha de conta abre mesmo para quem já está logado
+    # (é como se entra com uma segunda conta ou se alterna entre as abertas).
+    switching = request.values.get("trocar") == "1"
+    if get_current_user() and not switching:
         return redirect(url_for("home"))
 
-    error = None
     next_url = safe_next_url(request.args.get("next"))
 
     if request.method == "POST":
         csrf_error = csrf_error_if_invalid()
         if csrf_error:
-            error = "Sessão de login expirada. Atualize a página e tente novamente."
-            return render_template("login.html", error=error, next_url=next_url), 403
+            return render_login("Sessão de login expirada. Atualize a página e tente novamente.", next_url=next_url, status=403)
 
         username = request.form.get("username", "").strip().lower()
         password = request.form.get("password", "")
@@ -2818,26 +3065,22 @@ def login():
         user_key = login_user_key(username)
 
         if is_login_limited(key) or is_login_limited(user_key, LOGIN_MAX_ATTEMPTS_PER_USER):
-            error = "Muitas tentativas de login. Aguarde alguns minutos e tente novamente."
-            return render_template("login.html", error=error, next_url=next_url), 429
+            return render_login("Muitas tentativas de login. Aguarde alguns minutos e tente novamente.", username, next_url, 429)
 
-        user = AUTH_USERS.get(username) or get_meta_member_by_username(username)
+        record = lookup_account_record(username)
 
-        if user and verify_password(password, user["password_hash"]):
-            session.clear()
-            session.permanent = True
-            session["username"] = username
-            get_csrf_token()
+        if record and verify_password(password, record["password_hash"]):
+            start_session_for(username, record)
             clear_login_attempts(key)
-            if user.get("role") == "member":
+            if record.get("role") == "member":
                 return redirect(url_for("meta_room"))
             return redirect(safe_next_url(request.form.get("next") or next_url))
 
         record_failed_login(key)
         record_failed_login(user_key)
-        error = "Usuário ou senha inválidos."
+        return render_login("Usuário ou senha inválidos.", username, next_url)
 
-    return render_template("login.html", error=error, next_url=next_url)
+    return render_login(next_url=next_url)
 
 
 @app.route("/logout", methods=["GET", "POST"])
@@ -2846,8 +3089,42 @@ def logout():
         csrf_error = csrf_error_if_invalid()
         if csrf_error:
             return csrf_error
+        # Por padrão sai só da conta ativa (e passa para a outra conta aberta, se houver).
+        if request.form.get("escopo") != "todas":
+            return redirect(leave_current_account())
     session.clear()
+    invalidate_current_user()
     return redirect(url_for("login"))
+
+
+@app.post("/conta/trocar")
+def switch_account():
+    csrf_error = csrf_error_if_invalid()
+    if csrf_error:
+        return csrf_error
+    username = request.form.get("username", "").strip().lower()
+    for account in get_open_accounts():
+        if account["username"] == username:
+            session["username"] = username
+            session.permanent = True
+            invalidate_current_user()
+            return redirect(home_url_for(account))
+    # A conta não está mais aberta neste navegador: volta para a escolha de conta.
+    return redirect(url_for("login", trocar=1))
+
+
+@app.get("/api/auth/accounts")
+@require_login
+def list_open_accounts():
+    accounts = [public_account(account) for account in attach_thumbs(get_open_accounts())]
+    response = jsonify({
+        "ok": True,
+        "active": next((account for account in accounts if account["active"]), None),
+        "others": [account for account in accounts if not account["active"]],
+        "max": MAX_OPEN_ACCOUNTS,
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/session")
@@ -4751,6 +5028,280 @@ def bau_photo_file(photo_id):
         return response
     except Exception as error:
         log_error("Falha ao servir foto do baú", error)
+        return error_response(str(error))
+
+
+# ---------------------------------------------------------------------------
+# Perfil do usuário (foto, apelido, senha)
+# ---------------------------------------------------------------------------
+def json_no_store(payload, status=200):
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response, status
+
+
+def require_personal_account(view):
+    """Ações de perfil: só contas pessoais (a conta Kokusai é compartilhada) e sempre com CSRF."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return error_response("Login necessário para acessar o sistema.", 401)
+        if user["role"] != "member" or not user.get("user_id"):
+            return error_response("A conta Kokusai é compartilhada e não pode ser alterada pelo perfil.", 403)
+        csrf_error = csrf_error_if_invalid()
+        if csrf_error:
+            return csrf_error
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def ensure_profile_row(user_id):
+    meta_execute(
+        "INSERT INTO user_profiles (user_id, updated_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING",
+        (user_id, format_timestamp()),
+    )
+
+
+def get_member_profile(user_id):
+    row = meta_query_one(
+        "SELECT user_id, apelido, avatar_b64, thumb_b64, avatar_version, session_version FROM user_profiles WHERE user_id = ?",
+        (user_id,),
+    )
+    return row or {"user_id": user_id, "apelido": "", "avatar_b64": "", "thumb_b64": "", "avatar_version": 0, "session_version": 0}
+
+
+def profile_payload(user):
+    shared = user["role"] != "member" or not user.get("user_id")
+    profile = {} if shared else get_member_profile(user["user_id"])
+    return {
+        "username": user["username"],
+        "display_name": user["display_name"],
+        "apelido": "" if shared else (profile.get("apelido") or ""),
+        "role": user["role"],
+        "role_label": "Administração (conta compartilhada)" if shared else "Membro",
+        "shared": shared,
+        "can_edit": not shared,
+        "avatar": "" if shared else webp_data_uri(profile.get("avatar_b64")),
+        "thumb": "" if shared else webp_data_uri(profile.get("thumb_b64")),
+        "limits": {
+            "apelido_max": APELIDO_MAX_LENGTH,
+            "senha_min": PASSWORD_MIN_LENGTH,
+            "senha_max": PASSWORD_MAX_LENGTH,
+            "foto_max_mb": round(META_MAX_FILE_BYTES / (1024 * 1024)),
+        },
+    }
+
+
+def prepare_avatar_upload(upload):
+    """Valida a imagem e devolve (foto 256px, miniatura 96px), ambas WEBP quadradas."""
+    if not upload or not upload.filename:
+        raise ValueError("Selecione uma foto para enviar.")
+    raw = upload.stream.read(META_MAX_FILE_BYTES + 1)
+    if len(raw) > META_MAX_FILE_BYTES:
+        raise ValueError("A foto ultrapassa o limite de 10 MB.")
+    if not raw:
+        raise ValueError("A foto enviada está vazia.")
+
+    from PIL import Image, ImageOps
+
+    try:
+        image = Image.open(BytesIO(raw))
+        if str(image.format or "").upper() not in META_ALLOWED_IMAGE_FORMATS:
+            raise ValueError("Envie somente imagens JPG, JPEG, PNG ou WEBP.")
+        image.load()
+        image = ImageOps.exif_transpose(image)
+        if image.mode != "RGB":
+            rgba = image.convert("RGBA")
+            background = Image.new("RGB", rgba.size, (16, 17, 21))
+            background.paste(rgba, mask=rgba.getchannel("A"))
+            image = background
+        outputs = []
+        for size in (AVATAR_SIZE, AVATAR_THUMB_SIZE):
+            square = ImageOps.fit(image, (size, size), method=Image.Resampling.LANCZOS)
+            buffer = BytesIO()
+            square.save(buffer, format="WEBP", quality=AVATAR_WEBP_QUALITY, method=6)
+            outputs.append(buffer.getvalue())
+        return outputs[0], outputs[1]
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError("Não foi possível ler essa foto. Tente enviar outro arquivo.") from error
+
+
+def bump_member_session_version(user_id, new_password_hash=None):
+    """Invalida as sessões abertas do membro em todos os aparelhos. Devolve a nova versão."""
+    ensure_meta_database_ready()
+    now_text = format_timestamp()
+    connection = meta_db_connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            meta_sql("INSERT INTO user_profiles (user_id, updated_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING"),
+            (user_id, now_text),
+        )
+        if new_password_hash:
+            cursor.execute(meta_sql("UPDATE meta_users SET password_hash = ? WHERE id = ?"), (new_password_hash, user_id))
+            cursor.execute(
+                meta_sql(
+                    "UPDATE user_profiles SET session_version = session_version + 1, "
+                    "password_changed_at = ?, updated_at = ? WHERE user_id = ?"
+                ),
+                (now_text, now_text, user_id),
+            )
+        else:
+            cursor.execute(
+                meta_sql("UPDATE user_profiles SET session_version = session_version + 1, updated_at = ? WHERE user_id = ?"),
+                (now_text, user_id),
+            )
+        cursor.execute(meta_sql("SELECT session_version FROM user_profiles WHERE user_id = ?"), (user_id,))
+        version = int(cursor.fetchone()[0])
+        connection.commit()
+        return version
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+@app.get("/perfil")
+@require_login
+def profile_page():
+    return render_template("perfil.html")
+
+
+@app.get("/api/perfil")
+@require_login
+def get_profile():
+    try:
+        return json_no_store({"ok": True, "perfil": profile_payload(get_current_user())})
+    except Exception as error:
+        log_error("Falha em /api/perfil [GET]", error)
+        return error_response(str(error))
+
+
+@app.put("/api/perfil")
+@require_personal_account
+def update_profile():
+    try:
+        data = request.get_json(silent=True) or {}
+        apelido = clean_plain_text(data.get("apelido"), "Apelido", APELIDO_MAX_LENGTH)
+        user = get_current_user()
+        ensure_profile_row(user["user_id"])
+        meta_execute(
+            "UPDATE user_profiles SET apelido = ?, updated_at = ? WHERE user_id = ?",
+            (apelido, format_timestamp(), user["user_id"]),
+        )
+        invalidate_current_user()
+        return json_no_store({
+            "ok": True,
+            "message": "Apelido salvo." if apelido else "Apelido removido.",
+            "perfil": profile_payload(get_current_user()),
+        })
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/perfil [PUT]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/perfil/foto")
+@require_personal_account
+def upload_profile_photo():
+    try:
+        avatar, thumb = prepare_avatar_upload(request.files.get("photo"))
+        user = get_current_user()
+        ensure_profile_row(user["user_id"])
+        meta_execute(
+            "UPDATE user_profiles SET avatar_b64 = ?, thumb_b64 = ?, avatar_version = avatar_version + 1, updated_at = ? WHERE user_id = ?",
+            (
+                base64.b64encode(avatar).decode("ascii"),
+                base64.b64encode(thumb).decode("ascii"),
+                format_timestamp(),
+                user["user_id"],
+            ),
+        )
+        return json_no_store({"ok": True, "message": "Foto atualizada.", "perfil": profile_payload(user)}, 201)
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/perfil/foto [POST]", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/perfil/foto")
+@require_personal_account
+def delete_profile_photo():
+    try:
+        user = get_current_user()
+        ensure_profile_row(user["user_id"])
+        meta_execute(
+            "UPDATE user_profiles SET avatar_b64 = '', thumb_b64 = '', avatar_version = avatar_version + 1, updated_at = ? WHERE user_id = ?",
+            (format_timestamp(), user["user_id"]),
+        )
+        return json_no_store({"ok": True, "message": "Foto removida.", "perfil": profile_payload(user)})
+    except Exception as error:
+        log_error("Falha em /api/perfil/foto [DELETE]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/perfil/senha")
+@require_personal_account
+def change_profile_password():
+    try:
+        data = request.get_json(silent=True) or {}
+        atual = str(data.get("atual") or "")
+        nova = str(data.get("nova") or "")
+        confirmar = str(data.get("confirmar") or "")
+        user = get_current_user()
+
+        limit_key = login_user_key("senha:" + user["username"])
+        if is_login_limited(limit_key):
+            return error_response("Muitas tentativas. Aguarde alguns minutos e tente novamente.", 429)
+
+        record = get_meta_member_by_username(user["username"])
+        if not record or not verify_password(atual, record["password_hash"]):
+            record_failed_login(limit_key)
+            return error_response("A senha atual está incorreta.", 400)
+
+        if len(nova) < PASSWORD_MIN_LENGTH:
+            return error_response(f"A nova senha deve ter pelo menos {PASSWORD_MIN_LENGTH} caracteres.", 400)
+        if len(nova) > PASSWORD_MAX_LENGTH:
+            return error_response(f"A nova senha deve ter no máximo {PASSWORD_MAX_LENGTH} caracteres.", 400)
+        if nova != confirmar:
+            return error_response("A confirmação não confere com a nova senha.", 400)
+        if nova == atual:
+            return error_response("A nova senha precisa ser diferente da atual.", 400)
+        if nova.strip().lower() == user["username"]:
+            return error_response("A senha não pode ser igual ao seu usuário.", 400)
+
+        new_version = bump_member_session_version(user["user_id"], hash_password(nova))
+        clear_login_attempts(limit_key)
+
+        # Este aparelho continua conectado; os demais precisam entrar de novo.
+        accounts = read_session_accounts() or {}
+        accounts[user["username"]] = new_version
+        write_session_accounts(accounts)
+        invalidate_current_user()
+        log_info(f"Senha alterada pelo perfil. usuario={user['username']}")
+        return json_no_store({"ok": True, "message": "Senha alterada. Os outros aparelhos foram desconectados."})
+    except Exception as error:
+        log_error("Falha em /api/perfil/senha [POST]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/perfil/sair-todos")
+@require_personal_account
+def sign_out_everywhere():
+    try:
+        user = get_current_user()
+        bump_member_session_version(user["user_id"])
+        target = leave_current_account()
+        return json_no_store({"ok": True, "message": "Você saiu de todos os aparelhos.", "redirect": target})
+    except Exception as error:
+        log_error("Falha em /api/perfil/sair-todos [POST]", error)
         return error_response(str(error))
 
 

@@ -191,6 +191,7 @@ function mockBackendScript() {
 
         if (method !== "GET") return jsonResponse({message:"Ação simulada na prévia visual."});
         if (url === "/health") return jsonResponse({ok:true});
+        if (url === "/api/auth/accounts") return jsonResponse({ok:true,active:{username:"kokusai",display_name:"Kokusai",apelido:"",role:"admin",active:true,thumb:""},others:[{username:"kiyotaka",display_name:"Kiyotaka",apelido:"Kiyo",role:"member",active:false,thumb:""}],max:2});
         if (url === "/api/resumo") return jsonResponse({total_registros:14,valor_movimentado:4825000});
         if (url === "/api/resumo-vendas") return jsonResponse({total_registros:23,valor_movimentado:7280000});
         if (url === "/api/resumo-encomendas") return jsonResponse({total_registros:3,valor_movimentado:3465000});
@@ -243,6 +244,8 @@ function buildStandalonePreview(previewHtml) {
   const baseCss = fs.readFileSync(path.join(projectRoot, "static", "css", "style.css"), "utf8");
   const hudCss = fs.readFileSync(path.join(projectRoot, "static", "css", "hud.css"), "utf8");
   const appJs = fs.readFileSync(path.join(projectRoot, "static", "js", "app.js"), "utf8");
+  const accountCss = fs.readFileSync(path.join(projectRoot, "static", "css", "account.css"), "utf8");
+  const accountJs = fs.readFileSync(path.join(projectRoot, "static", "js", "account.js"), "utf8");
   const embeddedImages = [
     "static/images/kokusai-logo.webp",
     "static/images/flyers/leviata.webp",
@@ -259,6 +262,15 @@ function buildStandalonePreview(previewHtml) {
   standalone = standalone.replace(
     /<link rel="stylesheet" href="static\/css\/hud\.css[^"]*"\s*\/>/,
     `<style data-preview-source="hud.css">\n${hudCss}\n</style>`,
+  );
+
+  standalone = standalone.replace(
+    /<link rel="stylesheet" href="static\/css\/account\.css[^"]*"\s*\/>/,
+    `<style data-preview-source="account.css">\n${accountCss}\n</style>`,
+  );
+  standalone = standalone.replace(
+    /<script src="static\/js\/account\.js[^"]*"><\/script>/,
+    `<script data-preview-source="account.js">\n${accountJs}\n</script>`,
   );
 
   for (const imagePath of embeddedImages) {

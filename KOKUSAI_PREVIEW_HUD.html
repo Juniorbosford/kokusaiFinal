@@ -2606,6 +2606,142 @@ thead{background:linear-gradient(90deg,#24242a,#1b1b20 48%,#141417)}
 }
 
 </style>
+  <style data-preview-source="account.css">
+/* ===== Contas, seletor de login e perfil ===== */
+/* Carregar depois de style.css e hud.css. Sem estilos inline: a CSP do site só aceita arquivos próprios. */
+
+/* ---------- avatar ---------- */
+.account-avatar{
+  --avatar-size:72px;
+  display:grid;place-items:center;flex:none;
+  width:var(--avatar-size);height:var(--avatar-size);
+  overflow:hidden;border-radius:50%;
+  border:1px solid var(--line-strong);
+  background:linear-gradient(145deg,#2a2d38,#15171e);
+  color:var(--muted-strong);font-family:Manrope,Inter,sans-serif;font-weight:800;
+  font-size:calc(var(--avatar-size) * .42);line-height:1;text-transform:uppercase;
+}
+.account-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+.account-avatar-logo{padding:calc(var(--avatar-size) * .14);background:#0d0f15}
+.account-avatar-logo img{object-fit:contain}
+.account-avatar-sm{--avatar-size:38px}
+.account-avatar-lg{--avatar-size:132px;border-width:2px}
+.account-avatar-plus{background:transparent;border-style:dashed;color:var(--muted);font-size:1.7rem}
+
+/* ---------- seletor de contas (tela de login) ---------- */
+.login-shell.login-shell-wide{width:min(640px,100%)}
+.account-picker,.account-login-form{display:none}
+.account-picker{margin-top:4px}
+.account-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px}
+.account-tile-wrap{position:relative;margin:0}
+.account-tile{
+  position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;
+  width:100%;min-height:158px;padding:18px 12px 14px;
+  border:1px solid var(--line);border-radius:16px;
+  background:rgba(255,255,255,.03);color:var(--text);
+  font:inherit;text-align:center;cursor:pointer;
+  transition:border-color .15s ease,background .15s ease,transform .15s ease;
+}
+.account-tile:hover,.account-tile:focus-visible{border-color:var(--accent-line);background:rgba(255,255,255,.055);transform:translateY(-1px);outline:none}
+.account-tile strong{max-width:100%;overflow:hidden;font-size:.95rem;text-overflow:ellipsis;white-space:nowrap}
+.account-tile small{color:var(--muted);font-size:.74rem;font-weight:700}
+.account-tile.is-open{border-color:rgba(49,208,131,.35);background:rgba(49,208,131,.06)}
+.account-badge{
+  position:absolute;top:9px;left:9px;padding:2px 8px;
+  border-radius:999px;background:rgba(49,208,131,.16);color:#9cf0c4;
+  font-size:.62rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+}
+.account-tile-remove{
+  position:absolute;top:7px;right:7px;display:grid;place-items:center;
+  width:26px;height:26px;padding:0;border:1px solid transparent;border-radius:999px;
+  background:transparent;color:var(--muted);font-size:1.05rem;line-height:1;cursor:pointer;
+}
+.account-tile-remove:hover,.account-tile-remove:focus-visible{border-color:var(--accent-line);background:var(--accent-soft);color:#fff;outline:none}
+.account-forget{margin:14px 0 0;text-align:center}
+.account-link-btn{padding:4px 6px;border:0;background:none;color:var(--muted);font:inherit;font-size:.76rem;font-weight:700;text-decoration:underline;cursor:pointer}
+.account-link-btn:hover{color:var(--text)}
+
+.js-picker .account-picker{display:block}
+.js-picker.is-entering .account-picker{display:none}
+.account-login-form{gap:14px}
+.account-login-form.is-visible,.login-page:not(.js-picker) .account-login-form{display:grid}
+.account-login-head{display:flex;align-items:center;gap:14px;padding-bottom:6px}
+.account-login-head strong{display:block;font-size:1.05rem}
+.account-login-head small{color:var(--muted);font-size:.8rem;font-weight:700}
+.account-remember{display:flex;align-items:center;gap:9px;color:var(--muted-strong);font-size:.84rem;font-weight:700;cursor:pointer}
+.account-remember input{width:17px;height:17px;margin:0;accent-color:var(--accent)}
+.login-page:not(.js-picker) .account-login-head,.login-page:not(.js-picker) #loginBackBtn{display:none}
+.login-page.js-picker .account-login-form [hidden]{display:none}
+
+/* ---------- painel de conta (menu lateral e sala de metas) ---------- */
+.account-mini{display:flex;align-items:center;gap:11px;min-width:0}
+.account-mini-text{min-width:0}
+.account-mini-text strong{display:block;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-mini-text span,.account-mini-text small{display:block;margin:0 0 1px}
+.user-panel .account-avatar,.member-profile-card .account-avatar{display:grid;margin:0;color:var(--muted-strong);font-size:calc(var(--avatar-size) * .42);font-weight:800;letter-spacing:0}
+.user-panel .account-mini{margin:8px 0 0}
+.member-profile-card .account-mini-text span{margin-bottom:3px}
+.account-links{display:grid;gap:6px;margin:12px 0}
+.account-links:empty{display:none}
+.account-links form{margin:0}
+.account-link{
+  display:block;width:100%;padding:8px 11px;
+  border:1px solid var(--line);border-radius:9px;
+  background:rgba(255,255,255,.03);color:var(--muted-strong);
+  font:inherit;font-size:.78rem;font-weight:800;text-align:left;text-decoration:none;cursor:pointer;
+  transition:border-color .15s ease,background .15s ease,color .15s ease;
+}
+.account-link:hover,.account-link:focus-visible{border-color:var(--line-strong);background:rgba(255,255,255,.07);color:#fff;outline:none}
+.topbar-profile{display:inline-flex;border-radius:50%;text-decoration:none}
+.topbar-profile[hidden]{display:none}
+.topbar-profile .account-avatar{transition:border-color .15s ease}
+.topbar-profile:hover .account-avatar,.topbar-profile:focus-visible .account-avatar{border-color:var(--accent-line)}
+
+/* ---------- página de perfil ---------- */
+.profile-page{min-height:100vh;padding:22px}
+.profile-shell{position:relative;z-index:1;display:grid;gap:16px;width:min(920px,100%);margin:0 auto}
+.profile-topbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.profile-topbar .brand{padding:0}
+.profile-topbar-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.profile-topbar-actions form{margin:0}
+.profile-hero{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.profile-hero-text{flex:1;min-width:200px}
+.profile-hero-text h1{margin:2px 0 4px;font-size:1.5rem;line-height:1.15;overflow-wrap:anywhere}
+.profile-hero-text p{margin:0;color:var(--muted);font-size:.86rem;font-weight:700}
+.profile-role{display:inline-block;margin-top:9px;padding:3px 10px;border:1px solid var(--line-strong);border-radius:999px;color:var(--muted-strong);font-size:.7rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.profile-photo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.profile-photo-actions input[type="file"]{display:none}
+.profile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.profile-grid .profile-card-wide{grid-column:1 / -1}
+.profile-form{display:grid;gap:14px}
+.profile-form .field small{color:var(--muted);font-size:.74rem;font-weight:600}
+.profile-form .form-actions{display:flex;gap:10px;flex-wrap:wrap}
+.profile-card-note{margin:0 0 14px;color:var(--muted);font-size:.84rem;line-height:1.5}
+.profile-shared-note{border-color:rgba(240,184,75,.3);background:rgba(240,184,75,.06)}
+.profile-shared-note p{margin:6px 0 0;color:var(--muted-strong);font-size:.88rem;line-height:1.55}
+.profile-page [hidden]{display:none}
+
+@media (max-width:760px){
+  .profile-page{padding:14px}
+  .profile-grid{grid-template-columns:1fr}
+  .profile-hero{flex-direction:column;align-items:flex-start}
+  .account-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
+/* ---------- ajustes finos ---------- */
+.account-tile.is-open{padding-top:32px}
+.profile-page a.ghost-btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.profile-page .danger-btn{
+  padding:10px 16px;border:1px solid rgba(255,58,89,.35);border-radius:10px;
+  background:rgba(255,45,79,.09);color:#ffc2cc;font:inherit;font-size:.85rem;font-weight:800;cursor:pointer;
+  transition:background .15s ease,border-color .15s ease;
+}
+.profile-page .danger-btn:hover:not(:disabled){background:rgba(255,45,79,.18);border-color:rgba(255,58,89,.55);color:#fff}
+.profile-page .danger-btn:disabled{opacity:.55;cursor:wait}
+.profile-card-note[data-kind="ok"]{color:#9cf0c4}
+.profile-card-note:empty{display:none}
+
+</style>
 
   <style>
     .preview-mode-banner{
@@ -2679,8 +2815,14 @@ thead{background:linear-gradient(90deg,#24242a,#1b1b20 48%,#141417)}
 
       <div class="user-panel">
         <p class="sidebar-label">Sessão</p>
-        <strong>Kokusai</strong>
-        <span>Acesso total</span>
+        <div class="account-mini">
+          <span class="account-avatar account-avatar-sm" data-account-avatar aria-hidden="true"></span>
+          <div class="account-mini-text">
+            <strong>Kokusai</strong>
+            <span>Acesso total</span>
+          </div>
+        </div>
+        <div class="account-links" data-account-links></div>
         <form action="#" method="post">
           <input type="hidden" name="csrf_token" value="kokusai-preview" />
           <button type="submit" class="logout-btn">Sair</button>
@@ -2699,6 +2841,9 @@ thead{background:linear-gradient(90deg,#24242a,#1b1b20 48%,#141417)}
           <span class="role-badge admin">Administrador</span>
           <span class="sync-label" id="lastSync">Aguardando atualização</span>
           <button class="ghost-btn" id="refreshBtn" type="button">Atualizar</button>
+          <a class="topbar-profile" href="#" data-profile-link title="Meu perfil" hidden>
+            <span class="account-avatar account-avatar-sm" data-account-avatar aria-hidden="true"></span>
+          </a>
         </div>
       </header>
 
@@ -3777,6 +3922,250 @@ thead{background:linear-gradient(90deg,#24242a,#1b1b20 48%,#141417)}
     </figure>
   </div>
 
+  <script data-preview-source="account.js">
+/* Contas do aparelho: lista de contas salvas (somente neste navegador), avatar e atalhos de conta.
+ * Nenhuma senha ou token é guardado aqui: só usuário, nome, apelido e a miniatura da foto.
+ * Carregado nas telas de login, painel, sala de metas e perfil. */
+(function () {
+  "use strict";
+
+  const STORE_KEY = "kokusai.savedAccounts.v1";
+  const PENDING_KEY = "kokusai.rememberPending.v1";
+  const MAX_SAVED = 6;
+  const THUMB_PREFIX = "data:image/webp;base64,";
+  // O ícone da aba é o próprio logo da Kokusai; assim a tela não depende de caminho fixo.
+  const logoUrl = () => document.querySelector('link[rel="icon"]')?.href || "";
+
+  const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content || "";
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  /* ---------- armazenamento local ---------- */
+  function normalize(account) {
+    if (!account || typeof account.username !== "string") return null;
+    const username = account.username.trim().toLowerCase();
+    if (!username || username.length > 64) return null;
+    const thumb = typeof account.thumb === "string" && account.thumb.startsWith(THUMB_PREFIX) ? account.thumb : "";
+    return {
+      username,
+      display_name: String(account.display_name || username).slice(0, 80),
+      apelido: String(account.apelido || "").slice(0, 40),
+      role: account.role === "admin" ? "admin" : "member",
+      thumb,
+    };
+  }
+
+  function readSaved() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+      if (!Array.isArray(raw)) return [];
+      const seen = new Set();
+      const list = [];
+      raw.forEach((item) => {
+        const account = normalize(item);
+        if (account && !seen.has(account.username)) {
+          seen.add(account.username);
+          list.push(account);
+        }
+      });
+      return list.slice(0, MAX_SAVED);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writeSaved(list) {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(list.slice(0, MAX_SAVED)));
+    } catch (error) {
+      /* navegador sem armazenamento: o site funciona igual, só não lembra a conta */
+    }
+  }
+
+  function saveAccount(account) {
+    const clean = normalize(account);
+    if (!clean) return;
+    const list = readSaved().filter((item) => item.username !== clean.username);
+    list.unshift(clean);
+    writeSaved(list);
+  }
+
+  function refreshSaved(account) {
+    const clean = normalize(account);
+    if (!clean) return;
+    const list = readSaved();
+    const index = list.findIndex((item) => item.username === clean.username);
+    if (index < 0) return;
+    list[index] = clean;
+    writeSaved(list);
+  }
+
+  function forgetAccount(username) {
+    writeSaved(readSaved().filter((item) => item.username !== String(username || "").toLowerCase()));
+  }
+
+  function forgetAll() {
+    try {
+      localStorage.removeItem(STORE_KEY);
+    } catch (error) {
+      /* ignora */
+    }
+  }
+
+  function setPending(username) {
+    try {
+      if (username) sessionStorage.setItem(PENDING_KEY, String(username).toLowerCase());
+      else sessionStorage.removeItem(PENDING_KEY);
+    } catch (error) {
+      /* ignora */
+    }
+  }
+
+  function takePending() {
+    try {
+      const value = sessionStorage.getItem(PENDING_KEY) || "";
+      sessionStorage.removeItem(PENDING_KEY);
+      return value;
+    } catch (error) {
+      return "";
+    }
+  }
+
+  /* ---------- apresentação ---------- */
+  function labelOf(account) {
+    return account.apelido || account.display_name || account.username;
+  }
+
+  function initialsOf(account) {
+    const text = labelOf(account).trim();
+    return (text ? text.charAt(0) : "?").toUpperCase();
+  }
+
+  function fillAvatar(node, account) {
+    node.textContent = "";
+    node.classList.toggle("account-avatar-logo", account.role === "admin");
+    if (account.role === "admin") {
+      const source = logoUrl();
+      if (source) {
+        const logo = el("img");
+        logo.src = source;
+        logo.alt = "";
+        node.appendChild(logo);
+      } else {
+        node.textContent = initialsOf(account);
+      }
+      return node;
+    }
+    if (account.thumb && account.thumb.startsWith(THUMB_PREFIX)) {
+      const photo = el("img");
+      photo.src = account.thumb;
+      photo.alt = "";
+      node.appendChild(photo);
+      return node;
+    }
+    node.textContent = initialsOf(account);
+    return node;
+  }
+
+  function avatarNode(account, sizeClass) {
+    const node = el("span", "account-avatar" + (sizeClass ? " " + sizeClass : ""));
+    node.setAttribute("aria-hidden", "true");
+    return fillAvatar(node, account);
+  }
+
+  function postForm(action, fields) {
+    const form = el("form");
+    form.method = "post";
+    form.action = action;
+    form.className = "account-inline-form";
+    Object.entries(Object.assign({ csrf_token: csrfToken() }, fields || {})).forEach(([name, value]) => {
+      const input = el("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    });
+    return form;
+  }
+
+  /* ---------- atalhos de conta no painel ---------- */
+  function renderLinks(container, data) {
+    container.textContent = "";
+    const profile = el("a", "account-link", "Meu perfil");
+    profile.href = "/perfil";
+    container.appendChild(profile);
+
+    (data.others || []).forEach((other) => {
+      const form = postForm("/conta/trocar", { username: other.username });
+      const button = el("button", "account-link", "Entrar como " + labelOf(other));
+      button.type = "submit";
+      form.appendChild(button);
+      container.appendChild(form);
+    });
+
+    const switcher = el("a", "account-link", "Trocar ou adicionar conta");
+    switcher.href = "/login?trocar=1";
+    container.appendChild(switcher);
+  }
+
+  async function initPanels() {
+    const links = document.querySelectorAll("[data-account-links]");
+    const avatars = document.querySelectorAll("[data-account-avatar]");
+    const profileLinks = document.querySelectorAll("[data-profile-link]");
+    if (!links.length && !avatars.length && !profileLinks.length) return;
+
+    let data;
+    try {
+      const response = await fetch("/api/auth/accounts", {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) return;
+      data = await response.json();
+    } catch (error) {
+      return;
+    }
+    if (!data || !data.ok || !data.active) return;
+
+    const active = normalize(data.active);
+    if (active) {
+      const pending = takePending();
+      if (pending && pending === active.username) saveAccount(active);
+      else refreshSaved(active);
+      (data.others || []).forEach(refreshSaved);
+    }
+
+    if (active) avatars.forEach((node) => fillAvatar(node, active));
+    profileLinks.forEach((node) => {
+      node.hidden = false;
+      if (active) node.setAttribute("aria-label", "Meu perfil (" + labelOf(active) + ")");
+    });
+    links.forEach((node) => renderLinks(node, data));
+  }
+
+  window.KokusaiAccounts = {
+    readSaved,
+    saveAccount,
+    forgetAccount,
+    forgetAll,
+    setPending,
+    labelOf,
+    fillAvatar,
+    avatarNode,
+    postForm,
+    el,
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initPanels);
+  else initPanels();
+})();
+
+</script>
     <script>
     (() => {
       const families = [
@@ -3852,6 +4241,7 @@ thead{background:linear-gradient(90deg,#24242a,#1b1b20 48%,#141417)}
 
         if (method !== "GET") return jsonResponse({message:"Ação simulada na prévia visual."});
         if (url === "/health") return jsonResponse({ok:true});
+        if (url === "/api/auth/accounts") return jsonResponse({ok:true,active:{username:"kokusai",display_name:"Kokusai",apelido:"",role:"admin",active:true,thumb:""},others:[{username:"kiyotaka",display_name:"Kiyotaka",apelido:"Kiyo",role:"member",active:false,thumb:""}],max:2});
         if (url === "/api/resumo") return jsonResponse({total_registros:14,valor_movimentado:4825000});
         if (url === "/api/resumo-vendas") return jsonResponse({total_registros:23,valor_movimentado:7280000});
         if (url === "/api/resumo-encomendas") return jsonResponse({total_registros:3,valor_movimentado:3465000});

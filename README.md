@@ -16,14 +16,19 @@ kokusaiFinal/
 │   └── generate_password_hash.py
 ├── templates/
 │   ├── index.html          # Painel do administrador
-│   ├── login.html
+│   ├── login.html          # Escolha de conta (estilo Steam) e senha
+│   ├── perfil.html         # Perfil: foto, apelido, senha, sair de todos
 │   └── meta_room.html      # Sala individual do membro
 └── static/
     ├── css/
     │   ├── style.css       # Componentes e regras visuais de base
-    │   └── hud.css         # Hierarquia e acabamento da interface atual
+    │   ├── hud.css         # Hierarquia e acabamento da interface atual
+    │   └── account.css     # Escolha de conta, avatar e perfil
     ├── js/app.js
     ├── js/meta_room.js
+    ├── js/account.js       # Contas salvas no aparelho e atalhos de conta
+    ├── js/login.js         # Tela "quem está entrando?"
+    ├── js/perfil.js        # Página de perfil
     └── images/
 ```
 
@@ -82,6 +87,17 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - Produtos liberados por período aparecem como atalho (botão) logo abaixo do campo **Produto** no formulário de Vendas e somem sozinhos depois da data final.
 - A lista fica em `TEMPORARY_SALE_PRODUCTS` no `main.py` (nome, início e fim, datas inclusivas no fuso do sistema). Atualmente: **M16**, de 07/10/2026 a 13/10/2026 (7 dias).
 - O campo Produto continua livre: o atalho apenas preenche o nome. Para liberar outro produto temporário, basta incluir uma linha na lista e publicar.
+
+## Contas, login e perfil
+
+- **Escolha de conta:** ao abrir o site, quem já entrou antes vê as contas salvas neste aparelho (a equipe costuma ter a conta `kokusai` e a conta pessoal). Clicar numa conta salva pede só a senha. "Outra conta" abre o formulário normal.
+- **Duas contas abertas ao mesmo tempo:** é possível entrar com a `kokusai` e com a conta pessoal no mesmo navegador e alternar entre elas sem digitar a senha de novo enquanto a sessão (12 h) durar. Uma terceira conta substitui a mais antiga. A troca é feita em "Trocar ou adicionar conta" (menu lateral ou perfil).
+- **Contas salvas:** a lista fica só no navegador de cada pessoa (`localStorage`), com usuário, nome, apelido e miniatura da foto. **Nunca** guarda senha ou token. O botão × esquece uma conta e "Esquecer contas salvas" limpa tudo; a caixa "Lembrar esta conta neste aparelho" controla se a conta é salva.
+- **Perfil (`/perfil`):** foto (recortada em quadrado e guardada no banco como WEBP), apelido (até 30 caracteres), troca de senha e "Sair de todos os aparelhos". O **nome** não é editável porque alimenta o painel de metas.
+- **Conta `kokusai`:** é compartilhada pela equipe, então o perfil dela é somente leitura e a senha só muda pelo Railway (`KOKUSAI_PASSWORD_HASH`).
+- **Senha dos membros:** quem troca a senha pelo perfil passa a usar a nova; os outros aparelhos são desconectados. O valor de `META_MEMBERS_JSON` vira apenas a senha inicial: os deploys **não** sobrescrevem mais senhas já trocadas. Para redefinir a senha de alguém, gere um hash novo e troque o `password_hash` dele no `META_MEMBERS_JSON`: a nova senha vale a partir do próximo deploy e as sessões antigas dele caem.
+- **Tabela nova:** `user_profiles` (criada sozinha na primeira execução) guarda apelido, foto, versão da sessão e o hash inicial de cada membro.
+- **Rotas:** `GET /perfil`, `GET|PUT /api/perfil`, `POST|DELETE /api/perfil/foto`, `POST /api/perfil/senha`, `POST /api/perfil/sair-todos`, `GET /api/auth/accounts`, `POST /conta/trocar`, `POST /logout` (sai só da conta ativa; `escopo=todas` sai de todas).
 
 ## Registro Baú
 
@@ -220,4 +236,7 @@ Se o Node.js estiver instalado:
 ```bash
 node --check static/js/app.js
 node --check static/js/meta_room.js
+node --check static/js/account.js
+node --check static/js/login.js
+node --check static/js/perfil.js
 ```

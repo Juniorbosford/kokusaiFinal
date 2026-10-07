@@ -12,18 +12,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260816-percentual-sujo-1-30" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260903-hud-natural-v2" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-contas-perfil" />
 </head>
 <body class="login-page">
   <div class="page-noise" aria-hidden="true"></div>
 
-  <main class="login-shell">
+  <main class="login-shell login-shell-wide">
     <section class="login-card">
       <div class="login-brand">
         <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="login-logo" />
         <div>
           <p class="brand-kicker">Kokusai</p>
-          <h1>Acesso restrito</h1>
-          <span>Entre para consultar ou administrar o painel.</span>
+          <h1 id="loginTitle">Acesso restrito</h1>
+          <span id="loginSubtitle">Entre para consultar ou administrar o painel.</span>
         </div>
       </div>
 
@@ -31,13 +32,31 @@
       <div class="login-error" role="alert">{{ error }}</div>
       {% endif %}
 
-      <form method="post" class="login-form" autocomplete="on">
+      <script type="application/json" id="openAccountsData">{{ open_accounts|tojson }}</script>
+
+      <!-- Escolha de conta (montada pelo login.js; sem JavaScript o formulário abaixo continua funcionando) -->
+      <section class="account-picker" id="accountPicker" aria-label="Escolha uma conta">
+        <div class="account-grid" id="accountGrid"></div>
+        <p class="account-forget" id="accountForget" hidden>
+          <button type="button" class="account-link-btn" id="forgetAllBtn">Esquecer contas salvas neste aparelho</button>
+        </p>
+      </section>
+
+      <form method="post" class="login-form account-login-form" id="loginForm" autocomplete="on" data-selected="{{ selected_username }}" data-csrf="{{ csrf_token }}">
         <input type="hidden" name="next" value="{{ next_url }}" />
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
 
-        <div class="field">
+        <div class="account-login-head" id="accountLoginHead" hidden>
+          <span class="account-avatar" id="loginHeadAvatar"></span>
+          <div>
+            <strong id="loginHeadName"></strong>
+            <small id="loginHeadUser"></small>
+          </div>
+        </div>
+
+        <div class="field" id="usernameField">
           <label for="username">Usuário</label>
-          <input id="username" name="username" placeholder="Digite seu usuário" autocomplete="username" required autofocus />
+          <input id="username" name="username" placeholder="Digite seu usuário" autocomplete="username" value="{{ selected_username }}" required />
         </div>
 
         <div class="field">
@@ -45,7 +64,13 @@
           <input id="password" name="password" type="password" placeholder="Digite sua senha" autocomplete="current-password" required />
         </div>
 
+        <label class="account-remember">
+          <input type="checkbox" id="rememberAccount" checked />
+          <span>Lembrar esta conta neste aparelho</span>
+        </label>
+
         <button type="submit" class="primary-btn login-submit">Entrar no painel</button>
+        <button type="button" class="ghost-btn" id="loginBackBtn">Escolher outra conta</button>
       </form>
 
       <div class="login-hint">
@@ -53,5 +78,7 @@
       </div>
     </section>
   </main>
+  <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-contas-perfil"></script>
+  <script src="{{ url_for('static', filename='js/login.js') }}?v=20261007-contas-perfil"></script>
 </body>
 </html>

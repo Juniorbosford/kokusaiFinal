@@ -1,4 +1,22 @@
-# KOKUSAI — Remover compra e M16 2026.10.07
+# KOKUSAI — Contas e perfil 2026.10.07
+
+Identificador: `2026.10.07-contas-perfil`
+
+Esta versão inclui:
+
+- **Login estilo Steam:** ao abrir o site aparece "Quem está entrando?" com as contas salvas no aparelho e a opção "Outra conta". Contas salvas pedem sempre a senha.
+- **Até 2 contas abertas ao mesmo tempo** (ex.: `kokusai` + conta pessoal), com troca sem senha enquanto a sessão durar. Atalhos no menu lateral, na sala de metas e no perfil.
+- **Página de perfil (`/perfil`):** foto, apelido, trocar senha e "Sair de todos os aparelhos". O nome continua fixo (afeta o painel de metas). A conta `kokusai` tem perfil somente leitura.
+- Trocar a senha ou sair de todos derruba as sessões dos outros aparelhos (nova coluna de versão de sessão em `user_profiles`).
+- **Deploys não sobrescrevem mais senhas trocadas pelo perfil.** `META_MEMBERS_JSON` é a senha inicial; para redefinir a senha de alguém, troque o hash dele nessa variável.
+- No celular/tablet o avatar no topo do painel abre o perfil (onde ficam "Trocar de conta" e "Sair").
+- Tabela nova `user_profiles`, criada automaticamente no primeiro start.
+
+Antes de publicar, confirme no Railway que `KOKUSAI_PASSWORD_HASH`, `META_MEMBERS_JSON` e `SECRET_KEY` existem. Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-contas-perfil"`.
+
+---
+
+# Versão anterior — Remover compra e M16 2026.10.07 (`2026.10.07-remover-compra-m16`)
 
 Identificador: `2026.10.07-remover-compra-m16`
 

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meu perfil | Kokusai</title>
+  <meta name="description" content="Perfil da conta Kokusai." />
+  <meta name="csrf-token" content="{{ csrf_token }}" />
+  <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20260816-percentual-sujo-1-30" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20260903-hud-natural-v2" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-contas-perfil" />
+</head>
+<body class="profile-page" data-role="{{ current_user.role }}">
+  <div class="page-noise" aria-hidden="true"></div>
+
+  <div class="profile-shell">
+    <header class="profile-topbar">
+      <div class="brand">
+        <img src="{{ url_for('static', filename='images/kokusai-logo.webp') }}" alt="Logo Kokusai" class="brand-logo" />
+        <div>
+          <p class="brand-kicker">Kokusai</p>
+          <h1>Meu perfil</h1>
+        </div>
+      </div>
+      <div class="profile-topbar-actions">
+        {% if current_user.role == 'member' %}
+        <a class="ghost-btn" href="{{ url_for('meta_room') }}">Voltar para minha sala</a>
+        {% else %}
+        <a class="ghost-btn" href="{{ url_for('home') }}">Voltar ao painel</a>
+        {% endif %}
+        <a class="ghost-btn" href="{{ url_for('login', trocar=1) }}">Trocar de conta</a>
+        <form action="{{ url_for('logout') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button type="submit" class="logout-btn">Sair</button>
+        </form>
+      </div>
+    </header>
+
+    <section class="panel-card profile-hero">
+      <span class="account-avatar account-avatar-lg" id="profileAvatar" aria-hidden="true"></span>
+      <div class="profile-hero-text">
+        <p class="eyebrow">Conta</p>
+        <h1 id="profileName">{{ current_user.display_name }}</h1>
+        <p id="profileUser">@{{ current_user.username }}</p>
+        <span class="profile-role" id="profileRole">Carregando...</span>
+        <div class="profile-photo-actions" id="photoActions" hidden>
+          <button type="button" class="primary-btn" id="photoPickBtn">Alterar foto</button>
+          <button type="button" class="ghost-btn" id="photoRemoveBtn" hidden>Remover foto</button>
+          <input type="file" id="photoInput" accept="image/png,image/jpeg,image/webp" />
+        </div>
+        <p class="profile-card-note" id="photoStatus" role="status"></p>
+      </div>
+    </section>
+
+    <section class="panel-card profile-shared-note" id="sharedNote" hidden>
+      <p class="eyebrow">Conta compartilhada</p>
+      <p>Esta é a conta administrativa da Kokusai, usada por toda a equipe. Por isso o perfil dela é somente leitura: foto, apelido e senha não podem ser alterados aqui. A senha dela só muda pelo Railway. Para ter foto, apelido e senha próprios, entre com o seu usuário pessoal.</p>
+    </section>
+
+    <div class="profile-grid" id="profileForms" hidden>
+      <section class="panel-card">
+        <div class="section-head"><h3>Apelido</h3></div>
+        <p class="profile-card-note">O apelido aparece na escolha de conta e no seu perfil. O seu nome continua o mesmo no painel de metas.</p>
+        <form class="profile-form" id="aliasForm" autocomplete="off">
+          <div class="field">
+            <label for="aliasInput">Como você quer ser chamado</label>
+            <input id="aliasInput" name="apelido" maxlength="30" placeholder="Ex.: Kiyo" />
+            <small id="aliasHelp"></small>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary-btn">Salvar apelido</button>
+          </div>
+          <p class="profile-card-note" id="aliasStatus" role="status"></p>
+        </form>
+      </section>
+
+      <section class="panel-card">
+        <div class="section-head"><h3>Alterar senha</h3></div>
+        <p class="profile-card-note">Ao trocar a senha, os seus outros aparelhos são desconectados. Este continua conectado.</p>
+        <form class="profile-form" id="passwordForm" autocomplete="off">
+          <div class="field">
+            <label for="passwordCurrent">Senha atual</label>
+            <input id="passwordCurrent" name="atual" type="password" autocomplete="current-password" required />
+          </div>
+          <div class="field">
+            <label for="passwordNew">Nova senha</label>
+            <input id="passwordNew" name="nova" type="password" autocomplete="new-password" required />
+            <small id="passwordHelp"></small>
+          </div>
+          <div class="field">
+            <label for="passwordConfirm">Confirmar nova senha</label>
+            <input id="passwordConfirm" name="confirmar" type="password" autocomplete="new-password" required />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary-btn">Alterar senha</button>
+          </div>
+          <p class="profile-card-note" id="passwordStatus" role="status"></p>
+        </form>
+      </section>
+
+      <section class="panel-card profile-card-wide">
+        <div class="section-head"><h3>Aparelhos conectados</h3></div>
+        <p class="profile-card-note">Se você entrou em um computador que não é seu, ou perdeu o celular, saia de todos os aparelhos. Você precisará entrar de novo, inclusive neste.</p>
+        <div class="form-actions">
+          <button type="button" class="danger-btn" id="signOutAllBtn">Sair de todos os aparelhos</button>
+        </div>
+        <p class="profile-card-note" id="signOutStatus" role="status"></p>
+      </section>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-contas-perfil"></script>
+  <script src="{{ url_for('static', filename='js/perfil.js') }}?v=20261007-contas-perfil"></script>
+</body>
+</html>
