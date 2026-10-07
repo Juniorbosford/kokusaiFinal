@@ -9,10 +9,10 @@
   <link rel="icon" type="image/webp" href="{{ url_for('static', filename='images/kokusai-logo.webp') }}" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-produtos-m16" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-produtos-m16" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-contas-perfil" />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Shippori+Mincho:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-laca" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-laca" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-laca" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
   <div class="page-noise" aria-hidden="true"></div>
@@ -93,6 +93,7 @@
               {{ "Você está com permissão total para registrar e consultar movimentações." if is_admin else "Você está em modo somente leitura. Os registros podem ser consultados, mas não alterados." }}
             </div>
           </div>
+          <span class="hanko" aria-hidden="true">国際</span>
         </div>
 
         <div class="stats-grid stats-grid-3">
@@ -957,6 +958,46 @@
           <div class="feedback" id="metasFeedback">Selecione uma sala para conferir os comprovantes da semana.</div>
         </section>
 
+        <section class="panel-card disclosure-panel" id="metaMembersPanel" data-disclosure-panel data-disclosure-label="Gerenciar membros">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Equipe</p>
+              <h3>Quem participa das metas</h3>
+            </div>
+          </div>
+          <p class="meta-members-note">Remover tira a pessoa do painel e bloqueia o acesso dela, mas o histórico, as fotos e os logs continuam guardados. Dá para reativar depois.</p>
+          <div class="meta-members-layout">
+            <form id="memberAddForm" class="meta-members-form" autocomplete="off">
+              <div class="field">
+                <label for="mm_username">Usuário de acesso</label>
+                <input id="mm_username" maxlength="32" placeholder="ex.: carla" autocapitalize="none" required />
+                <small class="field-help">De 3 a 32 caracteres: letras minúsculas, números, ponto, hífen ou _.</small>
+              </div>
+              <div class="field">
+                <label for="mm_display_name">Nome no painel de metas</label>
+                <input id="mm_display_name" maxlength="40" placeholder="ex.: Carla" required />
+              </div>
+              <div class="field">
+                <label for="mm_password">Senha inicial (opcional)</label>
+                <input id="mm_password" type="password" autocomplete="new-password" placeholder="Em branco: gerar senha provisória" />
+                <small class="field-help">A pessoa pode trocar a senha no próprio perfil.</small>
+              </div>
+              <button type="submit" class="primary-btn" id="mm_submit">Adicionar à equipe</button>
+            </form>
+            <div class="meta-members-list" id="memberAdminList" aria-live="polite">Carregando membros...</div>
+          </div>
+          <div class="member-secret" id="memberSecret" hidden>
+            <p id="memberSecretText"></p>
+            <div class="member-secret-line">
+              <code id="memberSecretCode"></code>
+              <button type="button" class="ghost-btn" id="memberSecretCopy">Copiar</button>
+              <button type="button" class="ghost-btn" id="memberSecretClose">Fechar</button>
+            </div>
+            <small>Esta senha aparece só agora e não fica salva em lugar nenhum. Passe para a pessoa e peça para trocar no perfil.</small>
+          </div>
+          <div class="feedback" id="memberAdminFeedback" role="status"></div>
+        </section>
+
         <div class="meta-admin-layout">
           <section class="panel-card meta-rooms-list-card">
             <div class="panel-head meta-rooms-list-head">
@@ -1058,7 +1099,7 @@
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Novo cálculo</p>
-                <h3>O que deseja fazer?</h3>
+                <h3>Calculadora de craft</h3>
               </div>
             </div>
             {% if is_admin %}
@@ -1202,6 +1243,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-contas-perfil"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-produtos-m16"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-laca"></script>
 </body>
 </html>

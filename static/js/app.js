@@ -32,6 +32,13 @@ function activateView(target){
   if(subtitle) subtitle.textContent = meta.subtitle;
   document.title = `${meta.title} | Kokusai`;
   window.scrollTo({top:0, behavior:"smooth"});
+  // No celular o menu vira uma faixa horizontal: centraliza o item ativo para ele não ficar escondido.
+  const nav = document.querySelector(".nav");
+  const activeLink = nav?.querySelector(".nav-link.active");
+  if(nav && activeLink && nav.scrollWidth > nav.clientWidth){
+    const offset = activeLink.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+    nav.scrollTo({left:Math.max(0, offset - (nav.clientWidth - activeLink.offsetWidth) / 2), behavior:"smooth"});
+  }
 }
 
 function syncDisclosurePanel(panel, open){
@@ -2151,6 +2158,7 @@ async function loadMetaRoomDetail(userId){
   if(!metaRoomDetail) return;
   selectedMetaRoomUserId = userId;
   renderMetaRooms();
+  metaRoomDetail.classList.remove("meta-room-detail-empty");
   metaRoomDetail.innerHTML = '<div class="meta-empty-state">Carregando sala...</div>';
   try{
     const weekQuery = activeMetaWeek?.semana_inicio ? `?week_start=${encodeURIComponent(activeMetaWeek.semana_inicio)}` : "";
@@ -2757,13 +2765,158 @@ vendaQuickProducts?.addEventListener("click", event => {
   document.getElementById("v_valor_unitario")?.focus();
 });
 
+/* ===== Gerenciar membros das metas (somente administrador) ===== */
+const memberAddForm = document.getElementById("memberAddForm");
+const memberAdminList = document.getElementById("memberAdminList");
+const memberAdminFeedback = document.getElementById("memberAdminFeedback");
+const memberSecretBox = document.getElementById("memberSecret");
+let metaMembersCache = [];
+
+function showMemberSecret(message, password){
+  if(!memberSecretBox) return;
+  document.getElementById("memberSecretText").textContent = message;
+  document.getElementById("memberSecretCode").textContent = password;
+  memberSecretBox.hidden = false;
+}
+
+function hideMemberSecret(){
+  if(!memberSecretBox) return;
+  memberSecretBox.hidden = true;
+  document.getElementById("memberSecretCode").textContent = "";
+}
+
+function renderMetaMembers(){
+  if(!memberAdminList) return;
+  const active = metaMembersCache.filter(member => member.active);
+  const removed = metaMembersCache.filter(member => !member.active);
+  const row = (member, actions) => `
+    <div class="meta-member-row${member.active ? "" : " is-removed"}">
+      <div class="meta-member-info">
+        <strong>${escapeHtml(member.display_name)}</strong>
+        <small>@${escapeHtml(member.username)}${member.apelido ? ` · ${escapeHtml(member.apelido)}` : ""}</small>
+      </div>
+      <div class="meta-member-actions">${actions}</div>
+    </div>`;
+  const activeRows = active.length
+    ? active.map(member => row(member, `
+        <button type="button" class="ghost-btn" data-member-reset="${escapeHtml(member.id)}">Nova senha</button>
+        <button type="button" class="danger-btn" data-member-remove="${escapeHtml(member.id)}">Remover</button>`)).join("")
+    : `<div class="meta-empty-state">Nenhum membro ativo.</div>`;
+  const removedRows = removed.length
+    ? `<p class="meta-members-subtitle">Removidos (${removed.length})</p>` + removed.map(member => row(member, `
+        <button type="button" class="ghost-btn" data-member-reactivate="${escapeHtml(member.id)}">Reativar</button>`)).join("")
+    : "";
+  memberAdminList.innerHTML = `<p class="meta-members-subtitle">Ativos (${active.length})</p>${activeRows}${removedRows}`;
+}
+
+async function loadMetaMembers(){
+  if(!memberAdminList) return;
+  try{
+    const {res, data} = await fetchJson("/api/meta-members");
+    if(!res.ok){
+      memberAdminList.textContent = data.error || "Não foi possível carregar os membros.";
+      return;
+    }
+    metaMembersCache = Array.isArray(data.members) ? data.members : [];
+    renderMetaMembers();
+  }catch(error){
+    memberAdminList.textContent = `Falha ao carregar os membros: ${error.message}`;
+  }
+}
+
+async function memberRequest(url, method, body){
+  const {res, data} = await fetchJson(url, {
+    method,
+    headers:csrfHeaders(body ? {"Content-Type":"application/json"} : {}),
+    body:body ? JSON.stringify(body) : undefined,
+  });
+  return {res, data};
+}
+
+async function afterMemberChange(){
+  await Promise.all([loadMetaMembers(), loadMetas()]);
+}
+
+memberAddForm?.addEventListener("submit", async event => {
+  event.preventDefault();
+  const submit = document.getElementById("mm_submit");
+  const payload = {
+    username:inputValue("mm_username").trim().toLowerCase(),
+    display_name:inputValue("mm_display_name").trim(),
+    password:document.getElementById("mm_password")?.value || "",
+  };
+  hideMemberSecret();
+  setFeedback(memberAdminFeedback, "Adicionando...");
+  if(submit) submit.disabled = true;
+  try{
+    const {res, data} = await memberRequest("/api/meta-members", "POST", payload);
+    setFeedback(memberAdminFeedback, data.message || data.error || (res.ok ? "Membro adicionado." : "Erro ao adicionar."), !res.ok);
+    if(res.ok){
+      memberAddForm.reset();
+      if(data.senha_provisoria) showMemberSecret(`Senha provisória de ${data.member.display_name} (usuário ${data.member.username}):`, data.senha_provisoria);
+      await afterMemberChange();
+    }
+  }catch(error){
+    setFeedback(memberAdminFeedback, `Falha ao adicionar: ${error.message}`, true);
+  }finally{
+    if(submit) submit.disabled = false;
+  }
+});
+
+memberAdminList?.addEventListener("click", async event => {
+  const button = event.target.closest("[data-member-remove], [data-member-reactivate], [data-member-reset]");
+  if(!button) return;
+  const id = button.dataset.memberRemove || button.dataset.memberReactivate || button.dataset.memberReset;
+  const member = metaMembersCache.find(item => item.id === id);
+  if(!member) return;
+
+  let url, method, question = "";
+  if(button.dataset.memberRemove){
+    url = `/api/meta-members/${encodeURIComponent(id)}`; method = "DELETE";
+    question = `Remover ${member.display_name} das metas?\n\nO acesso dessa pessoa é bloqueado na hora e as sessões abertas caem. O histórico e as fotos continuam guardados e dá para reativar depois.`;
+  }else if(button.dataset.memberReactivate){
+    url = `/api/meta-members/${encodeURIComponent(id)}/reativar`; method = "POST";
+  }else{
+    url = `/api/meta-members/${encodeURIComponent(id)}/redefinir-senha`; method = "POST";
+    question = `Gerar uma nova senha provisória para ${member.display_name}?\n\nA senha atual deixa de valer e os aparelhos dessa pessoa são desconectados.`;
+  }
+  if(question && !window.confirm(question)) return;
+
+  hideMemberSecret();
+  button.disabled = true;
+  try{
+    const {res, data} = await memberRequest(url, method);
+    setFeedback(memberAdminFeedback, data.message || data.error || (res.ok ? "Feito." : "Não foi possível concluir."), !res.ok);
+    if(res.ok){
+      if(data.senha_provisoria) showMemberSecret(`Nova senha provisória de ${member.display_name} (usuário ${member.username}):`, data.senha_provisoria);
+      await afterMemberChange();
+    }else{
+      button.disabled = false;
+    }
+  }catch(error){
+    setFeedback(memberAdminFeedback, `Falha: ${error.message}`, true);
+    button.disabled = false;
+  }
+});
+
+document.getElementById("memberSecretClose")?.addEventListener("click", hideMemberSecret);
+document.getElementById("memberSecretCopy")?.addEventListener("click", async () => {
+  const code = document.getElementById("memberSecretCode")?.textContent || "";
+  try{
+    await navigator.clipboard.writeText(code);
+    setFeedback(memberAdminFeedback, "Senha copiada.");
+  }catch{
+    setFeedback(memberAdminFeedback, "Não foi possível copiar automaticamente. Selecione a senha e copie manualmente.", true);
+  }
+});
+
 async function loadAll(){
   if(refreshBtn){
     refreshBtn.disabled = true;
     refreshBtn.textContent = "Atualizando...";
   }
   try{
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosVenda()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosVenda(), loadMetaMembers()]);
     updateLastSync();
   }finally{
     if(refreshBtn){

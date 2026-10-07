@@ -1,4 +1,37 @@
-# KOKUSAI — Produtos de linha + M16 2026.10.07
+# KOKUSAI — Visual "Laca" 2026.10.07
+
+Identificador: `2026.10.07-visual-laca`
+
+Esta versão inclui:
+
+- **Nova identidade visual** em todo o site (painel, login, sala de metas e perfil): preto quente, cinzas quentes e vermelho-laca, com degradê só nos pontos de destaque. Títulos em Shippori Mincho e interface em Hanken Grotesk. Carimbo 国際 no destaque da visão geral e no login.
+- **Visão geral:** os 8 cartões do resumo viraram um quadro único (colunas Compras, Vendas, Encomendas e Metas; linhas de registros e valores). No celular, uma linha por assunto.
+- Saíram os rótulos em caixa alta acima dos títulos, os ícones do menu cada um de uma cor, o roxo dos cartões e as caixas dentro de caixas. Status agora são ponto + texto.
+- **Correções:** no celular a página não estica mais para os lados (o painel ficava cortado e o botão Atualizar sumia); na tabela de Encomendas os botões e as datas não quebram mais letra por letra; em Famílias os nomes não aparecem mais cortados; o menu lateral rola quando a tela é baixa; a sala aberta em Salas de Meta não fica mais centralizada; no celular o menu centraliza a aba ativa.
+- `hud.css` consolidado numa folha só (as 4 camadas antigas foram unificadas).
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-visual-laca"`. Se o navegador mostrar o visual antigo, recarregue com Ctrl+F5.
+
+---
+
+# Versão anterior — Gerenciar membros das metas (`2026.10.07-gerenciar-membros`)
+
+Identificador: `2026.10.07-gerenciar-membros`
+
+Esta versão inclui:
+
+- Na aba **Salas de Meta**, novo painel recolhível **Gerenciar membros** (somente o usuário `kokusai`).
+- **Adicionar** uma pessoa: usuário de acesso, nome no painel e senha inicial opcional. Em branco, o sistema gera uma senha provisória que aparece **uma única vez** na tela para você repassar; a pessoa troca depois no próprio perfil. A sala dela já nasce na semana atual.
+- **Remover** uma pessoa que saiu: o acesso é bloqueado na hora e as sessões abertas caem. Semanas, fotos e logs antigos continuam guardados e ela some dos totais e do painel.
+- **Reativar** quem voltou (a senha antiga continua valendo, mas sessões de antes da remoção não voltam) e **Nova senha** para quem esqueceu.
+- **Mudança importante:** `META_MEMBERS_JSON` agora só **cadastra** quem ainda não existe. Quem entra e quem sai é decidido pelo painel: tirar alguém da variável não desativa a pessoa, quem foi removido pelo painel não é reativado por um deploy, e quem foi adicionado pelo painel não precisa estar na variável.
+- Novas rotas (admin): `GET|POST /api/meta-members`, `DELETE /api/meta-members/<id>`, `POST /api/meta-members/<id>/reativar` e `/redefinir-senha`.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-gerenciar-membros"`.
+
+---
+
+# Versão anterior — Produtos de linha + M16 (`2026.10.07-produtos-m16`)
 
 Identificador: `2026.10.07-produtos-m16`
 

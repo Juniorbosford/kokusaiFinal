@@ -204,6 +204,7 @@ function mockBackendScript() {
         if (url === "/api/familias") return jsonResponse(families);
         if (url === "/api/reunioes") return jsonResponse(meetings);
         if (url.startsWith("/api/relatorios/gangues")) return jsonResponse(report);
+        if (url === "/api/meta-members") return jsonResponse({ok:true,members:rooms.map(item => ({id:item.user_id,username:item.username,display_name:item.display_name,apelido:"",active:true,in_env:true})).concat([{id:"meta-ex",username:"exmembro",display_name:"Ex-membro",apelido:"",active:false,in_env:false}])});
         if (url === "/api/meta-rooms") return jsonResponse({
           rooms,
           week:{semana_inicio:"2026-08-14",semana_label:"14/08/2026 até 19/08/2026",prazo_pagamento:"19/08/2026 às 23:59",data_conferencia:"20/08/2026",closed:false,review_mode:true,can_finalize:false}

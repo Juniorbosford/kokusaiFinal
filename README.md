@@ -22,7 +22,7 @@ kokusaiFinal/
 └── static/
     ├── css/
     │   ├── style.css       # Componentes e regras visuais de base
-    │   ├── hud.css         # Hierarquia e acabamento da interface atual
+    │   ├── hud.css         # Identidade visual "Laca": cores, tipografia e componentes
     │   └── account.css     # Escolha de conta, avatar e perfil
     ├── js/app.js
     ├── js/meta_room.js
@@ -74,7 +74,7 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - Membros podem selecionar, arrastar ou colar imagens copiadas com `Ctrl + V`, conferindo as prévias antes do envio.
 - Cada membro pode manter até **10 fotos por semana**.
 - Depois de **3 semanas finalizadas consecutivas** com resultado `Não pago`, o sistema exibe um aviso na sala individual e no painel do administrador.
-- Ao retirar alguém de `meta_members.py`, o acesso é desativado sem apagar o histórico antigo, as fotos ou os logs.
+- Quem entra e quem sai da equipe é decidido no painel (aba Salas de Meta → **Gerenciar membros**). Remover desativa o acesso sem apagar histórico, fotos ou logs, e dá para reativar.
 
 ## Remover compra
 
@@ -89,6 +89,22 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - Em Vendas o temporário vira um atalho com selo "até dd/mm"; em Encomendas vira um cartão adicional (quantidade e valor unitário) que entra no total e na conversão para Vendas. Encomendas que já tinham o produto continuam editáveis depois do prazo.
 - O campo Produto de Vendas continua livre: o atalho só preenche o nome. Para liberar outro produto temporário, basta incluir uma linha na lista e publicar.
 - Rota `GET /api/produtos-venda` devolve `fixos` e `temporarios` (a rota antiga `/api/produtos-temporarios` continua existindo).
+
+## Identidade visual ("Laca")
+
+- **Cores:** preto quente (sumi `#100c0d` / `#161112`), cinzas quentes para texto de apoio e vermelho-laca (`#b8182f`, realce `#e0435a`). Os tokens ficam no topo do `static/css/hud.css`; os nomes antigos (`--accent`, `--surface`…) continuam apontando para eles.
+- **Degradê** só onde importa: botão principal, item ativo do menu, destaque da visão geral, semana atual das metas e login.
+- **Tipografia:** títulos em *Shippori Mincho* e interface em *Hanken Grotesk* (Google Fonts, já liberado na CSP). Sem acesso ao Google Fonts, o navegador usa serifas/sans do sistema.
+- **Carimbo 国際** ("Kokusai" em japonês): aparece no destaque da visão geral e no login. É só decorativo (`aria-hidden`).
+- **Regras da casa:** rótulos em frase normal (sem caixa alta), status como ponto + texto, raio por hierarquia (painéis 14 px, controles 9 px, selos 6 px). Evite reintroduzir cores fora da paleta (o roxo e os ícones coloridos do menu foram removidos de propósito).
+- A antiga pilha de camadas do `hud.css` (Signature, Equilíbrio, Ajuste V2) foi consolidada numa folha só.
+
+## Gerenciar membros das metas
+
+- Somente o `kokusai` vê o painel **Gerenciar membros** (aba Salas de Meta). Ele adiciona pessoas (usuário, nome e senha inicial opcional; sem senha, o sistema gera uma provisória exibida uma vez), remove quem saiu, reativa quem voltou e gera nova senha provisória para quem esqueceu.
+- Remover bloqueia o login e derruba as sessões abertas; semanas, fotos e logs antigos continuam no banco. A pessoa some do painel e dos totais da semana.
+- `META_MEMBERS_JSON` só **cadastra** quem ainda não existe no banco. Tirar alguém dessa variável não o desativa, um deploy não reativa quem foi removido pelo painel, e quem foi adicionado pelo painel não precisa estar na variável.
+- Rotas (admin): `GET|POST /api/meta-members`, `DELETE /api/meta-members/<id>`, `POST /api/meta-members/<id>/reativar` e `POST /api/meta-members/<id>/redefinir-senha`.
 
 ## Contas, login e perfil
 
@@ -194,7 +210,7 @@ python scripts/generate_password_hash.py
 
 Copie o hash gerado para `KOKUSAI_PASSWORD_HASH` no Railway e faça um novo deploy. Nunca salve a senha em texto puro no GitHub.
 
-O mesmo script gera os hashes dos membros das salas de meta (PBKDF2-SHA256 com 600 mil iterações). Para adicionar, trocar a senha ou remover alguém, edite o JSON de `META_MEMBERS_JSON` no Railway. Em desenvolvimento local, use um arquivo `meta_members.local.json` com a mesma lista (ele é ignorado pelo Git). Sem `KOKUSAI_PASSWORD_HASH` localmente, o login do administrador fica desativado.
+O mesmo script gera os hashes dos membros das salas de meta (PBKDF2-SHA256 com 600 mil iterações). Para cadastrar a primeira leva de membros, use o JSON de `META_MEMBERS_JSON` no Railway; depois disso, adicionar e remover pessoas é feito pelo painel. Trocar o hash de alguém no JSON continua valendo como redefinição de senha dessa pessoa. Em desenvolvimento local, use um arquivo `meta_members.local.json` com a mesma lista (ele é ignorado pelo Git). Sem `KOKUSAI_PASSWORD_HASH` localmente, o login do administrador fica desativado.
 
 ## Regras principais
 

@@ -1330,3 +1330,24 @@ table.craft-result-table{min-width:650px}
 .order-temp-items{display:contents}
 .order-item-note{margin-left:4px;color:var(--muted);font-size:.68rem;font-weight:700}
 .quick-product-btn.is-temporary{border-color:rgba(217,142,95,.4);background:rgba(217,142,95,.1)}
+
+/* ===== Gerenciar membros das metas ===== */
+.meta-members-note{margin:0 0 14px;color:var(--muted);font-size:.86rem;line-height:1.5}
+.meta-members-layout{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:20px;align-items:start}
+.meta-members-form{display:grid;gap:14px}
+.meta-members-list{display:grid;gap:8px;max-height:420px;overflow:auto;padding-right:2px}
+.meta-members-subtitle{margin:6px 0 2px;color:var(--muted);font-size:.72rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.meta-members-subtitle:first-child{margin-top:0}
+.meta-member-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025)}
+.meta-member-row.is-removed{opacity:.7}
+.meta-member-info{min-width:0}
+.meta-member-info strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta-member-info small{color:var(--muted);font-size:.76rem}
+.meta-member-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.meta-member-actions .ghost-btn,.meta-member-actions .danger-btn{padding:7px 12px;font-size:.78rem}
+.member-secret{margin-top:16px;padding:14px;border:1px solid rgba(240,184,75,.35);border-radius:12px;background:rgba(240,184,75,.07)}
+.member-secret p{margin:0 0 8px;font-size:.88rem;font-weight:700}
+.member-secret small{display:block;margin-top:8px;color:var(--muted)}
+.member-secret-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.member-secret-line code{padding:8px 12px;border-radius:9px;background:rgba(0,0,0,.4);font-size:1.05rem;letter-spacing:.06em;user-select:all}
+@media (max-width:900px){.meta-members-layout{grid-template-columns:1fr}.meta-member-row{flex-wrap:wrap}}

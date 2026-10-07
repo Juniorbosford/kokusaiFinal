@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-produtos-m16"
+APP_RELEASE = "2026.10.07-visual-laca"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -834,18 +834,16 @@ def ensure_meta_database_ready():
                 cursor.execute(statement)
 
             created_at = format_timestamp()
-            # A lista em meta_members.py é a fonte atual da equipe. Membros
-            # removidos ficam inativos para preservar semanas, fotos e logs
-            # antigos, enquanto os presentes na lista são ativados novamente.
-            if META_MEMBERS:
-                cursor.execute("UPDATE meta_users SET active = 0 WHERE role = 'member'")
+            # META_MEMBERS_JSON só CADASTRA quem ainda não existe no banco. Quem entra e quem
+            # sai da equipe passa a ser decidido pelo painel de metas (aba "Gerenciar membros"):
+            # remover alguém lá o deixa inativo (semanas, fotos e logs ficam guardados) e um novo
+            # deploy não o reativa. Quem não está mais na variável também não é desativado sozinho.
             seed_query = meta_sql(
                 """
                 INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at)
                 VALUES (?, ?, ?, ?, 'member', 1, ?)
                 ON CONFLICT(username) DO UPDATE SET
-                    display_name = excluded.display_name,
-                    active = 1
+                    display_name = excluded.display_name
                 """
             )
             for member in META_MEMBERS:
@@ -5322,6 +5320,182 @@ def sign_out_everywhere():
         return json_no_store({"ok": True, "message": "Você saiu de todos os aparelhos.", "redirect": target})
     except Exception as error:
         log_error("Falha em /api/perfil/sair-todos [POST]", error)
+        return error_response(str(error))
+
+
+# ---------------------------------------------------------------------------
+# Gerenciar membros das metas (somente administrador)
+# ---------------------------------------------------------------------------
+MEMBER_USERNAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
+MEMBER_DISPLAY_NAME_MAX_LENGTH = 40
+TEMP_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def generate_temp_password(length=10):
+    return "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(length))
+
+
+def meta_member_row(user_id):
+    return meta_query_one(
+        "SELECT id, username, display_name, role, active FROM meta_users WHERE id = ? AND role = 'member'",
+        (user_id,),
+    )
+
+
+def display_name_in_use(display_name, exclude_id=""):
+    rows = meta_query_all(
+        "SELECT id, display_name FROM meta_users WHERE role = 'member' AND active = 1"
+    )
+    wanted = str(display_name or "").strip().lower()
+    return any(row["id"] != exclude_id and str(row["display_name"] or "").strip().lower() == wanted for row in rows)
+
+
+@app.get("/api/meta-members")
+@require_admin
+def list_meta_members():
+    try:
+        ensure_meta_database_ready()
+        seeded = {member["username"] for member in META_MEMBERS}
+        rows = meta_query_all(
+            """
+            SELECT u.id, u.username, u.display_name, u.active, u.created_at,
+                   COALESCE(p.apelido, '') AS apelido
+            FROM meta_users u
+            LEFT JOIN user_profiles p ON p.user_id = u.id
+            WHERE u.role = 'member'
+            ORDER BY u.active DESC, u.display_name ASC
+            """
+        )
+        members = [{
+            "id": row["id"],
+            "username": row["username"],
+            "display_name": row["display_name"],
+            "apelido": row["apelido"],
+            "active": bool(row["active"]),
+            "created_at": row["created_at"],
+            "in_env": row["username"] in seeded,
+        } for row in rows]
+        return json_no_store({"ok": True, "members": members})
+    except Exception as error:
+        log_error("Falha em /api/meta-members [GET]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/meta-members")
+@require_admin
+def add_meta_member():
+    try:
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username") or "").strip().lower()
+        if not MEMBER_USERNAME_PATTERN.match(username):
+            return error_response("Usuário inválido: use de 3 a 32 letras minúsculas, números, ponto, hífen ou sublinhado.", 400)
+        if username in AUTH_USERS:
+            return error_response("Esse usuário é reservado para a equipe administrativa.", 400)
+        display_name = clean_plain_text(data.get("display_name"), "Nome", MEMBER_DISPLAY_NAME_MAX_LENGTH, required=True)
+
+        provided = str(data.get("password") or "")
+        if provided:
+            if len(provided) < PASSWORD_MIN_LENGTH or len(provided) > PASSWORD_MAX_LENGTH:
+                return error_response(f"A senha deve ter entre {PASSWORD_MIN_LENGTH} e {PASSWORD_MAX_LENGTH} caracteres.", 400)
+            password = provided
+        else:
+            password = generate_temp_password()
+
+        existing = meta_query_one("SELECT id, active, role FROM meta_users WHERE username = ?", (username,))
+        if existing:
+            if existing["role"] != "member" or existing["active"]:
+                return error_response("Já existe um usuário com esse nome de acesso.", 409)
+            return error_response("Esse usuário já existiu e está removido. Use o botão Reativar na lista de removidos.", 409)
+        if display_name_in_use(display_name):
+            return error_response("Já existe um membro ativo com esse nome. Use um nome diferente para não confundir o painel de metas.", 409)
+
+        user_id = meta_member_id(username)
+        meta_execute(
+            "INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at) "
+            "VALUES (?, ?, ?, ?, 'member', 1, ?)",
+            (user_id, username, display_name, hash_password(password), format_timestamp()),
+        )
+        ensure_profile_row(user_id)
+        ensure_current_meta_submissions()
+        log_info(f"Membro adicionado ao painel de metas. usuario={username} por={get_current_user()['username']}")
+        payload = {
+            "ok": True,
+            "message": f"{display_name} foi adicionado às metas.",
+            "member": {"id": user_id, "username": username, "display_name": display_name},
+        }
+        if not provided:
+            payload["senha_provisoria"] = password
+        return json_no_store(payload, 201)
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/meta-members [POST]", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/meta-members/<user_id>")
+@require_admin
+def remove_meta_member(user_id):
+    try:
+        member = meta_member_row(user_id)
+        if not member:
+            return error_response("Membro não encontrado.", 404)
+        if not member["active"]:
+            return error_response("Esse membro já está removido.", 409)
+        meta_execute("UPDATE meta_users SET active = 0 WHERE id = ?", (user_id,))
+        # Derruba as sessões abertas dele e impede que voltem se ele for reativado depois.
+        bump_member_session_version(user_id)
+        log_info(f"Membro removido do painel de metas. usuario={member['username']} por={get_current_user()['username']}")
+        return json_no_store({
+            "ok": True,
+            "message": f"{member['display_name']} foi removido das metas. O histórico e as fotos continuam guardados.",
+        })
+    except Exception as error:
+        log_error("Falha em /api/meta-members [DELETE]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/meta-members/<user_id>/reativar")
+@require_admin
+def reactivate_meta_member(user_id):
+    try:
+        member = meta_member_row(user_id)
+        if not member:
+            return error_response("Membro não encontrado.", 404)
+        if member["active"]:
+            return error_response("Esse membro já está ativo.", 409)
+        if display_name_in_use(member["display_name"], exclude_id=user_id):
+            return error_response("Já existe um membro ativo com esse nome. Remova ou renomeie o outro antes de reativar.", 409)
+        meta_execute("UPDATE meta_users SET active = 1 WHERE id = ?", (user_id,))
+        # A senha antiga continua valendo; as sessões de antes da remoção continuam derrubadas.
+        bump_member_session_version(user_id)
+        ensure_current_meta_submissions()
+        log_info(f"Membro reativado no painel de metas. usuario={member['username']} por={get_current_user()['username']}")
+        return json_no_store({"ok": True, "message": f"{member['display_name']} voltou para as metas."})
+    except Exception as error:
+        log_error("Falha em /api/meta-members/reativar [POST]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/meta-members/<user_id>/redefinir-senha")
+@require_admin
+def reset_meta_member_password(user_id):
+    try:
+        member = meta_member_row(user_id)
+        if not member:
+            return error_response("Membro não encontrado.", 404)
+        if not member["active"]:
+            return error_response("Reative o membro antes de redefinir a senha.", 409)
+        password = generate_temp_password()
+        bump_member_session_version(user_id, hash_password(password))
+        log_info(f"Senha de membro redefinida pelo administrador. usuario={member['username']} por={get_current_user()['username']}")
+        return json_no_store({
+            "ok": True,
+            "message": f"Nova senha provisória de {member['display_name']} gerada. Os aparelhos dele foram desconectados.",
+            "senha_provisoria": password,
+        })
+    except Exception as error:
+        log_error("Falha em /api/meta-members/redefinir-senha [POST]", error)
         return error_response(str(error))
 
 
