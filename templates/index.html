@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-remover-compra-m16" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-remover-compra-m16" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-produtos-m16" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261007-produtos-m16" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-contas-perfil" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
@@ -289,7 +289,7 @@
               <div class="field">
                 <label for="v_produto">Produto</label>
                 <input id="v_produto" placeholder="Ex.: Munição" required />
-                <div class="quick-products" id="v_quick_products" hidden aria-label="Produtos liberados por tempo limitado"></div>
+                <div class="quick-products" id="v_quick_products" hidden aria-label="Atalhos de produtos"></div>
               </div>
 
               <div class="field">
@@ -553,6 +553,7 @@
                       </label>
                     </div>
                   </div>
+                  <div class="order-temp-items" id="e_temp_items"></div>
                 </div>
               </div>
 
@@ -1201,6 +1202,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-contas-perfil"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-remover-compra-m16"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261007-produtos-m16"></script>
 </body>
 </html>

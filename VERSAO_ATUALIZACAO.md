@@ -1,4 +1,20 @@
-# KOKUSAI — Contas e perfil 2026.10.07
+# KOKUSAI — Produtos de linha + M16 2026.10.07
+
+Identificador: `2026.10.07-produtos-m16`
+
+Esta versão inclui:
+
+- **Vendas:** atalhos de produto para **L85, Seringa e Circuito Eletrônico** (sempre disponíveis) e, além deles, o **M16** até 13/10/2026, com selo "até 13/10".
+- **Encomendas:** os cartões L85, Seringa e Circuito Eletrônico continuam como sempre, e agora existe um cartão adicional de **M16** (quantidade e valor unitário) durante a mesma semana. O M16 entra no total, no resumo da encomenda e na conversão para Vendas.
+- Editar uma encomenda que já tinha M16 continua funcionando depois do dia 13/10 (o cartão aparece como "período encerrado" só nessa edição).
+- Nova rota `GET /api/produtos-venda` (equipe autenticada) com `fixos` e `temporarios`. A lista de linha está em `PERMANENT_SALE_PRODUCTS` e a de temporários em `TEMPORARY_SALE_PRODUCTS`, ambas no `main.py`.
+- Correção: a função que normaliza nomes no navegador apagava letras maiúsculas e números (expressão regular com erro). Isso impedia carregar o Circuito Eletrônico ao editar uma encomenda.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.07-produtos-m16"`.
+
+---
+
+# Versão anterior — Contas e perfil (`2026.10.07-contas-perfil`)
 
 Identificador: `2026.10.07-contas-perfil`
 

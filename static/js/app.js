@@ -334,7 +334,7 @@ const LOCAL_FLYERS = {
 function normalizeFamilyFlyerKey(value){
   const key = String(value || "")
     .normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
@@ -578,13 +578,21 @@ function updatePreviewEncomenda(){
   setText("e_l85_subtotal", currency(moneyPricing(l85Base, moneyType, percentage).total));
   setText("e_seringa_subtotal", currency(moneyPricing(seringaBase, moneyType, percentage).total));
   setText("e_circuito_subtotal", currency(moneyPricing(circuitoBase, moneyType, percentage).total));
-  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase + circuitoBase, moneyType, percentage);
+  let tempBase = 0;
+  tempOrderCards().forEach(card => {
+    const base = Math.max(0, Number(card.querySelector("[data-temp-qty]")?.value || 0)) * Math.max(0, Number(card.querySelector("[data-temp-val]")?.value || 0));
+    tempBase += base;
+    const subtotal = card.querySelector("[data-temp-subtotal]");
+    if(subtotal) subtotal.textContent = currency(moneyPricing(base, moneyType, percentage).total);
+  });
+  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase + circuitoBase + tempBase, moneyType, percentage);
 }
 
 function resetEncomendaForm(){
   encomendaEmEdicaoId = null;
   encomendaForm?.reset();
   renderFamilySelectionSummary(null, encomendaFamilySummary);
+  renderTempOrderItems();
   updatePreviewEncomenda();
   if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar encomenda";
   if(encomendaCancelEditBtn) encomendaCancelEditBtn.hidden = true;
@@ -894,6 +902,20 @@ function iniciarEdicaoEncomenda(id){
   document.getElementById("e_circuito_quantidade").value = circuito?.quantidade || "";
   document.getElementById("e_circuito_valor").value = circuito?.valor_unitario ?? "";
 
+  // Produtos adicionais (ex.: M16): o cartão aparece mesmo depois do prazo se a encomenda já o tinha.
+  const extras = itens.filter(produto => !ORDER_FIXED_PRODUCT_KEYS.includes(normalizeFamilyFlyerKey(produto.produto)));
+  renderTempOrderItems(extras.map(produto => produto.produto));
+  tempOrderCards().forEach(card => {
+    card.querySelector("[data-temp-qty]").value = "";
+    card.querySelector("[data-temp-val]").value = "";
+  });
+  extras.forEach(produto => {
+    const card = tempOrderCards().find(item => normalizeFamilyFlyerKey(item.dataset.tempOrderItem) === normalizeFamilyFlyerKey(produto.produto));
+    if(!card) return;
+    card.querySelector("[data-temp-qty]").value = produto.quantidade || "";
+    card.querySelector("[data-temp-val]").value = produto.valor_unitario ?? "";
+  });
+
   // Compatibilidade com encomendas antigas, anteriores ao campo itens_json.
   if(!itens.length){
     const texto = String(item.o_que_pediu || "");
@@ -1041,10 +1063,15 @@ encomendaForm?.addEventListener("submit", async (e) => {
       quantidade:Number(inputValue("e_circuito_quantidade") || 0),
       valor_unitario:Number(inputValue("e_circuito_valor") || 0),
     },
+    ...tempOrderCards().map(card => ({
+      produto:card.dataset.tempOrderItem,
+      quantidade:Number(card.querySelector("[data-temp-qty]")?.value || 0),
+      valor_unitario:Number(card.querySelector("[data-temp-val]")?.value || 0),
+    })),
   ];
 
   if(!itens.some(item => Number.isInteger(item.quantidade) && item.quantidade > 0)){
-    setFeedback(encomendaFeedback, "Informe a quantidade de L85, Seringa ou Circuito Eletrônico.", true);
+    setFeedback(encomendaFeedback, "Informe a quantidade de pelo menos um produto do pedido.", true);
     return;
   }
   if(itens.some(item => item.quantidade < 0 || !Number.isInteger(item.quantidade))){
@@ -2643,19 +2670,83 @@ comprasTable?.addEventListener("click", async event => {
   }
 });
 
-/* ===== Produtos de venda por tempo limitado (ex.: M16) ===== */
+/* ===== Produtos de venda: de linha (L85, Seringa, Circuito) + temporários (ex.: M16) ===== */
 const vendaQuickProducts = document.getElementById("v_quick_products");
+const ORDER_FIXED_PRODUCT_KEYS = ["l85", "seringa", "circuito eletronico"];
+let produtosFixosVenda = ["L85", "Seringa", "Circuito Eletrônico"];
+let produtosTemporariosAtivos = [];
 
-async function loadProdutosTemporarios(){
+function tempOrderCards(){
+  return Array.from(document.querySelectorAll("#e_temp_items [data-temp-order-item]"));
+}
+
+function tempItemSlug(nome){
+  return normalizeFamilyFlyerKey(nome).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "item";
+}
+
+// Monta os cartões de produtos adicionais do formulário de Encomendas, sem perder o que já foi digitado.
+function renderTempOrderItems(extraNames = []){
+  const box = document.getElementById("e_temp_items");
+  if(!box) return;
+  const typed = new Map(tempOrderCards().map(card => [
+    normalizeFamilyFlyerKey(card.dataset.tempOrderItem),
+    {quantidade:card.querySelector("[data-temp-qty]")?.value || "", valor:card.querySelector("[data-temp-val]")?.value || ""},
+  ]));
+  const entries = produtosTemporariosAtivos.map(item => ({nome:item.nome, ate:item.ate}));
+  extraNames.forEach(nome => {
+    if(!entries.some(entry => normalizeFamilyFlyerKey(entry.nome) === normalizeFamilyFlyerKey(nome))){
+      entries.push({nome, ate:""});
+    }
+  });
+  box.innerHTML = entries.map(({nome, ate}) => {
+    const slug = tempItemSlug(nome);
+    const note = ate ? `até ${escapeHtml(String(ate).slice(0, 5))}` : "período encerrado";
+    return `<div class="order-item-card" data-temp-order-item="${escapeHtml(nome)}">
+      <div class="order-item-title">
+        <strong>${escapeHtml(nome)} <small class="order-item-note">${note}</small></strong>
+        <span data-temp-subtotal>R$ 0,00</span>
+      </div>
+      <div class="order-item-fields">
+        <label for="e_temp_${slug}_quantidade">Quantidade
+          <input id="e_temp_${slug}_quantidade" data-temp-qty type="number" min="0" step="1" placeholder="0" />
+        </label>
+        <label for="e_temp_${slug}_valor">Valor unitário
+          <input id="e_temp_${slug}_valor" data-temp-val type="number" min="0" step="0.01" placeholder="0,00" />
+        </label>
+      </div>
+    </div>`;
+  }).join("");
+  tempOrderCards().forEach(card => {
+    const old = typed.get(normalizeFamilyFlyerKey(card.dataset.tempOrderItem));
+    if(!old) return;
+    card.querySelector("[data-temp-qty]").value = old.quantidade;
+    card.querySelector("[data-temp-val]").value = old.valor;
+  });
+  updatePreviewEncomenda();
+}
+
+document.getElementById("e_temp_items")?.addEventListener("input", updatePreviewEncomenda);
+
+function renderVendaQuickProducts(){
   if(!vendaQuickProducts) return;
+  const fixos = produtosFixosVenda.map(nome => `<button type="button" class="quick-product-btn" data-quick-produto="${escapeHtml(nome)}">${escapeHtml(nome)}</button>`);
+  const temporarios = produtosTemporariosAtivos.map(item => `<button type="button" class="quick-product-btn is-temporary" data-quick-produto="${escapeHtml(item.nome)}" title="Disponível até ${escapeHtml(item.ate)}">${escapeHtml(item.nome)} <small>até ${escapeHtml(String(item.ate).slice(0, 5))}</small></button>`);
+  vendaQuickProducts.innerHTML = [...fixos, ...temporarios].join("");
+  vendaQuickProducts.hidden = fixos.length + temporarios.length === 0;
+}
+
+async function loadProdutosVenda(){
   try{
-    const {res, data} = await fetchJson("/api/produtos-temporarios");
-    const items = res.ok && Array.isArray(data.items) ? data.items : [];
-    vendaQuickProducts.hidden = items.length === 0;
-    vendaQuickProducts.innerHTML = items.map(item => `<button type="button" class="quick-product-btn" data-quick-produto="${escapeHtml(item.nome)}" title="Disponível até ${escapeHtml(item.ate)}">${escapeHtml(item.nome)} <small>até ${escapeHtml(String(item.ate).slice(0, 5))}</small></button>`).join("");
+    const {res, data} = await fetchJson("/api/produtos-venda");
+    if(res.ok){
+      if(Array.isArray(data.fixos) && data.fixos.length) produtosFixosVenda = data.fixos.map(String);
+      produtosTemporariosAtivos = Array.isArray(data.temporarios) ? data.temporarios : [];
+    }
   }catch{
-    vendaQuickProducts.hidden = true;
+    /* mantém os produtos de linha já conhecidos */
   }
+  renderVendaQuickProducts();
+  renderTempOrderItems();
 }
 
 vendaQuickProducts?.addEventListener("click", event => {
@@ -2672,7 +2763,7 @@ async function loadAll(){
     refreshBtn.textContent = "Atualizando...";
   }
   try{
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosTemporarios()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosVenda()]);
     updateLastSync();
   }finally{
     if(refreshBtn){

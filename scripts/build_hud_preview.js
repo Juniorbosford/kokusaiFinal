@@ -199,6 +199,7 @@ function mockBackendScript() {
         if (url === "/api/compras") return jsonResponse(purchases);
         if (url === "/api/vendas") return jsonResponse(sales);
         if (url === "/api/produtos-temporarios") return jsonResponse({ok:true,items:[{nome:"M16",ate:"13/10/2026",dias_restantes:7}]});
+        if (url === "/api/produtos-venda") return jsonResponse({ok:true,fixos:["L85","Seringa","Circuito Eletrônico"],temporarios:[{nome:"M16",ate:"13/10/2026",dias_restantes:7}]});
         if (url === "/api/encomendas") return jsonResponse(orders);
         if (url === "/api/familias") return jsonResponse(families);
         if (url === "/api/reunioes") return jsonResponse(meetings);

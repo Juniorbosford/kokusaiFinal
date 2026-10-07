@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-contas-perfil"
+APP_RELEASE = "2026.10.07-produtos-m16"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -2477,7 +2477,7 @@ def validate_encomenda_items(raw_items):
         })
 
     if not items:
-        raise ValueError("Informe a quantidade de pelo menos um produto: L85, Seringa ou Circuito Eletrônico.")
+        raise ValueError("Informe a quantidade de pelo menos um produto do pedido.")
 
     total = round(sum(item["valor_total"] for item in items), 2)
     if total > MAX_MONEY_VALUE:
@@ -3723,6 +3723,10 @@ TEMPORARY_SALE_PRODUCTS = [
     {"nome": "M16", "inicio": "2026-10-07", "fim": "2026-10-13"},  # 7 dias
 ]
 
+# Produtos de linha: sempre disponíveis em Vendas e em Encomendas. Os temporários
+# acima entram como adicionais, sem tirar nenhum destes.
+PERMANENT_SALE_PRODUCTS = ["L85", "Seringa", "Circuito Eletrônico"]
+
 
 def active_temporary_sale_products():
     today = now_local().date()
@@ -3737,6 +3741,22 @@ def active_temporary_sale_products():
                 "dias_restantes": (end - today).days + 1,
             })
     return active
+
+
+@app.get("/api/produtos-venda")
+@require_staff
+def list_sale_products():
+    try:
+        response = jsonify({
+            "ok": True,
+            "fixos": list(PERMANENT_SALE_PRODUCTS),
+            "temporarios": active_temporary_sale_products(),
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except Exception as e:
+        log_error("Falha em /api/produtos-venda [GET]", e)
+        return error_response(str(e))
 
 
 @app.get("/api/produtos-temporarios")
