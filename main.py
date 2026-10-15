@@ -12,7 +12,7 @@ import sqlite3
 import uuid
 from io import BytesIO
 from copy import deepcopy
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import unicodedata
 from urllib.parse import urlparse, unquote
@@ -66,7 +66,6 @@ VENDAS_WORKSHEET_NAME = os.getenv("VENDAS_WORKSHEET_NAME", "Vendas")
 ENCOMENDAS_WORKSHEET_NAME = os.getenv("ENCOMENDAS_WORKSHEET_NAME", "Encomendas")
 REUNIOES_WORKSHEET_NAME = os.getenv("REUNIOES_WORKSHEET_NAME", "Reunioes")
 FAMILIAS_WORKSHEET_NAME = os.getenv("FAMILIAS_WORKSHEET_NAME", "Familias")
-LEGACY_FLYERS_WORKSHEET_NAME = os.getenv("FLYERS_WORKSHEET_NAME", "Flyers")
 # O ciclo de metas é fixo: sexta-feira 00:00 até quarta-feira 23:59.
 # Quinta-feira fica exclusivamente para a conferência do administrador.
 META_RESET_WEEKDAY = 4  # datetime.weekday(): 4 = sexta-feira
@@ -88,6 +87,11 @@ BUCKET_REFERENCE_PREFIX = "kokusai-bucket://"
 META_MAX_FILE_BYTES = int(os.getenv("META_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
 META_MAX_PHOTOS_PER_WEEK = 10
 META_ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
+META_REVIEWED_STATUSES = {"Pago", "Não pago"}
+# week_start é texto dd/mm/aaaa: esta expressão ordena as semanas cronologicamente no SQL.
+META_WEEK_ORDER_SQL = "substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2)"
+META_PHOTO_COUNT_SQL = "(SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id)"
+META_LATE_PHOTO_COUNT_SQL = "(SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1)"
 META_IMAGE_MAX_SIDE = int(os.getenv("META_IMAGE_MAX_SIDE", "2200"))
 META_IMAGE_WEBP_QUALITY = int(os.getenv("META_IMAGE_WEBP_QUALITY", "88"))
 
@@ -1002,10 +1006,10 @@ def get_current_meta_submission(user_id):
 
 def get_meta_submission(user_id, week_start):
     return meta_query_one(
-        """
+        f"""
         SELECT s.id, s.user_id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at,
                s.reviewed_at, s.reviewed_by, s.created_at, s.paid_late,
-               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count
+               {META_LATE_PHOTO_COUNT_SQL} AS late_photo_count
         FROM meta_submissions s WHERE s.user_id = ? AND s.week_start = ?
         """,
         (user_id, week_start),
@@ -1054,13 +1058,13 @@ def get_meta_photos(submission_id):
 def get_meta_room_history(user_id, exclude_week_start=None, limit=12):
     excluded_week = exclude_week_start or meta_week_payload()["semana_inicio"]
     history = meta_query_all(
-        """
+        f"""
         SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at, s.reviewed_at, s.paid_late,
-               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
-               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count
+               {META_PHOTO_COUNT_SQL} AS photo_count,
+               {META_LATE_PHOTO_COUNT_SQL} AS late_photo_count
         FROM meta_submissions s
         WHERE s.user_id = ? AND s.week_start <> ?
-        ORDER BY substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2) DESC
+        ORDER BY {META_WEEK_ORDER_SQL} DESC
         LIMIT ?
         """,
         (user_id, excluded_week, int(limit)),
@@ -1071,12 +1075,12 @@ def get_meta_room_history(user_id, exclude_week_start=None, limit=12):
 def get_meta_unpaid_streaks():
     """Conta semanas finalizadas consecutivas com resultado Não pago."""
     rows = meta_query_all(
-        """
+        f"""
         SELECT s.user_id, s.status, s.week_start
         FROM meta_submissions s
         INNER JOIN meta_week_closures c ON c.week_start = s.week_start
         ORDER BY s.user_id ASC,
-                 substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2) DESC
+                 {META_WEEK_ORDER_SQL} DESC
         """
     )
     streaks = {}
@@ -1205,19 +1209,24 @@ def prepare_image_upload(upload, label="imagem"):
         raise ValueError(f"Não foi possível ler essa {label}. Tente enviar outro arquivo.") from error
 
 
-def store_meta_photo(upload, user_id, week_start):
-    image_bytes = prepare_image_upload(upload, "foto")
-    object_key = f"metas/{user_id}/{week_start.replace('/', '-')}/{uuid.uuid4().hex}.webp"
+def write_webp_object(object_key, image_bytes):
+    """Grava a imagem no Bucket; sem Bucket (só em desenvolvimento) usa a pasta local."""
     client = get_storage_client()
     if client:
         client.put_object(Bucket=META_BUCKET_NAME, Key=object_key, Body=image_bytes, ContentType="image/webp")
-    else:
-        if IS_RAILWAY:
-            raise RuntimeError("Bucket de fotos não configurado no Railway.")
-        local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/"))
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        with open(local_path, "wb") as file_handle:
-            file_handle.write(image_bytes)
+        return
+    if IS_RAILWAY:
+        raise RuntimeError("Bucket de fotos não configurado no Railway.")
+    local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/"))
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    with open(local_path, "wb") as file_handle:
+        file_handle.write(image_bytes)
+
+
+def store_meta_photo(upload, user_id, week_start):
+    image_bytes = prepare_image_upload(upload, "foto")
+    object_key = f"metas/{user_id}/{week_start.replace('/', '-')}/{uuid.uuid4().hex}.webp"
+    write_webp_object(object_key, image_bytes)
     return {
         "object_key": object_key,
         "original_name": os.path.basename(upload.filename)[:180],
@@ -2175,63 +2184,6 @@ def get_reunioes_worksheet():
     worksheet = get_or_create_worksheet(REUNIOES_WORKSHEET_NAME, REUNIOES_HEADERS)
     seed_default_reunioes(worksheet)
     return worksheet
-
-
-def legacy_flyers_payloads():
-    """Lê uma aba antiga chamada Flyers, quando existir, sem exigir um esquema rígido."""
-    if normalized_lookup_key(FAMILIAS_WORKSHEET_NAME) == normalized_lookup_key(LEGACY_FLYERS_WORKSHEET_NAME):
-        return []
-
-    try:
-        spreadsheet = get_or_create_spreadsheet()
-        worksheet = spreadsheet.worksheet(LEGACY_FLYERS_WORKSHEET_NAME)
-    except gspread.WorksheetNotFound:
-        return []
-    except Exception as error:
-        log_info(f"Não foi possível verificar a aba antiga de Flyers: {error}")
-        return []
-
-    rows = cached_get_all_values(LEGACY_FLYERS_WORKSHEET_NAME, worksheet)
-    if len(rows) <= 1:
-        return []
-
-    normalized_headers = [normalized_lookup_key(header) for header in rows[0]]
-
-    def find_column(*aliases):
-        alias_keys = {normalized_lookup_key(alias) for alias in aliases}
-        for index, header in enumerate(normalized_headers):
-            if header in alias_keys:
-                return index
-        return None
-
-    name_index = find_column("nome", "organização", "organizacao", "facção", "faccao", "família", "familia", "gangue", "fac")
-    if name_index is None:
-        return []
-
-    icon_index = find_column("icone", "ícone", "emoji")
-    market_index = find_column("mercado", "status", "situação", "situacao")
-    sale_index = find_column("preco_venda_para_familia", "preço de venda", "preco de venda", "valor venda", "venda para eles")
-    purchase_index = find_column("preco_compra_da_familia", "preço de compra", "preco de compra", "valor compra", "compra deles")
-    flyer_index = find_column("flyer_url", "flyer", "imagem", "imagem_url", "url")
-    contact_index = find_column("contato", "telefone", "discord", "responsavel", "responsável")
-    observation_index = find_column("observacao", "observação", "descricao", "descrição")
-
-    payloads = []
-    for row in rows[1:]:
-        name = canonical_family_name(sheet_cell(row, name_index))
-        if not normalized_lookup_key(name):
-            continue
-        payloads.append({
-            "nome": name,
-            "icone": sheet_cell(row, icon_index) if icon_index is not None else "",
-            "mercado": sheet_cell(row, market_index) if market_index is not None else "Aberto",
-            "preco_venda_para_familia": sheet_cell(row, sale_index) if sale_index is not None else "",
-            "preco_compra_da_familia": sheet_cell(row, purchase_index) if purchase_index is not None else "",
-            "flyer_url": sheet_cell(row, flyer_index) if flyer_index is not None else "",
-            "contato": sheet_cell(row, contact_index) if contact_index is not None else "",
-            "observacao": sheet_cell(row, observation_index) if observation_index is not None else "Importada da antiga aba Flyers.",
-        })
-    return payloads
 
 
 def build_family_row(data, registro_id=None, criado_em=None):
@@ -3290,7 +3242,7 @@ def health():
         "service": "kokusai-system",
         "version": APP_RELEASE,
         "persistent_storage": "bucket" if storage_bucket_configured() else ("unavailable" if IS_RAILWAY else "local-development"),
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     })
 
 
@@ -3405,7 +3357,7 @@ def upload_meta_room_photo():
                 f"O prazo desta meta terminou em {submission['week_end']} às 23:59. A quinta-feira é reservada para conferência.",
                 409,
             )
-        if on_time and submission["status"] in {"Pago", "Não pago"}:
+        if on_time and submission["status"] in META_REVIEWED_STATUSES:
             return error_response("Esta meta já foi revisada pela administração.", 409)
 
         current_photos = get_meta_photos(submission["id"])
@@ -3483,7 +3435,7 @@ def delete_meta_room_photo(photo_id):
                 return error_response("Fotos de semanas anteriores fazem parte do histórico e não podem ser removidas.", 409)
             if not meta_submission_uploads_open(photo) or get_meta_week_closure(photo["week_start"]):
                 return error_response("O prazo terminou na quarta-feira às 23:59 e as fotos estão bloqueadas para conferência.", 409)
-            if photo["status"] in {"Pago", "Não pago"}:
+            if photo["status"] in META_REVIEWED_STATUSES:
                 return error_response("Esta meta já foi revisada pela administração.", 409)
 
         delete_meta_photo_object(photo["object_key"])
@@ -3538,11 +3490,11 @@ def list_meta_rooms():
     try:
         week = get_admin_meta_week()
         rooms = meta_query_all(
-            """
+            f"""
             SELECT u.id AS user_id, u.username, u.display_name, s.id AS submission_id,
                    s.status, s.admin_note, s.submitted_at, s.reviewed_at, s.paid_late,
-                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
-                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count,
+                   {META_PHOTO_COUNT_SQL} AS photo_count,
+                   {META_LATE_PHOTO_COUNT_SQL} AS late_photo_count,
                    COALESCE(pr.apelido, '') AS apelido,
                    COALESCE(pr.avatar_version, 0) AS avatar_version,
                    CASE WHEN COALESCE(pr.thumb_b64, '') <> '' THEN 1 ELSE 0 END AS has_photo
@@ -3561,7 +3513,7 @@ def list_meta_rooms():
             room["consecutive_unpaid_weeks"] = streak
             room["payment_warning"] = streak >= 3
             with_meta_late_flag(room)
-        pending_reviews = sum(1 for room in rooms if room["status"] not in {"Pago", "Não pago"})
+        pending_reviews = sum(1 for room in rooms if room["status"] not in META_REVIEWED_STATUSES)
         week["pending_reviews"] = pending_reviews
         week["late_count"] = sum(1 for room in rooms if room["atrasado"])
         week["can_finalize"] = bool(week.get("review_mode") and pending_reviews == 0 and rooms)
@@ -3665,11 +3617,11 @@ def finalize_meta_week():
             return meta_week_log_response(existing_closure["log_text"], week_start)
 
         submissions = meta_query_all(
-            """
+            f"""
             SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at,
                    s.reviewed_at, s.reviewed_by, s.paid_late, u.display_name, u.username,
-                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
-                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count
+                   {META_PHOTO_COUNT_SQL} AS photo_count,
+                   {META_LATE_PHOTO_COUNT_SQL} AS late_photo_count
             FROM meta_submissions s
             JOIN meta_users u ON u.id = s.user_id
             WHERE s.week_start = ? AND u.role = 'member' AND u.active = 1
@@ -3685,7 +3637,7 @@ def finalize_meta_week():
         if not end_date or end_date >= now_local().date():
             return error_response(f"A semana só pode ser finalizada após {week_end} às 23:59.", 409)
 
-        pending = [row["display_name"] for row in submissions if row["status"] not in {"Pago", "Não pago"}]
+        pending = [row["display_name"] for row in submissions if row["status"] not in META_REVIEWED_STATUSES]
         if pending:
             preview = ", ".join(pending[:5])
             suffix = "..." if len(pending) > 5 else ""
@@ -3790,28 +3742,38 @@ def debug_config():
     })
 
 
+def get_families_by_id():
+    """Famílias cadastradas indexadas pelo id (usa o cache de leitura do Sheets)."""
+    family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, get_familias_worksheet())
+    return {
+        str(family.get("id") or "").strip(): family
+        for family in (normalize_family(row) for row in family_rows[1:])
+        if str(family.get("id") or "").strip()
+    }
+
+
+def attach_family_fields(record, families_by_id):
+    """Completa compra, venda ou encomenda com os dados atuais da família vinculada."""
+    family = families_by_id.get(str(record.get("familia_id") or "").strip())
+    if family:
+        record["familia_nome"] = family["nome"]
+        record["familia_icone"] = family.get("icone") or ""
+        record["familia_responsavel"] = family.get("responsavel_contato") or ""
+        record["familia_mercado"] = family.get("mercado") or "Aberto"
+    return record
+
+
 @app.get("/api/compras")
 @require_staff
 def list_compras():
     try:
         worksheet = get_compras_worksheet()
         rows = cached_get_all_values(COMPRAS_WORKSHEET_NAME, worksheet)
-        family_worksheet = get_familias_worksheet()
-        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
-        families_by_id = {
-            str(family.get("id") or "").strip(): family
-            for family in (normalize_family(row) for row in family_rows[1:])
-            if str(family.get("id") or "").strip()
-        }
+        families_by_id = get_families_by_id()
         compras = []
         for row in latest_data_rows(rows):
             compra = normalize_compra(row)
-            family = families_by_id.get(compra.get("familia_id"))
-            if family:
-                compra["familia_nome"] = family["nome"]
-                compra["familia_icone"] = family.get("icone") or ""
-                compra["familia_responsavel"] = family.get("responsavel_contato") or ""
-                compra["familia_mercado"] = family.get("mercado") or "Aberto"
+            attach_family_fields(compra, families_by_id)
             compras.append(compra)
         return jsonify(compras)
 
@@ -3995,22 +3957,11 @@ def list_vendas():
     try:
         worksheet = get_vendas_worksheet()
         rows = cached_get_all_values(VENDAS_WORKSHEET_NAME, worksheet)
-        family_worksheet = get_familias_worksheet()
-        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
-        families_by_id = {
-            str(family.get("id") or "").strip(): family
-            for family in (normalize_family(row) for row in family_rows[1:])
-            if str(family.get("id") or "").strip()
-        }
+        families_by_id = get_families_by_id()
         vendas = []
         for row in latest_data_rows(rows):
             venda = normalize_venda(row)
-            family = families_by_id.get(str(venda.get("familia_id") or "").strip())
-            if family:
-                venda["familia_nome"] = family["nome"]
-                venda["familia_icone"] = family.get("icone") or ""
-                venda["familia_responsavel"] = family.get("responsavel_contato") or ""
-                venda["familia_mercado"] = family.get("mercado") or "Aberto"
+            attach_family_fields(venda, families_by_id)
             vendas.append(venda)
         return jsonify(vendas)
 
@@ -4145,13 +4096,7 @@ def list_encomendas():
     try:
         worksheet = get_encomendas_worksheet()
         rows = cached_get_all_values(ENCOMENDAS_WORKSHEET_NAME, worksheet)
-        family_worksheet = get_familias_worksheet()
-        family_rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, family_worksheet)
-        families_by_id = {
-            str(family.get("id") or "").strip(): family
-            for family in (normalize_family(row) for row in family_rows[1:])
-            if str(family.get("id") or "").strip()
-        }
+        families_by_id = get_families_by_id()
         orders = []
         for row in latest_data_rows(rows):
             order = normalize_encomenda(row)
@@ -4160,12 +4105,7 @@ def list_encomendas():
             # virar venda; este filtro também corrige os registros legados.
             if order["entregue"] == "Sim":
                 continue
-            family = families_by_id.get(str(order.get("familia_id") or "").strip())
-            if family:
-                order["familia_nome"] = family["nome"]
-                order["familia_icone"] = family.get("icone") or ""
-                order["familia_responsavel"] = family.get("responsavel_contato") or ""
-                order["familia_mercado"] = family.get("mercado") or "Aberto"
+            attach_family_fields(order, families_by_id)
             orders.append(order)
         orders.sort(key=encomenda_sort_key)
         return jsonify(orders)
@@ -5100,16 +5040,7 @@ def clean_plain_text(value, label, max_length, required=False):
 def store_bau_photo(upload, month):
     image_bytes = prepare_image_upload(upload, "foto")
     object_key = f"bau/{month}/{uuid.uuid4().hex}.webp"
-    client = get_storage_client()
-    if client:
-        client.put_object(Bucket=META_BUCKET_NAME, Key=object_key, Body=image_bytes, ContentType="image/webp")
-    else:
-        if IS_RAILWAY:
-            raise RuntimeError("Bucket de fotos não configurado no Railway.")
-        local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/"))
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        with open(local_path, "wb") as file_handle:
-            file_handle.write(image_bytes)
+    write_webp_object(object_key, image_bytes)
     return {
         "object_key": object_key,
         "original_name": os.path.basename(upload.filename or "")[:180] or "imagem",
