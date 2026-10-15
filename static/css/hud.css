@@ -1146,6 +1146,26 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
 .meta-payment-warning p{margin:3px 0 0;color:#d7aab0;font-size:.8rem;line-height:1.45}
 .admin-payment-warning{margin-top:-2px}
 
+/* Meta paga com atraso: sempre em vermelho e explícita */
+.meta-late-badge{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:6px;background:var(--laca);color:#fff;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+.meta-late-badge[hidden]{display:none}
+.meta-late-tag{display:inline-block;margin-left:4px;padding:1px 6px;border-radius:5px;background:rgba(184,24,47,.22);color:#ffc2ca;font-size:.68rem;font-style:normal;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.meta-status-badge.paid-late{color:#ffd5da;background:rgba(184,24,47,.2)}
+.member-status-stack{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.meta-late-banner{display:flex;align-items:center;gap:12px;margin:0 0 12px;padding:14px 16px;border:1px solid var(--laca-hi);border-radius:var(--r-md);background:linear-gradient(100deg,rgba(184,24,47,.34),rgba(184,24,47,.1));color:#ffe4e7}
+.meta-late-banner[hidden]{display:none}
+.meta-late-banner>div{flex:1;min-width:0}
+.meta-late-banner strong{display:block;color:#fff;font-size:.95rem}
+.meta-late-banner p{margin:3px 0 0;color:#ffd5da;font-size:.84rem;line-height:1.45}
+.meta-late-banner .primary-btn{flex:0 0 auto}
+.meta-room-list-item.is-late{box-shadow:inset 3px 0 0 var(--laca-hi)}
+.admin-meta-photo-grid a.is-late{border-color:var(--laca-hi)}
+.member-upload-zone.late-mode{border-color:var(--laca-hi);background:rgba(184,24,47,.08)}
+.meta-review-actions{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.meta-review-late{border:1px solid var(--laca-hi);background:rgba(184,24,47,.14);color:#ffd5da}
+.meta-review-late:hover{background:rgba(184,24,47,.24)}
+@media (max-width:640px){.meta-late-banner{flex-wrap:wrap}.meta-late-banner .primary-btn{width:100%}.member-status-stack{align-items:flex-start}}
+
 /* Gerenciar membros */
 .meta-members-note{color:var(--ash);font-size:.86rem}
 .meta-members-subtitle{color:var(--ash);font-size:.8rem;font-weight:500;letter-spacing:0;text-transform:none}
