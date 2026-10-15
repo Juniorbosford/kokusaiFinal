@@ -28,7 +28,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.07-fotos-perfil"
+APP_RELEASE = "2026.10.15-meta-atrasada"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -400,7 +400,15 @@ def meta_db_uses_postgres():
     return bool(META_DATABASE_URL)
 
 
-# Colunas acrescentadas depois que a tabela já existia em produção.
+# Colunas acrescentadas depois que as tabelas já existiam em produção.
+# Pagamento com atraso: a foto enviada depois do prazo fica marcada (late) e o admin
+# pode confirmar "Pago com atraso" (paid_late) mesmo sem foto.
+META_SUBMISSION_EXTRA_COLUMNS = {
+    "paid_late": "INTEGER NOT NULL DEFAULT 0",
+}
+META_PHOTO_EXTRA_COLUMNS = {
+    "late": "INTEGER NOT NULL DEFAULT 0",
+}
 BAU_EXTRA_COLUMNS = {
     "responsavel": "TEXT NOT NULL DEFAULT ''",
     "arquivado": "INTEGER NOT NULL DEFAULT 0",
@@ -884,6 +892,8 @@ def ensure_meta_database_ready():
             for statement in statements:
                 cursor.execute(statement)
             ensure_table_columns(cursor, "bau_registros", BAU_EXTRA_COLUMNS)
+            ensure_table_columns(cursor, "meta_submissions", META_SUBMISSION_EXTRA_COLUMNS)
+            ensure_table_columns(cursor, "meta_photos", META_PHOTO_EXTRA_COLUMNS)
 
             created_at = format_timestamp()
             # META_MEMBERS_JSON só CADASTRA quem ainda não existe no banco. Quem entra e quem
@@ -993,17 +1003,48 @@ def get_current_meta_submission(user_id):
 def get_meta_submission(user_id, week_start):
     return meta_query_one(
         """
-        SELECT id, user_id, week_start, week_end, status, admin_note, submitted_at, reviewed_at, reviewed_by, created_at
-        FROM meta_submissions WHERE user_id = ? AND week_start = ?
+        SELECT s.id, s.user_id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at,
+               s.reviewed_at, s.reviewed_by, s.created_at, s.paid_late,
+               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count
+        FROM meta_submissions s WHERE s.user_id = ? AND s.week_start = ?
         """,
         (user_id, week_start),
+    )
+
+
+def meta_submission_is_late(submission):
+    """Atrasada quando houve comprovante depois do prazo ou o admin confirmou "Pago com atraso"."""
+    return bool(int(submission.get("paid_late") or 0) or int(submission.get("late_photo_count") or 0))
+
+
+def with_meta_late_flag(row):
+    row["atrasado"] = meta_submission_is_late(row)
+    return row
+
+
+def get_meta_late_payment_week():
+    """Semana vencida e ainda não finalizada (a mesma que o admin está conferindo).
+
+    É a única semana que aceita pagamento com atraso: depois que o admin finaliza,
+    os resultados ficam bloqueados como antes.
+    """
+    week = get_admin_meta_week()
+    return week if week.get("review_mode") else None
+
+
+def meta_submission_accepts_late_payment(submission, late_week):
+    return bool(
+        submission
+        and late_week
+        and submission.get("week_start") == late_week["semana_inicio"]
+        and submission.get("status") != "Pago"
     )
 
 
 def get_meta_photos(submission_id):
     return meta_query_all(
         """
-        SELECT id, submission_id, user_id, object_key, original_name, content_type, size_bytes, created_at
+        SELECT id, submission_id, user_id, object_key, original_name, content_type, size_bytes, created_at, late
         FROM meta_photos WHERE submission_id = ? ORDER BY created_at ASC
         """,
         (submission_id,),
@@ -1012,10 +1053,11 @@ def get_meta_photos(submission_id):
 
 def get_meta_room_history(user_id, exclude_week_start=None, limit=12):
     excluded_week = exclude_week_start or meta_week_payload()["semana_inicio"]
-    return meta_query_all(
+    history = meta_query_all(
         """
-        SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at, s.reviewed_at,
-               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count
+        SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at, s.reviewed_at, s.paid_late,
+               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
+               (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count
         FROM meta_submissions s
         WHERE s.user_id = ? AND s.week_start <> ?
         ORDER BY substr(s.week_start, 7, 4) || substr(s.week_start, 4, 2) || substr(s.week_start, 1, 2) DESC
@@ -1023,6 +1065,7 @@ def get_meta_room_history(user_id, exclude_week_start=None, limit=12):
         """,
         (user_id, excluded_week, int(limit)),
     )
+    return [with_meta_late_flag(row) for row in history]
 
 
 def get_meta_unpaid_streaks():
@@ -1211,6 +1254,7 @@ def serialize_meta_photo(photo):
         "content_type": photo["content_type"],
         "size_bytes": int(photo["size_bytes"] or 0),
         "created_at": photo["created_at"],
+        "atrasada": bool(int(photo.get("late") or 0)),
         "url": meta_photo_access_url(photo),
     }
 
@@ -3254,12 +3298,14 @@ def build_meta_room_payload(user_id, week_start=None):
     member = get_meta_member_by_id(user_id)
     if not member:
         raise ValueError("Membro não encontrado.")
+    current_submission = get_current_meta_submission(user_id)
     if week_start:
         submission = get_meta_submission(user_id, week_start)
     else:
-        submission = get_current_meta_submission(user_id)
+        submission = current_submission
     if not submission:
         raise ValueError("Sala semanal não encontrada.")
+    with_meta_late_flag(submission)
     photos = get_meta_photos(submission["id"])
     profile = get_member_profile(user_id)
     history = get_meta_room_history(user_id, exclude_week_start=submission["week_start"])
@@ -3267,6 +3313,19 @@ def build_meta_room_payload(user_id, week_start=None):
     schedule = meta_week_payload(start_date) if start_date else {}
     closure = get_meta_week_closure(submission["week_start"])
     uploads_open = meta_submission_uploads_open(submission) and not closure
+    late_week = get_meta_late_payment_week()
+    late_uploads_open = not uploads_open and meta_submission_accepts_late_payment(submission, late_week)
+    # Semana vencida em que o membro ainda pode pagar com atraso, quando não é a que está aberta na tela.
+    pending_late_week = None
+    if late_week and late_week["semana_inicio"] != submission["week_start"]:
+        late_submission = get_meta_submission(user_id, late_week["semana_inicio"])
+        if meta_submission_accepts_late_payment(late_submission, late_week):
+            pending_late_week = {
+                "week_start": late_submission["week_start"],
+                "week_end": late_submission["week_end"],
+                "status": late_submission["status"],
+                "atrasado": meta_submission_is_late(late_submission),
+            }
     unpaid_streak = int(get_meta_unpaid_streaks().get(user_id, 0))
     return {
         "member": {
@@ -3281,8 +3340,11 @@ def build_meta_room_payload(user_id, week_start=None):
         "schedule": {
             **schedule,
             "envios_abertos": uploads_open,
+            "envio_atrasado": late_uploads_open,
             "closed": bool(closure),
         },
+        "current_week_start": current_submission["week_start"] if current_submission else None,
+        "late_week": pending_late_week,
         "photos": [serialize_meta_photo(photo) for photo in photos],
         "history": history,
         "payment_monitor": {
@@ -3308,7 +3370,13 @@ def meta_room():
 def current_meta_room():
     try:
         user = get_current_user()
-        response = jsonify(build_meta_room_payload(user["user_id"]))
+        week_start = str(request.args.get("week_start") or "").strip()
+        if week_start and week_start != meta_week_payload()["semana_inicio"]:
+            # Fora a semana atual, o membro só abre a semana que ainda aceita pagamento com atraso.
+            late_week = get_meta_late_payment_week()
+            if not late_week or late_week["semana_inicio"] != week_start:
+                return error_response("Esta semana não está disponível para envio.", 404)
+        response = jsonify(build_meta_room_payload(user["user_id"], week_start=week_start or None))
         # As URLs das fotos são temporárias e a quantidade muda após cada
         # envio; esta resposta nunca deve ser reutilizada pelo navegador.
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -3325,12 +3393,19 @@ def upload_meta_room_photo():
     try:
         user = get_current_user()
         submission = get_current_meta_submission(user["user_id"])
-        if not meta_submission_uploads_open(submission) or get_meta_week_closure(submission["week_start"]):
+        week_start = str(request.form.get("week_start") or "").strip()
+        if week_start and week_start != submission["week_start"]:
+            submission = get_meta_submission(user["user_id"], week_start)
+            if not submission:
+                return error_response("Sala semanal não encontrada.", 404)
+        on_time = meta_submission_uploads_open(submission) and not get_meta_week_closure(submission["week_start"])
+        is_late = not on_time and meta_submission_accepts_late_payment(submission, get_meta_late_payment_week())
+        if not on_time and not is_late:
             return error_response(
                 f"O prazo desta meta terminou em {submission['week_end']} às 23:59. A quinta-feira é reservada para conferência.",
                 409,
             )
-        if submission["status"] in {"Pago", "Não pago"}:
+        if on_time and submission["status"] in {"Pago", "Não pago"}:
             return error_response("Esta meta já foi revisada pela administração.", 409)
 
         current_photos = get_meta_photos(submission["id"])
@@ -3344,12 +3419,14 @@ def upload_meta_room_photo():
         try:
             meta_execute(
                 """
-                INSERT INTO meta_photos (id, submission_id, user_id, object_key, original_name, content_type, size_bytes, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO meta_photos (
+                    id, submission_id, user_id, object_key, original_name, content_type, size_bytes, created_at, late
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     photo_id, submission["id"], user["user_id"], stored["object_key"], stored["original_name"],
-                    stored["content_type"], stored["size_bytes"], created_at,
+                    stored["content_type"], stored["size_bytes"], created_at, 1 if is_late else 0,
                 ),
             )
         except Exception:
@@ -3363,7 +3440,11 @@ def upload_meta_room_photo():
         photos = get_meta_photos(submission["id"])
         response = jsonify({
             "ok": True,
-            "message": "Foto enviada para sua sala com sucesso.",
+            "message": (
+                "Comprovante enviado com atraso. A administração verá esta meta marcada como ATRASADA."
+                if is_late else "Foto enviada para sua sala com sucesso."
+            ),
+            "atrasado": is_late,
             "photo_id": photo_id,
             "photos": [serialize_meta_photo(photo) for photo in photos],
         })
@@ -3383,7 +3464,7 @@ def delete_meta_room_photo(photo_id):
         user = get_current_user()
         photo = meta_query_one(
             """
-            SELECT p.id, p.object_key, p.submission_id, p.user_id, s.status, s.week_start, s.week_end
+            SELECT p.id, p.object_key, p.submission_id, p.user_id, p.late, s.status, s.week_start, s.week_end
             FROM meta_photos p JOIN meta_submissions s ON s.id = p.submission_id
             WHERE p.id = ? AND p.user_id = ?
             """,
@@ -3391,13 +3472,19 @@ def delete_meta_room_photo(photo_id):
         )
         if not photo:
             return error_response("Foto não encontrada na sua sala.", 404)
-        current_week = meta_week_payload()["semana_inicio"]
-        if photo["week_start"] != current_week:
-            return error_response("Fotos de semanas anteriores fazem parte do histórico e não podem ser removidas.", 409)
-        if not meta_submission_uploads_open(photo) or get_meta_week_closure(photo["week_start"]):
-            return error_response("O prazo terminou na quarta-feira às 23:59 e as fotos estão bloqueadas para conferência.", 409)
-        if photo["status"] in {"Pago", "Não pago"}:
-            return error_response("Esta meta já foi revisada pela administração.", 409)
+        # Comprovante enviado com atraso pode ser trocado enquanto a semana não for paga nem finalizada.
+        # Os enviados dentro do prazo continuam bloqueados depois de quarta-feira.
+        removable_late_photo = bool(int(photo.get("late") or 0)) and meta_submission_accepts_late_payment(
+            photo, get_meta_late_payment_week()
+        )
+        if not removable_late_photo:
+            current_week = meta_week_payload()["semana_inicio"]
+            if photo["week_start"] != current_week:
+                return error_response("Fotos de semanas anteriores fazem parte do histórico e não podem ser removidas.", 409)
+            if not meta_submission_uploads_open(photo) or get_meta_week_closure(photo["week_start"]):
+                return error_response("O prazo terminou na quarta-feira às 23:59 e as fotos estão bloqueadas para conferência.", 409)
+            if photo["status"] in {"Pago", "Não pago"}:
+                return error_response("Esta meta já foi revisada pela administração.", 409)
 
         delete_meta_photo_object(photo["object_key"])
         meta_execute("DELETE FROM meta_photos WHERE id = ?", (photo_id,))
@@ -3410,7 +3497,8 @@ def delete_meta_room_photo(photo_id):
                 "UPDATE meta_submissions SET status = 'Pendente', submitted_at = NULL WHERE id = ?",
                 (photo["submission_id"],),
             )
-        return jsonify({"ok": True, "message": "Foto removida da semana atual."})
+        message = "Comprovante atrasado removido." if removable_late_photo else "Foto removida da semana atual."
+        return jsonify({"ok": True, "message": message})
     except Exception as error:
         log_error("Falha ao remover foto da sala de meta", error)
         return error_response(str(error))
@@ -3452,8 +3540,9 @@ def list_meta_rooms():
         rooms = meta_query_all(
             """
             SELECT u.id AS user_id, u.username, u.display_name, s.id AS submission_id,
-                   s.status, s.admin_note, s.submitted_at, s.reviewed_at,
+                   s.status, s.admin_note, s.submitted_at, s.reviewed_at, s.paid_late,
                    (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
+                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count,
                    COALESCE(pr.apelido, '') AS apelido,
                    COALESCE(pr.avatar_version, 0) AS avatar_version,
                    CASE WHEN COALESCE(pr.thumb_b64, '') <> '' THEN 1 ELSE 0 END AS has_photo
@@ -3471,8 +3560,10 @@ def list_meta_rooms():
             streak = int(unpaid_streaks.get(room["user_id"], 0))
             room["consecutive_unpaid_weeks"] = streak
             room["payment_warning"] = streak >= 3
+            with_meta_late_flag(room)
         pending_reviews = sum(1 for room in rooms if room["status"] not in {"Pago", "Não pago"})
         week["pending_reviews"] = pending_reviews
+        week["late_count"] = sum(1 for room in rooms if room["atrasado"])
         week["can_finalize"] = bool(week.get("review_mode") and pending_reviews == 0 and rooms)
         return jsonify({"week": week, "rooms": rooms})
     except Exception as error:
@@ -3522,20 +3613,24 @@ def review_meta_room(submission_id):
         # confirmar um pagamento verificado por outro meio.
 
         note = clean_text(data.get("admin_note"), "Observação do admin", max_length=500, required=False)
+        # "Pago com atraso" é Pago + paid_late; vale também para pagamento confirmado sem foto.
+        paid_late = 1 if status == "Pago" and data.get("atrasado") is True else 0
         reviewed_at = format_timestamp()
         admin = get_current_user()
         meta_execute(
             """
             UPDATE meta_submissions
-            SET status = ?, admin_note = ?, reviewed_at = ?, reviewed_by = ?
+            SET status = ?, admin_note = ?, reviewed_at = ?, reviewed_by = ?, paid_late = ?
             WHERE id = ?
             """,
-            (status, note, reviewed_at, admin["username"], submission_id),
+            (status, note, reviewed_at, admin["username"], paid_late, submission_id),
         )
+        label = "Pago com atraso" if paid_late else status
         return jsonify({
             "ok": True,
-            "message": f"Meta marcada como {status}.",
+            "message": f"Meta marcada como {label}.",
             "status": status,
+            "atrasado": bool(paid_late),
             "reviewed_at": reviewed_at,
         })
     except ValueError as error:
@@ -3572,8 +3667,9 @@ def finalize_meta_week():
         submissions = meta_query_all(
             """
             SELECT s.id, s.week_start, s.week_end, s.status, s.admin_note, s.submitted_at,
-                   s.reviewed_at, s.reviewed_by, u.display_name, u.username,
-                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count
+                   s.reviewed_at, s.reviewed_by, s.paid_late, u.display_name, u.username,
+                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id) AS photo_count,
+                   (SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1) AS late_photo_count
             FROM meta_submissions s
             JOIN meta_users u ON u.id = s.user_id
             WHERE s.week_start = ? AND u.role = 'member' AND u.active = 1
@@ -3602,6 +3698,7 @@ def finalize_meta_week():
         admin = get_current_user()
         paid_count = sum(1 for row in submissions if row["status"] == "Pago")
         unpaid_count = len(submissions) - paid_count
+        paid_late_count = sum(1 for row in submissions if row["status"] == "Pago" and meta_submission_is_late(row))
         schedule = meta_week_payload(start_date)
         lines = [
             "KOKUSAI - LOG DE FECHAMENTO DAS METAS",
@@ -3615,6 +3712,7 @@ def finalize_meta_week():
             "RESUMO",
             f"Total de membros: {len(submissions)}",
             f"Pagaram: {paid_count}",
+            f"Pagaram com atraso: {paid_late_count}",
             f"Não pagaram: {unpaid_count}",
             "",
             "DETALHAMENTO",
@@ -3622,9 +3720,14 @@ def finalize_meta_week():
         ]
         for index, row in enumerate(submissions, start=1):
             note = " ".join(str(row.get("admin_note") or "").split()) or "Sem observação"
+            late = meta_submission_is_late(row)
+            result = "PAGO COM ATRASO" if late and row["status"] == "Pago" else str(row["status"]).upper()
+            late_photos = int(row.get("late_photo_count") or 0)
             lines.extend([
                 f"{index:02d}. {row['display_name']} (@{row['username']})",
-                f"    Resultado: {str(row['status']).upper()}",
+                f"    Resultado: {result}",
+                f"    Atrasada: {'SIM' if late else 'Não'}"
+                + (f" ({late_photos} foto(s) enviada(s) após o prazo)" if late_photos else ""),
                 f"    Fotos enviadas: {int(row['photo_count'] or 0)}",
                 f"    Enviado em: {row['submitted_at'] or 'Não enviou comprovante'}",
                 f"    Revisado em: {row['reviewed_at'] or 'Não informado'}",

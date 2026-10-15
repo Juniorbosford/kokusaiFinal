@@ -1,4 +1,20 @@
-# KOKUSAI — Fotos de perfil no painel 2026.10.07
+# KOKUSAI — Pagamento de meta com atraso 2026.10.15
+
+Identificador: `2026.10.15-meta-atrasada`
+
+Esta versão inclui:
+
+- Membros podem pagar a meta mesmo depois do prazo de quarta-feira às 23:59, enquanto o `kokusai` não finalizar a semana. Na quinta a sala aceita o envio direto; a partir de sexta aparece o aviso vermelho **Meta em atraso** com o botão **Pagar com atraso**.
+- Na hora de fechar a semana, quem pagou com atraso aparece com o selo vermelho **ATRASADA** na lista de salas e um aviso vermelho dentro da sala, com quantos comprovantes chegaram depois do prazo. O resumo da conferência mostra quantas metas estão atrasadas.
+- Novo botão **Pago com atraso** na conferência (também serve para pagamento confirmado sem foto).
+- O log TXT do fechamento mostra "PAGO COM ATRASO", a linha "Atrasada" de cada pessoa e o total "Pagaram com atraso".
+- Banco: `meta_submissions` ganha `paid_late` e `meta_photos` ganha `late` (as duas com padrão 0), criadas sozinhas no primeiro start. Nada existente é alterado.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.15-meta-atrasada"`.
+
+---
+
+# Versão anterior — Fotos de perfil no painel (`2026.10.07-fotos-perfil`)
 
 Identificador: `2026.10.07-fotos-perfil`
 

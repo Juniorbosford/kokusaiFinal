@@ -2132,6 +2132,12 @@ function metaStatusClass(status){
   return "pending";
 }
 
+function metaStatusLabel(item){
+  return item?.status === "Pago" && item?.atrasado ? "Pago com atraso" : (item?.status || "Pendente");
+}
+
+const META_LATE_TAG = '<em class="meta-late-tag">Atrasada</em>';
+
 function renderMetaRooms(){
   if(!metaRoomsGrid) return;
   const term = String(metaRoomsSearch?.value || "").trim().toLocaleLowerCase("pt-BR");
@@ -2146,10 +2152,10 @@ function renderMetaRooms(){
       ? `<small class="meta-payment-alert" title="${unpaidStreak} semanas consecutivas sem meta paga">! ${unpaidStreak} semanas</small>`
       : "";
     return `
-    <button type="button" class="meta-room-list-item ${room.user_id === selectedMetaRoomUserId ? "active" : ""} ${room.payment_warning ? "has-payment-warning" : ""}" data-meta-room-user="${escapeHtml(room.user_id)}">
+    <button type="button" class="meta-room-list-item ${room.user_id === selectedMetaRoomUserId ? "active" : ""} ${room.payment_warning ? "has-payment-warning" : ""} ${room.atrasado ? "is-late" : ""}" data-meta-room-user="${escapeHtml(room.user_id)}">
       <span class="meta-room-avatar">${room.avatar ? personAvatarImg(room.avatar, "") : escapeHtml(String(room.display_name || "?").slice(0, 1).toUpperCase())}</span>
       <span class="meta-room-person"><strong>${escapeHtml(room.display_name)}</strong><small>@${escapeHtml(room.username)}</small></span>
-      <span class="meta-room-list-info"><span class="meta-status-badge ${metaStatusClass(room.status)}">${escapeHtml(room.status)}</span><small>${integer(room.photo_count || 0)} foto(s)</small>${paymentAlert}</span>
+      <span class="meta-room-list-info"><span class="meta-status-badge ${metaStatusClass(room.status)}">${escapeHtml(metaStatusLabel(room))}</span>${room.atrasado ? '<span class="meta-late-badge">Atrasada</span>' : ""}<small>${integer(room.photo_count || 0)} foto(s)</small>${paymentAlert}</span>
     </button>`;
   }).join("");
 }
@@ -2168,18 +2174,24 @@ async function loadMetaRoomDetail(userId){
     const photos = Array.isArray(data.photos) ? data.photos : [];
     const history = Array.isArray(data.history) ? data.history : [];
     const photosHtml = photos.length
-      ? `<div class="admin-meta-photo-grid">${photos.map((photo, index) => `<a href="${escapeHtml(photo.url)}" target="_blank" rel="noopener"><img src="${escapeHtml(photo.url)}" alt="Comprovante ${index + 1} de ${escapeHtml(data.member.display_name)}" /><span>Foto ${index + 1}</span></a>`).join("")}</div>`
+      ? `<div class="admin-meta-photo-grid">${photos.map((photo, index) => `<a href="${escapeHtml(photo.url)}" target="_blank" rel="noopener" class="${photo.atrasada ? "is-late" : ""}"><img src="${escapeHtml(photo.url)}" alt="Comprovante ${index + 1} de ${escapeHtml(data.member.display_name)}" /><span>Foto ${index + 1}${photo.atrasada ? ` ${META_LATE_TAG}` : ""}</span></a>`).join("")}</div>`
       : '<div class="meta-empty-state compact">Nenhuma foto enviada nesta semana.</div>';
     const historyHtml = history.length
-      ? history.map(item => `<tr><td>${escapeHtml(item.week_start)} até ${escapeHtml(item.week_end)}</td><td>${integer(item.photo_count || 0)}</td><td><span class="meta-status-badge ${metaStatusClass(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.reviewed_at || "—")}</td></tr>`).join("")
+      ? history.map(item => `<tr><td>${escapeHtml(item.week_start)} até ${escapeHtml(item.week_end)}</td><td>${integer(item.photo_count || 0)}</td><td><span class="meta-status-badge ${metaStatusClass(item.status)}">${escapeHtml(metaStatusLabel(item))}</span>${item.atrasado ? ` ${META_LATE_TAG}` : ""}</td><td>${escapeHtml(item.reviewed_at || "—")}</td></tr>`).join("")
       : '<tr><td colspan="4">Nenhum histórico ainda.</td></tr>';
     const unpaidStreak = integer(data.payment_monitor?.consecutive_unpaid_weeks || 0);
     const paymentWarningHtml = data.payment_monitor?.warning
       ? `<aside class="meta-payment-warning admin-payment-warning"><span class="meta-payment-warning-icon" aria-hidden="true">!</span><div><strong>Atenção: ${unpaidStreak} semanas sem meta paga</strong><p>O aviso considera somente semanas já finalizadas e consecutivas.</p></div></aside>`
       : "";
+    const latePhotos = photos.filter(photo => photo.atrasada).length;
+    const lateWarningHtml = submission.atrasado
+      ? `<aside class="meta-late-banner admin-late-banner" role="alert"><span class="meta-payment-warning-icon" aria-hidden="true">!</span><div><strong>Meta atrasada nesta semana</strong><p>${latePhotos
+          ? `${integer(latePhotos)} comprovante(s) enviado(s) depois do prazo de ${escapeHtml(submission.week_end)} às 23:59.`
+          : "Pagamento confirmado pela administração depois do prazo."}</p></div></aside>`
+      : "";
     const reviewAllowed = Boolean(activeMetaWeek?.review_mode && !activeMetaWeek?.closed);
     const reviewPanel = reviewAllowed
-      ? `<div class="meta-review-panel"><label for="metaAdminNote">Observação para o membro</label><textarea id="metaAdminNote" placeholder="Opcional: orientação ou justificativa">${escapeHtml(submission.admin_note || "")}</textarea><div class="meta-review-actions"><button type="button" class="meta-review-paid" data-meta-review="Pago" data-submission-id="${escapeHtml(submission.id)}">✓ Marcar pago</button><button type="button" class="meta-review-rejected" data-meta-review="Não pago" data-submission-id="${escapeHtml(submission.id)}">✕ Marcar não pago</button><button type="button" class="meta-review-pending" data-meta-review="Pendente" data-submission-id="${escapeHtml(submission.id)}">Voltar para pendente</button></div></div>`
+      ? `<div class="meta-review-panel"><label for="metaAdminNote">Observação para o membro</label><textarea id="metaAdminNote" placeholder="Opcional: orientação ou justificativa">${escapeHtml(submission.admin_note || "")}</textarea><div class="meta-review-actions"><button type="button" class="meta-review-paid" data-meta-review="Pago" data-submission-id="${escapeHtml(submission.id)}">✓ Marcar pago</button><button type="button" class="meta-review-late" data-meta-review="Pago" data-meta-late="1" data-submission-id="${escapeHtml(submission.id)}">✓ Pago com atraso</button><button type="button" class="meta-review-rejected" data-meta-review="Não pago" data-submission-id="${escapeHtml(submission.id)}">✕ Marcar não pago</button><button type="button" class="meta-review-pending" data-meta-review="Pendente" data-submission-id="${escapeHtml(submission.id)}">Voltar para pendente</button></div></div>`
       : `<div class="meta-empty-state compact">${activeMetaWeek?.closed ? "Esta semana já foi finalizada e está bloqueada." : "A conferência será liberada após quarta-feira às 23:59."}</div>`;
 
     metaRoomDetail.innerHTML = `
@@ -2188,8 +2200,9 @@ async function loadMetaRoomDetail(userId){
           <span class="meta-detail-avatar">${data.member.avatar ? personAvatarImg(data.member.avatar, "") : escapeHtml(String(data.member.display_name || "?").slice(0, 1).toUpperCase())}</span>
           <div><p class="panel-kicker">Sala individual</p><h3>${escapeHtml(data.member.display_name)}</h3><small>@${escapeHtml(data.member.username)}${data.member.apelido ? ` · ${escapeHtml(data.member.apelido)}` : ""}</small></div>
         </div>
-        <span class="meta-status-badge ${metaStatusClass(submission.status)}">${escapeHtml(submission.status || "Pendente")}</span>
+        <span class="meta-status-badge ${metaStatusClass(submission.status)}">${escapeHtml(metaStatusLabel(submission))}</span>
       </div>
+      ${lateWarningHtml}
       ${paymentWarningHtml}
       <div class="meta-detail-week"><span>Semana</span><strong>${escapeHtml(submission.week_start)} até ${escapeHtml(submission.week_end)}</strong><small>${integer(photos.length)} foto(s) enviada(s)</small></div>
       ${photosHtml}
@@ -2224,14 +2237,17 @@ function openMetaReviewConfirm(button, status){
   const member = metaRoomsCache.find(room => room.user_id === selectedMetaRoomUserId);
   const memberName = member?.display_name || "esta pessoa";
   const isPaid = status === "Pago";
+  const isLate = isPaid && button.dataset.metaLate === "1";
   pendingMetaReview = {button, status};
   metaConfirmPreviousFocus = document.activeElement;
   metaReviewConfirm.dataset.status = isPaid ? "paid" : "unpaid";
   if(metaReviewConfirmIcon) metaReviewConfirmIcon.textContent = isPaid ? "✓" : "!";
-  metaReviewConfirmTitle.textContent = isPaid ? "Confirmar meta paga?" : "Confirmar meta não paga?";
-  metaReviewConfirmText.textContent = isPaid
-    ? `${memberName} ficará como pago nesta semana.`
-    : `${memberName} ficará como não pago nesta semana.`;
+  metaReviewConfirmTitle.textContent = isLate ? "Confirmar meta paga com atraso?" : isPaid ? "Confirmar meta paga?" : "Confirmar meta não paga?";
+  metaReviewConfirmText.textContent = isLate
+    ? `${memberName} ficará como pago com atraso nesta semana, marcado em vermelho no fechamento.`
+    : isPaid
+      ? `${memberName} ficará como pago nesta semana.`
+      : `${memberName} ficará como não pago nesta semana.`;
   metaReviewConfirmSubmit.textContent = isPaid ? "Confirmar pagamento" : "Confirmar não pagamento";
   metaReviewConfirm.hidden = false;
   requestAnimationFrame(() => metaReviewConfirmSubmit.focus());
@@ -2245,7 +2261,7 @@ async function submitMetaReview(button, status){
     const {res, data} = await fetchJson(`/api/meta-rooms/${encodeURIComponent(button.dataset.submissionId)}/status`, {
       method:"POST",
       headers:csrfHeaders({"Content-Type":"application/json"}),
-      body:JSON.stringify({status, admin_note:inputValue("metaAdminNote").trim()}),
+      body:JSON.stringify({status, atrasado:button.dataset.metaLate === "1", admin_note:inputValue("metaAdminNote").trim()}),
     });
     setFeedback(metasFeedback, data.message || (res.ok ? "Status atualizado." : "Erro ao revisar meta."), !res.ok);
     if(res.ok){
@@ -2348,7 +2364,9 @@ async function loadMetas(){
       if(data.week?.closed){
         metaCycleStatus.textContent = `Semana finalizada em ${data.week.closure?.closed_at || "--"} por ${data.week.closure?.closed_by || "admin"}`;
       }else if(data.week?.review_mode){
-        metaCycleStatus.textContent = pendingReviews ? `Conferência aberta: faltam revisar ${pendingReviews} pessoa(s)` : "Conferência concluída: semana pronta para finalizar";
+        const lateCount = integer(data.week?.late_count || 0);
+        const lateNote = data.week?.late_count ? ` • ${lateCount} meta(s) atrasada(s)` : "";
+        metaCycleStatus.textContent = (pendingReviews ? `Conferência aberta: faltam revisar ${pendingReviews} pessoa(s)` : "Conferência concluída: semana pronta para finalizar") + lateNote;
       }else{
         metaCycleStatus.textContent = "Período aberto para envio dos comprovantes";
       }

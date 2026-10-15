@@ -73,6 +73,9 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - As fotos permanecem no Bucket após atualizações e deploys e continuam disponíveis no histórico semanal.
 - Membros podem selecionar, arrastar ou colar imagens copiadas com `Ctrl + V`, conferindo as prévias antes do envio.
 - Cada membro pode manter até **10 fotos por semana**.
+- **Pagamento com atraso:** depois do prazo de quarta-feira, o membro ainda pode enviar o comprovante enquanto o `kokusai` não finalizar aquela semana e ela não estiver marcada como `Pago`. Na quinta, a própria sala aceita o envio atrasado; a partir de sexta, a sala mostra um aviso vermelho "Meta em atraso" com o botão **Pagar com atraso**, que abre a semana vencida. Quem já tinha sido marcado `Não pago` e envia com atraso volta para `Enviado` e precisa ser revisado de novo.
+- Na conferência, a sala com comprovante atrasado aparece com o selo vermelho **ATRASADA** na lista e um aviso vermelho dentro da sala. O administrador também pode usar **Pago com atraso** para um pagamento confirmado por outro meio depois do prazo. O log TXT do fechamento traz "PAGO COM ATRASO", a linha "Atrasada" de cada pessoa e o total "Pagaram com atraso". Pago com atraso conta como pago no aviso de semanas sem pagamento.
+- Comprovantes enviados com atraso podem ser removidos pelo membro até a semana ser paga ou finalizada; os enviados dentro do prazo continuam bloqueados.
 - Depois de **3 semanas finalizadas consecutivas** com resultado `Não pago`, o sistema exibe um aviso na sala individual e no painel do administrador.
 - Quem entra e quem sai da equipe é decidido no painel (aba Salas de Meta → **Gerenciar membros**). Remover desativa o acesso sem apagar histórico, fotos ou logs, e dá para reativar.
 
