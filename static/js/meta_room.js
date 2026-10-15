@@ -266,6 +266,9 @@ async function loadMemberRoom(weekStart = viewingWeekStart){
     }else if(locked){
       if(data.schedule?.closed){
         memberFeedback("Esta semana foi finalizada pela administração.");
+      }else if(data.submission.status === "Pago"){
+        // Meta já confirmada: não há o que enviar, nem com atraso.
+        memberFeedback(`Esta meta já foi marcada como ${memberStatusLabel(data.submission).toLowerCase()} pela administração. Se foi engano, peça para voltarem a meta para pendente e envie o comprovante.`);
       }else{
         memberFeedback(`Envios encerrados em ${data.schedule?.prazo_pagamento || "quarta-feira às 23:59"}. A meta está em conferência.`);
       }
