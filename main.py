@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import traceback
 import base64
 import hashlib
@@ -28,7 +29,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.15-meta-atrasada"
+APP_RELEASE = "2026.10.24-seguranca"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -94,6 +95,9 @@ META_PHOTO_COUNT_SQL = "(SELECT COUNT(*) FROM meta_photos p WHERE p.submission_i
 META_LATE_PHOTO_COUNT_SQL = "(SELECT COUNT(*) FROM meta_photos p WHERE p.submission_id = s.id AND p.late = 1)"
 META_IMAGE_MAX_SIDE = int(os.getenv("META_IMAGE_MAX_SIDE", "2200"))
 META_IMAGE_WEBP_QUALITY = int(os.getenv("META_IMAGE_WEBP_QUALITY", "88"))
+# Uma imagem pequena em bytes pode declarar dimensões enormes (ex.: PNG de 13000x13000 com
+# poucos KB) e ocupar centenas de MB ao ser aberta, derrubando o servidor.
+META_IMAGE_MAX_PIXELS = int(os.getenv("META_IMAGE_MAX_PIXELS", str(50_000_000)))
 
 _meta_db_lock = threading.RLock()
 _meta_db_ready = False
@@ -118,6 +122,9 @@ LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
 # Limite por usuário (somando todos os IPs): freia ataques distribuídos sem permitir
 # que um terceiro bloqueie o login de alguém com poucas tentativas.
 LOGIN_MAX_ATTEMPTS_PER_USER = int(os.getenv("LOGIN_MAX_ATTEMPTS_PER_USER", "25"))
+# Limite por IP (somando todos os usuários): impede que um mesmo IP teste uma senha
+# comum em vários usuários ou descubra quais nomes de usuário existem.
+LOGIN_MAX_ATTEMPTS_PER_IP = int(os.getenv("LOGIN_MAX_ATTEMPTS_PER_IP", "30"))
 
 # Contas e perfil.
 MAX_OPEN_ACCOUNTS = 2  # contas autenticadas ao mesmo tempo no mesmo navegador
@@ -1165,6 +1172,22 @@ def get_storage_client():
     return client
 
 
+def open_uploaded_image(raw, label, max_side):
+    """Abre e decodifica a imagem enviada recusando dimensões que esgotariam a memória."""
+    from PIL import Image
+
+    image = Image.open(BytesIO(raw))
+    if str(image.format or "").upper() not in META_ALLOWED_IMAGE_FORMATS:
+        raise ValueError("Envie somente imagens JPG, JPEG, PNG ou WEBP.")
+    # JPEG grande (foto de celular) já é decodificado reduzido, sem carregar a resolução cheia.
+    image.draft("RGB", (max_side, max_side))
+    width, height = image.size
+    if width * height > META_IMAGE_MAX_PIXELS:
+        raise ValueError(f"A {label} tem dimensões grandes demais. Envie uma imagem menor.")
+    image.load()
+    return image
+
+
 def prepare_image_upload(upload, label="imagem"):
     if not upload or not upload.filename:
         raise ValueError(f"Selecione uma {label} para enviar.")
@@ -1181,14 +1204,10 @@ def prepare_image_upload(upload, label="imagem"):
         raise RuntimeError("Dependência Pillow não instalada. Execute pip install -r requirements.txt.") from error
 
     try:
-        image = Image.open(BytesIO(raw))
-        detected_format = str(image.format or "").upper()
         # Alguns celulares/navegadores enviam JPG como image/jpg ou mesmo sem
         # MIME. Validamos o arquivo de verdade pelo Pillow, não pelo cabeçalho
         # enviado pelo navegador.
-        if detected_format not in META_ALLOWED_IMAGE_FORMATS:
-            raise ValueError("Envie somente imagens JPG, JPEG, PNG ou WEBP.")
-        image.load()
+        image = open_uploaded_image(raw, label, META_IMAGE_MAX_SIDE)
         image = ImageOps.exif_transpose(image)
         image.thumbnail((META_IMAGE_MAX_SIDE, META_IMAGE_MAX_SIDE))
         if image.mode not in {"RGB", "L"}:
@@ -1617,7 +1636,15 @@ def wants_json_response():
 
 
 def safe_next_url(target):
-    if target and target.startswith("/") and not target.startswith("//"):
+    # Navegadores tratam "/\site.com" como "//site.com"; barra invertida e caracteres
+    # de controle nunca aparecem nos endereços internos do sistema.
+    if (
+        target
+        and target.startswith("/")
+        and not target.startswith("//")
+        and "\\" not in target
+        and not any(ord(ch) < 32 for ch in target)
+    ):
         return target
     return url_for("home")
 
@@ -1650,6 +1677,20 @@ def login_attempt_key(username):
 
 def login_user_key(username):
     return f"user:{str(username or '').lower()[:64]}"
+
+
+def login_ip_key():
+    return f"ip:{get_client_ip()}"
+
+
+_dummy_password_hash = {"value": None}
+
+
+def dummy_password_hash():
+    """Hash descartável: usuário inexistente leva o mesmo tempo para responder que um real."""
+    if _dummy_password_hash["value"] is None:
+        _dummy_password_hash["value"] = hash_password(secrets.token_urlsafe(16))
+    return _dummy_password_hash["value"]
 
 
 def is_login_limited(key, limit=None):
@@ -2022,7 +2063,7 @@ def normalize_dirty_money_percentage(value, money_type):
         percentage = float(str(raw_value).replace(",", "."))
     except (TypeError, ValueError):
         raise ValueError("A porcentagem do dinheiro sujo deve ser numérica.")
-    if not MIN_DIRTY_MONEY_PERCENTAGE <= percentage <= MAX_DIRTY_MONEY_PERCENTAGE:
+    if not math.isfinite(percentage) or not MIN_DIRTY_MONEY_PERCENTAGE <= percentage <= MAX_DIRTY_MONEY_PERCENTAGE:
         raise ValueError(
             "A porcentagem do dinheiro sujo deve ficar entre "
             f"{MIN_DIRTY_MONEY_PERCENTAGE:g}% e {MAX_DIRTY_MONEY_PERCENTAGE:g}%."
@@ -2035,7 +2076,7 @@ def calculate_payment_values(base_value, money_type, dirty_percentage=None):
         base = round(float(base_value or 0), 2)
     except (TypeError, ValueError):
         raise ValueError("O valor base informado é inválido.")
-    if base < 0 or base > MAX_MONEY_VALUE:
+    if not math.isfinite(base) or base < 0 or base > MAX_MONEY_VALUE:
         raise ValueError("O valor base informado é inválido.")
 
     normalized_type = normalize_money_type(money_type)
@@ -2458,7 +2499,9 @@ def validate_numeric_fields(data, required_fields):
     try:
         quantidade = int(data["quantidade"])
         valor_unitario = float(data["valor_unitario"])
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        return False, "Quantidade e valor unitário devem ser numéricos."
+    if not math.isfinite(valor_unitario):
         return False, "Quantidade e valor unitário devem ser numéricos."
 
     if quantidade <= 0:
@@ -2551,6 +2594,8 @@ def validate_encomenda_items(raw_items):
             quantidade_num = float(raw_item.get("quantidade") or 0)
             valor_unitario = float(raw_item.get("valor_unitario") or 0)
         except (TypeError, ValueError):
+            raise ValueError("Quantidade e valor dos produtos devem ser numéricos.")
+        if not math.isfinite(quantidade_num) or not math.isfinite(valor_unitario):
             raise ValueError("Quantidade e valor dos produtos devem ser numéricos.")
 
         if not quantidade_num.is_integer():
@@ -3163,13 +3208,19 @@ def login():
         password = request.form.get("password", "")
         key = login_attempt_key(username)
         user_key = login_user_key(username)
+        ip_key = login_ip_key()
 
-        if is_login_limited(key) or is_login_limited(user_key, LOGIN_MAX_ATTEMPTS_PER_USER):
+        if (
+            is_login_limited(key)
+            or is_login_limited(user_key, LOGIN_MAX_ATTEMPTS_PER_USER)
+            or is_login_limited(ip_key, LOGIN_MAX_ATTEMPTS_PER_IP)
+        ):
             return render_login("Muitas tentativas de login. Aguarde alguns minutos e tente novamente.", username, next_url, 429)
 
         record = lookup_account_record(username)
+        password_ok = verify_password(password, record["password_hash"] if record else dummy_password_hash())
 
-        if record and verify_password(password, record["password_hash"]):
+        if record and password_ok:
             start_session_for(username, record)
             clear_login_attempts(key)
             if record.get("role") == "member":
@@ -3178,6 +3229,7 @@ def login():
 
         record_failed_login(key)
         record_failed_login(user_key)
+        record_failed_login(ip_key)
         return render_login("Usuário ou senha inválidos.", username, next_url)
 
     return render_login(next_url=next_url)
@@ -4144,6 +4196,8 @@ def create_encomenda():
             try:
                 valor_base = float(data["valor"])
             except (ValueError, TypeError):
+                return error_response("O valor da encomenda deve ser numérico.", 400)
+            if not math.isfinite(valor_base):
                 return error_response("O valor da encomenda deve ser numérico.", 400)
             if valor_base < 0:
                 return error_response("O valor da encomenda não pode ser negativo.", 400)
@@ -5321,10 +5375,7 @@ def prepare_avatar_upload(upload):
     from PIL import Image, ImageOps
 
     try:
-        image = Image.open(BytesIO(raw))
-        if str(image.format or "").upper() not in META_ALLOWED_IMAGE_FORMATS:
-            raise ValueError("Envie somente imagens JPG, JPEG, PNG ou WEBP.")
-        image.load()
+        image = open_uploaded_image(raw, "foto", AVATAR_SIZE)
         image = ImageOps.exif_transpose(image)
         if image.mode != "RGB":
             rgba = image.convert("RGBA")
