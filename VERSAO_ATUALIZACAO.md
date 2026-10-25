@@ -1,4 +1,20 @@
-# KOKUSAI — Pagamento de meta com atraso 2026.10.15
+# KOKUSAI — Revisão de segurança 2026.10.24
+
+Identificador: `2026.10.24-seguranca`
+
+Nenhuma tela ou funcionalidade muda. Esta versão corrige:
+
+- **Imagens gigantes derrubavam o servidor:** um PNG de poucos KB pode declarar 12000x12000 pixels e ocupar centenas de MB ao abrir. Agora fotos de meta, do baú, de perfil e flyers com mais de 50 milhões de pixels são recusadas (`META_IMAGE_MAX_PIXELS`), e fotos JPG de celular são decodificadas já reduzidas.
+- **Redirecionamento externo no login:** `/login?next=/\site.com` levava para outro site depois do login. Endereços com barra invertida ou caracteres de controle passam a voltar para a página inicial.
+- **Teste de senha em vários usuários:** o limite de tentativas era por IP+usuário, então um IP podia testar uma senha em todos os usuários. Agora também há um limite de 30 falhas por IP a cada 15 minutos (`LOGIN_MAX_ATTEMPTS_PER_IP`).
+- **Descobrir quais usuários existem:** usuário inexistente respondia na hora e o existente demorava (cálculo do hash). Agora os dois levam o mesmo tempo.
+- **Valores NaN/Infinity:** compras, vendas e encomendas recusam esses valores em vez de gravá-los na planilha.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.10.24-seguranca"`.
+
+---
+
+# Versão anterior — Pagamento de meta com atraso (`2026.10.15-meta-atrasada`)
 
 Identificador: `2026.10.15-meta-atrasada`
 
