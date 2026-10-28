@@ -29,7 +29,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.24-seguranca"
+APP_RELEASE = "2026.10.28-equipe-mercado"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -291,11 +291,6 @@ DEFAULT_FAMILIAS = [
         "observacao": "Mercado ainda não estabelecido. Compras, vendas e encomendas ficam bloqueadas.",
     },
 ]
-RESTRICTED_FAMILY_MARKETS = {
-    "nox": "Sem mercado",
-    "void": "Sem mercado",
-    "meraki": "Sem mercado",
-}
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
 
@@ -528,6 +523,69 @@ def apply_member_username_renames(cursor):
         if cursor.rowcount:
             renamed.append(f"{old} -> {new}")
     return renamed
+
+
+# Ajustes de equipe pedidos pela administração. Cada ajuste roda uma única vez por banco
+# (fica registrado em meta_data_migrations), então quem for removido aqui pode ser
+# reativado depois pelo painel sem que o próximo deploy o remova de novo.
+MEMBER_REMOVALS = {
+    "2026-10-28-remove-mina-viny": ("minah", "mina", "viny"),
+}
+MEMBER_CREATIONS = {
+    # Senha provisória pedida pela administração; o membro troca pelo perfil.
+    "2026-10-28-cria-geziel": {"username": "geziel", "display_name": "Geziel", "password": "123"},
+}
+
+
+def apply_member_data_migrations(cursor, now_text):
+    cursor.execute(
+        "CREATE TABLE IF NOT EXISTS meta_data_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+    )
+    cursor.execute("SELECT id FROM meta_data_migrations")
+    applied = {row[0] for row in cursor.fetchall()}
+    changes = []
+
+    for migration_id, names in MEMBER_REMOVALS.items():
+        if migration_id in applied:
+            continue
+        cursor.execute(meta_sql("SELECT id, username, display_name FROM meta_users WHERE role = 'member' AND active = 1"))
+        for user_id, username, display_name in cursor.fetchall():
+            if str(username or "").strip().lower() not in names and str(display_name or "").strip().lower() not in names:
+                continue
+            cursor.execute(meta_sql("UPDATE meta_users SET active = 0 WHERE id = ?"), (user_id,))
+            # Derruba as sessões abertas, como a remoção pelo painel.
+            cursor.execute(
+                meta_sql("INSERT INTO user_profiles (user_id, updated_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING"),
+                (user_id, now_text),
+            )
+            cursor.execute(
+                meta_sql("UPDATE user_profiles SET session_version = session_version + 1, updated_at = ? WHERE user_id = ?"),
+                (now_text, user_id),
+            )
+            changes.append(f"removido {username}")
+        cursor.execute(meta_sql("INSERT INTO meta_data_migrations (id, applied_at) VALUES (?, ?)"), (migration_id, now_text))
+
+    for migration_id, member in MEMBER_CREATIONS.items():
+        if migration_id in applied:
+            continue
+        cursor.execute(meta_sql("SELECT id FROM meta_users WHERE username = ?"), (member["username"],))
+        if not cursor.fetchone():
+            user_id = meta_member_id(member["username"])
+            cursor.execute(
+                meta_sql(
+                    "INSERT INTO meta_users (id, username, display_name, password_hash, role, active, created_at) "
+                    "VALUES (?, ?, ?, ?, 'member', 1, ?)"
+                ),
+                (user_id, member["username"], member["display_name"], hash_password(member["password"]), now_text),
+            )
+            cursor.execute(
+                meta_sql("INSERT INTO user_profiles (user_id, updated_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING"),
+                (user_id, now_text),
+            )
+            changes.append(f"criado {member['username']}")
+        cursor.execute(meta_sql("INSERT INTO meta_data_migrations (id, applied_at) VALUES (?, ?)"), (migration_id, now_text))
+
+    return changes
 
 
 def canonical_meta_week_dates(week_start):
@@ -934,12 +992,15 @@ def ensure_meta_database_ready():
                     created_at,
                 ))
                 apply_member_seed_password(cursor, member_id, member["password_hash"], created_at)
+            member_changes = apply_member_data_migrations(cursor, created_at)
             migrated_weeks = migrate_legacy_meta_weeks(connection)
             repaired_photos = repair_meta_photo_week_assignments(connection)
             connection.commit()
             _meta_db_ready = True
             if renamed_usernames:
                 log_info(f"Usuários de acesso renomeados: {', '.join(renamed_usernames)}")
+            if member_changes:
+                log_info(f"Ajustes de equipe aplicados: {', '.join(member_changes)}")
             if migrated_weeks:
                 log_info(f"Semanas antigas de meta migradas para sexta–quarta: {migrated_weeks}")
             if repaired_photos:
@@ -2369,10 +2430,6 @@ def _ensure_familias_ready_locked(worksheet, force=False):
             row_changed = True
         if not str(padded[FAMILIAS_HEADERS.index("icone")] or "").strip() and default.get("icone"):
             padded[FAMILIAS_HEADERS.index("icone")] = default["icone"]
-            row_changed = True
-        restricted_status = RESTRICTED_FAMILY_MARKETS.get(key)
-        if restricted_status and normalize_market_status(padded[FAMILIAS_HEADERS.index("mercado")]) != restricted_status:
-            padded[FAMILIAS_HEADERS.index("mercado")] = restricted_status
             row_changed = True
         if row_changed:
             padded[FAMILIAS_HEADERS.index("atualizado_em")] = format_timestamp()
@@ -4876,9 +4933,6 @@ def validate_family_payload(data):
         raise ValueError("Nome da família/gangue é obrigatório.")
 
     market = normalize_market_status(data.get("mercado"))
-    restricted_market = RESTRICTED_FAMILY_MARKETS.get(normalized_lookup_key(name))
-    if restricted_market:
-        market = restricted_market
     icon = clean_text_field(data, "icone", "Ícone", max_length=12, required=False)
     sale_price = clean_text_field(
         data, "preco_venda_para_familia", "Preço de venda para a família",
