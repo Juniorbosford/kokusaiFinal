@@ -29,7 +29,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.10.28-equipe-mercado"
+APP_RELEASE = "2026.11.26-nova-season"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -233,64 +233,8 @@ FAMILIAS_HEADERS = [
     "flyer_url_2",
     "responsavel_contato",
 ]
-DEFAULT_FAMILIAS = [
-    {
-        "nome": "Ruptura", "icone": "💥", "mercado": "Aberto", "responsavel_contato": "Larissa",
-    },
-    {
-        "nome": "Leviatã", "icone": "🐉", "mercado": "Aberto", "responsavel_contato": "Larissa",
-    },
-    {
-        "nome": "Distrito", "icone": "🏙️", "mercado": "Aberto", "responsavel_contato": "Wanda",
-    },
-    {
-        "nome": "Black Hearts", "icone": "🖤", "mercado": "Aberto", "responsavel_contato": "Wanda",
-    },
-    {
-        "nome": "The Lost MC", "icone": "🏍️", "mercado": "Aberto", "responsavel_contato": "Kiyotaka",
-    },
-    {
-        "nome": "Ballas", "icone": "🟣", "mercado": "Aberto", "responsavel_contato": "Matheus",
-    },
-    {
-        "nome": "Legacy", "icone": "👑", "mercado": "Aberto", "responsavel_contato": "Matheus",
-    },
-    {
-        "nome": "Aura", "icone": "✨", "mercado": "Aberto", "responsavel_contato": "Gohan",
-    },
-    {
-        "nome": "La Guardia", "icone": "🛡️", "mercado": "Aberto", "responsavel_contato": "Gohan",
-    },
-    {
-        "nome": "Vendetta", "icone": "🔴", "mercado": "Aberto", "responsavel_contato": "Max",
-    },
-    {
-        "nome": "Cartel", "icone": "🦂", "mercado": "Aberto", "responsavel_contato": "Max",
-    },
-    {
-        "nome": "Hells", "icone": "🏴", "mercado": "Aberto", "responsavel_contato": "Theo",
-    },
-    {
-        "nome": "Nox", "icone": "🌑", "mercado": "Sem mercado", "responsavel_contato": "",
-        "observacao": "Não compramos nem vendemos para esta família enquanto estiver sem mercado aberto.",
-    },
-    {
-        "nome": "Void", "icone": "⚫", "mercado": "Sem mercado", "responsavel_contato": "",
-        "observacao": "Não compramos nem vendemos para esta família enquanto estiver sem mercado aberto.",
-    },
-    {
-        "nome": "Meraki", "icone": "🔹", "mercado": "Sem mercado", "responsavel_contato": "",
-        "observacao": "Não compramos nem vendemos para esta família enquanto estiver sem mercado aberto.",
-    },
-    {
-        "nome": "Chaos", "icone": "🌀", "mercado": "Em negociação", "responsavel_contato": "",
-        "observacao": "Mercado ainda não estabelecido. Compras, vendas e encomendas ficam bloqueadas.",
-    },
-    {
-        "nome": "Balaclava", "icone": "🥷", "mercado": "Em negociação", "responsavel_contato": "",
-        "observacao": "Mercado ainda não estabelecido. Compras, vendas e encomendas ficam bloqueadas.",
-    },
-]
+# Nova season (2026.11.26): as famílias da season anterior saíram do código. Tudo é
+# cadastrado pelo usuário kokusai na aba Famílias; nada é recriado automaticamente.
 LIST_LIMIT = int(os.getenv("LIST_LIMIT", "100"))
 
 
@@ -943,6 +887,33 @@ def ensure_meta_database_ready():
                 """,
                 "CREATE INDEX IF NOT EXISTS idx_bau_registros_ts ON bau_registros(created_ts)",
                 "CREATE INDEX IF NOT EXISTS idx_bau_registros_mes ON bau_registros(mes)",
+                """
+                CREATE TABLE IF NOT EXISTS produtos (
+                    id TEXT PRIMARY KEY,
+                    nome TEXT NOT NULL,
+                    preco REAL NOT NULL DEFAULT 0,
+                    descricao TEXT NOT NULL DEFAULT '',
+                    foto_key TEXT NOT NULL DEFAULT '',
+                    ativo INTEGER NOT NULL DEFAULT 1,
+                    arquivado INTEGER NOT NULL DEFAULT 0,
+                    arquivado_em TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE IF NOT EXISTS craft_receitas (
+                    id TEXT PRIMARY KEY,
+                    nome TEXT NOT NULL,
+                    descricao TEXT NOT NULL DEFAULT '',
+                    rende INTEGER NOT NULL DEFAULT 1,
+                    materiais_json TEXT NOT NULL DEFAULT '[]',
+                    arquivado INTEGER NOT NULL DEFAULT 0,
+                    arquivado_em TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """,
                 """
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id TEXT PRIMARY KEY,
@@ -2180,25 +2151,9 @@ def apply_payment_defaults(item, total_field):
 
 
 def canonical_family_name(value):
-    name = str(value or "").strip()
-    aliases = {
-        "bandoleros": "Cartel",
-        "bandolero": "Cartel",
-        "los bandoleros": "Cartel",
-        "blackherts": "Black Hearts",
-        "black heart": "Black Hearts",
-        "black hearts": "Black Hearts",
-        "the lost": "The Lost MC",
-        "the lost mc": "The Lost MC",
-        "lost mc": "The Lost MC",
-        "laguardia": "La Guardia",
-        "la guardia": "La Guardia",
-        "leviata": "Leviatã",
-        "hells angels": "Hells",
-        "caos": "Chaos",
-        "balaklava": "Balaclava",
-    }
-    return aliases.get(normalized_lookup_key(name), name)
+    # Os apelidos da season anterior (ex.: "bandoleros" virava "Cartel") foram removidos:
+    # na nova season o nome cadastrado pelo kokusai é exatamente o que fica salvo.
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
 def normalize_market_status(value):
@@ -2260,32 +2215,10 @@ def get_familias_worksheet(ensure_ready=True):
     return worksheet
 
 
-DEFAULT_REUNIOES = [
-    ["KKSR-REUNIAO-BALLAS-20260714", "13/07/2026 20:00:00", "Apresentar produtos", "Ballas", "🟣", "2026-07-14", "21:00", "", "Trocou 01", "Agendada", ""],
-    ["KKSR-REUNIAO-LEGACY-20260713", "13/07/2026 19:00:00", "Apresentar produtos", "Legacy", "👑", "2026-07-13", "20:30", "", "Família Nova", "Finalizada", "13/07/2026 20:30:00"],
-    ["KKSR-REUNIAO-BLACKHERTS-20260715", "13/07/2026 20:00:00", "Trocar contatos", "Blackherts", "🖤", "2026-07-15", "20:30", "", "Reunião rápida", "Agendada", ""],
-    ["KKSR-REUNIAO-LEVIATA-20260714", "13/07/2026 20:00:00", "Trocar contatos", "Leviatã", "🐉", "2026-07-14", "21:30", "", "Reunião rápida — horário aguardando confirmação", "Aguardando confirmação", ""],
-    ["KKSR-REUNIAO-FAMILIES-20260714", "13/07/2026 20:00:00", "Trocar contatos", "Families", "💚", "2026-07-14", "21:00", "", "Reunião rápida", "Agendada", ""],
-    ["KKSR-REUNIAO-THELOST-20260714", "13/07/2026 20:00:00", "Trocar contatos", "The Lost", "🏍️", "2026-07-14", "20:30", "", "Reunião rápida", "Agendada", ""],
-    ["KKSR-REUNIAO-VAGOS-20260713", "13/07/2026 20:00:00", "Apresentar produtos", "Vagos", "💛", "2026-07-13", "21:30", "", "", "Agendada", ""],
-    ["KKSR-REUNIAO-DISTRITO-20260715", "13/07/2026 20:00:00", "Apresentar produtos", "Distrito", "🏙️", "2026-07-15", "21:30", "", "Família Nova", "Agendada", ""],
-]
-
-
-def seed_default_reunioes(worksheet):
-    """Adiciona a agenda inicial sem duplicar reuniões já cadastradas."""
-    rows = cached_get_all_values(REUNIOES_WORKSHEET_NAME, worksheet, force=True)
-    existing_ids = {sheet_cell(row, 0) for row in rows[1:]}
-    missing = [row for row in DEFAULT_REUNIOES if row[0] not in existing_ids]
-    if missing:
-        worksheet.append_rows(missing, value_input_option="RAW")
-        invalidate_values_cache(REUNIOES_WORKSHEET_NAME)
-
-
 def get_reunioes_worksheet():
-    worksheet = get_or_create_worksheet(REUNIOES_WORKSHEET_NAME, REUNIOES_HEADERS)
-    seed_default_reunioes(worksheet)
-    return worksheet
+    # Nova season: a agenda da season anterior não é mais recriada; uma reunião apagada
+    # continua apagada.
+    return get_or_create_worksheet(REUNIOES_WORKSHEET_NAME, REUNIOES_HEADERS)
 
 
 def build_family_row(data, registro_id=None, criado_em=None):
@@ -2397,45 +2330,6 @@ def _ensure_familias_ready_locked(worksheet, force=False):
     for row_index in reversed(duplicate_indexes):
         worksheet.delete_rows(row_index)
         changed = True
-
-    if duplicate_indexes:
-        invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
-        rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
-        existing = {}
-        for row_index, row in enumerate(rows[1:], start=2):
-            key = normalized_lookup_key(canonical_family_name(sheet_cell(row, 2)))
-            if key and key not in existing:
-                existing[key] = (row_index, row)
-
-    # Os cadastros padrão já foram migrados nas versões anteriores. A manutenção
-    # só corrige famílias que ainda existem; nunca recria uma família excluída.
-    for default in DEFAULT_FAMILIAS:
-        key = normalized_lookup_key(default["nome"])
-        if key not in existing:
-            continue
-
-        row_index, existing_row = existing[key]
-        if not row_index:
-            continue
-        padded = list(existing_row[:len(FAMILIAS_HEADERS)]) + [""] * max(0, len(FAMILIAS_HEADERS) - len(existing_row))
-        row_changed = False
-        responsible_index = FAMILIAS_HEADERS.index("responsavel_contato")
-        current_responsible = str(padded[responsible_index] or "").strip()
-        canonical_responsible = canonical_staff_name(current_responsible)
-        if canonical_responsible != current_responsible:
-            padded[responsible_index] = canonical_responsible
-            row_changed = True
-        elif not current_responsible and default.get("responsavel_contato"):
-            padded[responsible_index] = default["responsavel_contato"]
-            row_changed = True
-        if not str(padded[FAMILIAS_HEADERS.index("icone")] or "").strip() and default.get("icone"):
-            padded[FAMILIAS_HEADERS.index("icone")] = default["icone"]
-            row_changed = True
-        if row_changed:
-            padded[FAMILIAS_HEADERS.index("atualizado_em")] = format_timestamp()
-            worksheet.update(f"A{row_index}:O{row_index}", [padded[:len(FAMILIAS_HEADERS)]], value_input_option="RAW")
-            existing[key] = (row_index, padded)
-            changed = True
 
     if changed:
         invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
@@ -4002,64 +3896,6 @@ def delete_compra(registro_id):
         return error_response(str(e))
 
 
-# ---------------------------------------------------------------------------
-# Produtos de venda por tempo limitado
-# ---------------------------------------------------------------------------
-# Cada item aparece como atalho no formulário de Vendas apenas entre "inicio" e "fim"
-# (datas inclusivas, no fuso do sistema) e some sozinho depois. Para liberar outro
-# produto temporário, basta incluir uma linha aqui.
-TEMPORARY_SALE_PRODUCTS = [
-    {"nome": "M16", "inicio": "2026-10-07", "fim": "2026-10-13"},  # 7 dias
-]
-
-# Produtos de linha: sempre disponíveis em Vendas e em Encomendas. Os temporários
-# acima entram como adicionais, sem tirar nenhum destes.
-PERMANENT_SALE_PRODUCTS = ["L85", "Seringa", "Circuito Eletrônico"]
-
-
-def active_temporary_sale_products():
-    today = now_local().date()
-    active = []
-    for product in TEMPORARY_SALE_PRODUCTS:
-        start = datetime.strptime(product["inicio"], "%Y-%m-%d").date()
-        end = datetime.strptime(product["fim"], "%Y-%m-%d").date()
-        if start <= today <= end:
-            active.append({
-                "nome": product["nome"],
-                "ate": end.strftime("%d/%m/%Y"),
-                "dias_restantes": (end - today).days + 1,
-            })
-    return active
-
-
-@app.get("/api/produtos-venda")
-@require_staff
-def list_sale_products():
-    try:
-        response = jsonify({
-            "ok": True,
-            "fixos": list(PERMANENT_SALE_PRODUCTS),
-            "temporarios": active_temporary_sale_products(),
-        })
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    except Exception as e:
-        log_error("Falha em /api/produtos-venda [GET]", e)
-        return error_response(str(e))
-
-
-@app.get("/api/produtos-temporarios")
-@require_staff
-def list_temporary_sale_products():
-    try:
-        response = jsonify({"ok": True, "items": active_temporary_sale_products()})
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    except Exception as e:
-        log_error("Falha em /api/produtos-temporarios [GET]", e)
-        return error_response(str(e))
-
-
 @app.get("/api/vendas")
 @require_staff
 def list_vendas():
@@ -5350,6 +5186,447 @@ def bau_photo_file(photo_id):
         return response
     except Exception as error:
         log_error("Falha ao servir foto do baú", error)
+        return error_response(str(error))
+
+
+# ---------------------------------------------------------------------------
+# Nossos produtos (catálogo preenchido pelo kokusai)
+# ---------------------------------------------------------------------------
+# Cada produto tem nome, preço, foto e descrição. Os disponíveis viram atalhos em
+# Vendas e cartões em Encomendas, já com o preço preenchido. Remover um produto
+# apenas o arquiva: vendas e encomendas antigas continuam com o nome gravado.
+PRODUTO_MAX_NAME_LENGTH = 80
+PRODUTO_MAX_DESCRIPTION_LENGTH = 300
+
+
+def clean_money_value(value, label):
+    raw = str(value if value is not None else "").strip().replace(",", ".")
+    if raw == "":
+        return 0.0
+    try:
+        number = float(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} deve ser um número.")
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(f"{label} deve ser zero ou maior.")
+    if number > MAX_MONEY_VALUE:
+        raise ValueError(f"{label} muito alto.")
+    return round(number, 2)
+
+
+def serialize_produto(row):
+    foto_key = row.get("foto_key") or ""
+    return {
+        "id": row["id"],
+        "nome": row["nome"],
+        "preco": float(row.get("preco") or 0),
+        "descricao": row.get("descricao") or "",
+        "ativo": bool(row.get("ativo")),
+        "foto_url": url_for("produto_foto_file", produto_id=row["id"], v=foto_key.rsplit("/", 1)[-1][:12]) if foto_key else "",
+        "updated_at": row.get("updated_at") or "",
+    }
+
+
+def validate_produto_payload(data):
+    if not isinstance(data, dict):
+        raise ValueError("JSON inválido.")
+    return {
+        "nome": clean_plain_text(data.get("nome"), "Nome do produto", PRODUTO_MAX_NAME_LENGTH, required=True),
+        "preco": clean_money_value(data.get("preco"), "Preço"),
+        "descricao": clean_plain_text(data.get("descricao"), "Descrição", PRODUTO_MAX_DESCRIPTION_LENGTH),
+        "ativo": 1 if normalize_flag(data.get("ativo", True)) else 0,
+    }
+
+
+def produto_name_taken(nome, exclude_id=""):
+    key = normalized_lookup_key(nome)
+    rows = meta_query_all("SELECT id, nome FROM produtos WHERE arquivado = 0")
+    return any(normalized_lookup_key(row["nome"]) == key and row["id"] != exclude_id for row in rows)
+
+
+def get_produto_row(produto_id):
+    return meta_query_one(
+        "SELECT id, nome, preco, descricao, foto_key, ativo, updated_at FROM produtos WHERE id = ? AND arquivado = 0",
+        (produto_id,),
+    )
+
+
+@app.get("/api/produtos")
+@require_staff
+def list_produtos():
+    try:
+        rows = meta_query_all(
+            "SELECT id, nome, preco, descricao, foto_key, ativo, updated_at FROM produtos WHERE arquivado = 0"
+        )
+        items = sorted((serialize_produto(row) for row in rows), key=lambda item: normalized_lookup_key(item["nome"]))
+        return json_no_store({"ok": True, "items": items})
+    except Exception as error:
+        log_error("Falha em /api/produtos [GET]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/produtos")
+@require_admin
+def create_produto():
+    try:
+        payload = validate_produto_payload(request.get_json(silent=True))
+        if produto_name_taken(payload["nome"]):
+            return error_response("Já existe um produto com esse nome.", 409)
+        produto_id = f"PROD-{uuid.uuid4().hex[:16].upper()}"
+        now = format_timestamp()
+        meta_execute(
+            "INSERT INTO produtos (id, nome, preco, descricao, ativo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (produto_id, payload["nome"], payload["preco"], payload["descricao"], payload["ativo"], now, now),
+        )
+        return jsonify({"ok": True, "message": "Produto adicionado.", "id": produto_id}), 201
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/produtos [POST]", error)
+        return error_response(str(error))
+
+
+@app.put("/api/produtos/<produto_id>")
+@require_admin
+def update_produto(produto_id):
+    try:
+        payload = validate_produto_payload(request.get_json(silent=True))
+        if not get_produto_row(produto_id):
+            return error_response("Produto não encontrado.", 404)
+        if produto_name_taken(payload["nome"], exclude_id=produto_id):
+            return error_response("Já existe outro produto com esse nome.", 409)
+        meta_execute(
+            "UPDATE produtos SET nome = ?, preco = ?, descricao = ?, ativo = ?, updated_at = ? WHERE id = ?",
+            (payload["nome"], payload["preco"], payload["descricao"], payload["ativo"], format_timestamp(), produto_id),
+        )
+        return jsonify({"ok": True, "message": "Produto atualizado.", "id": produto_id})
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/produtos [PUT]", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/produtos/<produto_id>")
+@require_admin
+def archive_produto(produto_id):
+    try:
+        row = get_produto_row(produto_id)
+        if not row:
+            return error_response("Produto não encontrado.", 404)
+        meta_execute(
+            "UPDATE produtos SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE id = ?",
+            (format_timestamp(), format_timestamp(), produto_id),
+        )
+        log_info(f"Produto removido do catálogo. ID={produto_id} nome={row['nome']} conta={get_current_user()['username']}")
+        return jsonify({"ok": True, "message": f"{row['nome']} saiu do catálogo. Vendas e encomendas antigas continuam iguais."})
+    except Exception as error:
+        log_error("Falha em /api/produtos [DELETE]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/produtos/<produto_id>/foto")
+@require_admin
+def upload_produto_foto(produto_id):
+    try:
+        row = get_produto_row(produto_id)
+        if not row:
+            return error_response("Produto não encontrado.", 404)
+        image_bytes = prepare_image_upload(request.files.get("foto"), "foto do produto")
+        object_key = f"produtos/{produto_id}/{uuid.uuid4().hex}.webp"
+        write_webp_object(object_key, image_bytes)
+        try:
+            meta_execute(
+                "UPDATE produtos SET foto_key = ?, updated_at = ? WHERE id = ?",
+                (object_key, format_timestamp(), produto_id),
+            )
+        except Exception:
+            delete_meta_photo_object(object_key)
+            raise
+        old_key = row.get("foto_key") or ""
+        if old_key and old_key != object_key:
+            try:
+                delete_meta_photo_object(old_key)
+            except Exception as cleanup_error:
+                log_error("Foto antiga do produto não pôde ser removida", cleanup_error)
+        return jsonify({"ok": True, "message": "Foto do produto salva."}), 201
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/produtos/<id>/foto [POST]", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/produtos/<produto_id>/foto")
+@require_admin
+def delete_produto_foto(produto_id):
+    try:
+        row = get_produto_row(produto_id)
+        if not row:
+            return error_response("Produto não encontrado.", 404)
+        old_key = row.get("foto_key") or ""
+        meta_execute("UPDATE produtos SET foto_key = '', updated_at = ? WHERE id = ?", (format_timestamp(), produto_id))
+        if old_key:
+            try:
+                delete_meta_photo_object(old_key)
+            except Exception as cleanup_error:
+                log_error("Foto do produto não pôde ser removida", cleanup_error)
+        return jsonify({"ok": True, "message": "Foto removida."})
+    except Exception as error:
+        log_error("Falha em /api/produtos/<id>/foto [DELETE]", error)
+        return error_response(str(error))
+
+
+@app.get("/produtos/<produto_id>/foto")
+@require_staff
+def produto_foto_file(produto_id):
+    try:
+        row = meta_query_one("SELECT id, foto_key FROM produtos WHERE id = ?", (produto_id,))
+        object_key = (row or {}).get("foto_key") or ""
+        if not object_key.startswith("produtos/"):
+            return error_response("Foto não encontrada.", 404)
+        if storage_bucket_configured():
+            response = redirect(meta_photo_access_url({"object_key": object_key, "id": row["id"]}))
+            response.headers["Cache-Control"] = "private, max-age=120"
+            return response
+        local_root = os.path.abspath(META_LOCAL_UPLOAD_DIR)
+        local_path = os.path.abspath(os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/")))
+        if not local_path.startswith(local_root + os.sep) or not os.path.isfile(local_path):
+            return error_response("Arquivo da foto não encontrado.", 404)
+        response = send_file(local_path, mimetype="image/webp")
+        response.headers["Cache-Control"] = "private, max-age=120"
+        return response
+    except Exception as error:
+        log_error("Falha ao servir foto do produto", error)
+        return error_response(str(error))
+
+
+# ---------------------------------------------------------------------------
+# Receitas de craft (cadastradas pelo kokusai)
+# ---------------------------------------------------------------------------
+# Cada receita lista os materiais de UM craft (quantidade e custo unitário opcional)
+# e quantas unidades esse craft rende. A calculadora do navegador soma os materiais,
+# o que falta e o custo de tudo automaticamente.
+CRAFT_MAX_MATERIALS = 30
+CRAFT_MAX_NAME_LENGTH = 80
+
+
+def parse_craft_materials(raw_value):
+    try:
+        items = json.loads(raw_value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return items if isinstance(items, list) else []
+
+
+def serialize_receita(row):
+    return {
+        "id": row["id"],
+        "nome": row["nome"],
+        "descricao": row.get("descricao") or "",
+        "rende": int(row.get("rende") or 1),
+        "materiais": parse_craft_materials(row.get("materiais_json")),
+        "updated_at": row.get("updated_at") or "",
+    }
+
+
+def validate_receita_payload(data):
+    if not isinstance(data, dict):
+        raise ValueError("JSON inválido.")
+    nome = clean_plain_text(data.get("nome"), "Nome do craft", CRAFT_MAX_NAME_LENGTH, required=True)
+    descricao = clean_plain_text(data.get("descricao"), "Descrição", PRODUTO_MAX_DESCRIPTION_LENGTH)
+    try:
+        rende = int(float(str(data.get("rende") or 1).replace(",", ".")))
+    except (TypeError, ValueError):
+        raise ValueError("Quantas unidades o craft rende deve ser um número inteiro.")
+    if rende < 1 or rende > MAX_QUANTITY:
+        raise ValueError("Quantas unidades o craft rende deve ser 1 ou mais.")
+
+    raw_materials = data.get("materiais")
+    if not isinstance(raw_materials, list):
+        raise ValueError("Lista de materiais inválida.")
+    materiais = []
+    seen = set()
+    for raw in raw_materials:
+        if not isinstance(raw, dict):
+            raise ValueError("Um dos materiais é inválido.")
+        material = clean_plain_text(raw.get("nome"), "Material", CRAFT_MAX_NAME_LENGTH)
+        if not material:
+            continue
+        key = normalized_lookup_key(material)
+        if key in seen:
+            raise ValueError(f"O material {material} aparece duas vezes na receita.")
+        seen.add(key)
+        try:
+            quantidade = float(str(raw.get("quantidade") or 0).replace(",", "."))
+        except (TypeError, ValueError):
+            raise ValueError(f"A quantidade de {material} deve ser um número.")
+        if not math.isfinite(quantidade) or quantidade <= 0 or quantidade > MAX_QUANTITY:
+            raise ValueError(f"Informe uma quantidade maior que zero para {material}.")
+        materiais.append({
+            "nome": material,
+            "quantidade": round(quantidade, 4),
+            "custo_unitario": clean_money_value(raw.get("custo_unitario"), f"Custo de {material}"),
+        })
+    if not materiais:
+        raise ValueError("Adicione pelo menos um material à receita.")
+    if len(materiais) > CRAFT_MAX_MATERIALS:
+        raise ValueError(f"Uma receita pode ter no máximo {CRAFT_MAX_MATERIALS} materiais.")
+    return {"nome": nome, "descricao": descricao, "rende": rende, "materiais": materiais}
+
+
+def receita_name_taken(nome, exclude_id=""):
+    key = normalized_lookup_key(nome)
+    rows = meta_query_all("SELECT id, nome FROM craft_receitas WHERE arquivado = 0")
+    return any(normalized_lookup_key(row["nome"]) == key and row["id"] != exclude_id for row in rows)
+
+
+@app.get("/api/craft/receitas")
+@require_staff
+def list_receitas():
+    try:
+        rows = meta_query_all(
+            "SELECT id, nome, descricao, rende, materiais_json, updated_at FROM craft_receitas WHERE arquivado = 0"
+        )
+        items = sorted((serialize_receita(row) for row in rows), key=lambda item: normalized_lookup_key(item["nome"]))
+        return json_no_store({"ok": True, "items": items})
+    except Exception as error:
+        log_error("Falha em /api/craft/receitas [GET]", error)
+        return error_response(str(error))
+
+
+@app.post("/api/craft/receitas")
+@require_admin
+def create_receita():
+    try:
+        payload = validate_receita_payload(request.get_json(silent=True))
+        if receita_name_taken(payload["nome"]):
+            return error_response("Já existe um craft com esse nome.", 409)
+        receita_id = f"CRAFT-{uuid.uuid4().hex[:16].upper()}"
+        now = format_timestamp()
+        meta_execute(
+            """
+            INSERT INTO craft_receitas (id, nome, descricao, rende, materiais_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (receita_id, payload["nome"], payload["descricao"], payload["rende"],
+             json.dumps(payload["materiais"], ensure_ascii=False), now, now),
+        )
+        return jsonify({"ok": True, "message": "Craft adicionado.", "id": receita_id}), 201
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/craft/receitas [POST]", error)
+        return error_response(str(error))
+
+
+@app.put("/api/craft/receitas/<receita_id>")
+@require_admin
+def update_receita(receita_id):
+    try:
+        payload = validate_receita_payload(request.get_json(silent=True))
+        if not meta_query_one("SELECT id FROM craft_receitas WHERE id = ? AND arquivado = 0", (receita_id,)):
+            return error_response("Craft não encontrado.", 404)
+        if receita_name_taken(payload["nome"], exclude_id=receita_id):
+            return error_response("Já existe outro craft com esse nome.", 409)
+        meta_execute(
+            "UPDATE craft_receitas SET nome = ?, descricao = ?, rende = ?, materiais_json = ?, updated_at = ? WHERE id = ?",
+            (payload["nome"], payload["descricao"], payload["rende"],
+             json.dumps(payload["materiais"], ensure_ascii=False), format_timestamp(), receita_id),
+        )
+        return jsonify({"ok": True, "message": "Craft atualizado.", "id": receita_id})
+    except ValueError as error:
+        return error_response(str(error), 400)
+    except Exception as error:
+        log_error("Falha em /api/craft/receitas [PUT]", error)
+        return error_response(str(error))
+
+
+@app.delete("/api/craft/receitas/<receita_id>")
+@require_admin
+def archive_receita(receita_id):
+    try:
+        row = meta_query_one("SELECT id, nome FROM craft_receitas WHERE id = ? AND arquivado = 0", (receita_id,))
+        if not row:
+            return error_response("Craft não encontrado.", 404)
+        now = format_timestamp()
+        meta_execute("UPDATE craft_receitas SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE id = ?", (now, now, receita_id))
+        return jsonify({"ok": True, "message": f"{row['nome']} foi removido dos crafts."})
+    except Exception as error:
+        log_error("Falha em /api/craft/receitas [DELETE]", error)
+        return error_response(str(error))
+
+
+# ---------------------------------------------------------------------------
+# Nova season
+# ---------------------------------------------------------------------------
+# Esvazia as famílias (Google Sheets) e arquiva os produtos e crafts (banco) de uma vez.
+# Antes de limpar, a aba Familias é copiada para uma aba de backup na mesma planilha,
+# e produtos/crafts ficam só marcados como arquivados. Compras, vendas, encomendas,
+# reuniões, metas e baú não são tocados.
+NOVA_SEASON_CONFIRMATION = "NOVA SEASON"
+
+
+@app.post("/api/nova-season")
+@require_admin
+def start_new_season():
+    try:
+        data = request.get_json(silent=True) or {}
+        if str(data.get("confirmacao") or "").strip().upper() != NOVA_SEASON_CONFIRMATION:
+            return error_response(f"Digite {NOVA_SEASON_CONFIRMATION} para confirmar.", 400)
+        limpar_familias = normalize_flag(data.get("familias", True))
+        limpar_produtos = normalize_flag(data.get("produtos", True))
+        limpar_crafts = normalize_flag(data.get("crafts", False))
+        if not (limpar_familias or limpar_produtos or limpar_crafts):
+            return error_response("Escolha pelo menos uma coisa para limpar.", 400)
+
+        user = get_current_user()
+        now = now_local()
+        result = {"familias": 0, "backup": "", "produtos": 0, "crafts": 0}
+
+        if limpar_familias:
+            with _sheets_lock:
+                worksheet = get_familias_worksheet(ensure_ready=False)
+                rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
+                filled = [row for row in rows[1:] if any(str(cell).strip() for cell in row)]
+                if filled:
+                    backup_name = f"{FAMILIAS_WORKSHEET_NAME} backup {now.strftime('%Y-%m-%d %H%M%S')}"
+                    get_or_create_spreadsheet().duplicate_sheet(worksheet.id, new_sheet_name=backup_name)
+                    # Limpa só os valores (o cabeçalho fica). Excluir as linhas falharia se
+                    # o cabeçalho estiver congelado e não sobrasse outra linha.
+                    worksheet.batch_clear([f"A2:{gspread.utils.rowcol_to_a1(len(rows), max(len(FAMILIAS_HEADERS), max(len(r) for r in rows)))}"])
+                    result.update({"familias": len(filled), "backup": backup_name})
+                invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
+                _familias_maintenance_cache["checked_at"] = 0
+
+        stamp = format_timestamp(now)
+        if limpar_produtos:
+            result["produtos"] = meta_execute(
+                "UPDATE produtos SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE arquivado = 0", (stamp, stamp),
+            ) or 0
+        if limpar_crafts:
+            result["crafts"] = meta_execute(
+                "UPDATE craft_receitas SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE arquivado = 0", (stamp, stamp),
+            ) or 0
+
+        log_info(
+            "Nova season iniciada. "
+            f"familias={result['familias']} backup='{result['backup']}' produtos={result['produtos']} "
+            f"crafts={result['crafts']} conta={user['username'] if user else '?'} em={stamp}"
+        )
+        partes = []
+        if limpar_familias:
+            partes.append(
+                f"{result['familias']} família(s) removida(s) (cópia na aba \"{result['backup']}\" da planilha)"
+                if result["familias"] else "nenhuma família para remover"
+            )
+        if limpar_produtos:
+            partes.append(f"{result['produtos']} produto(s) arquivado(s)")
+        if limpar_crafts:
+            partes.append(f"{result['crafts']} craft(s) arquivado(s)")
+        return jsonify({"ok": True, "message": "Nova season pronta: " + "; ".join(partes) + ".", **result})
+    except Exception as error:
+        log_error("Falha em /api/nova-season [POST]", error)
         return error_response(str(error))
 
 

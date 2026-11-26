@@ -11,9 +11,10 @@ const VIEW_META = {
   relatorios:{kicker:"Inteligência comercial", title:"Relatórios", subtitle:"Desempenho mensal por família e gangue."},
   reunioes:{kicker:"Agenda", title:"Reuniões", subtitle:"Compromissos e alinhamentos externos."},
   familias:{kicker:"Relacionamento", title:"Famílias", subtitle:"Mercados, responsáveis e condições comerciais."},
+  produtos:{kicker:"Catálogo", title:"Produtos", subtitle:"Nossos produtos da season, com preço e foto."},
   metas:{kicker:"Controle semanal", title:"Salas de Meta", subtitle:"Comprovantes, conferência e fechamento."},
   "registro-bau":{kicker:"Arquivo", title:"Registro Baú", subtitle:"Fotos do baú guardadas para consulta futura."},
-  craft:{kicker:"Produção", title:"Craft", subtitle:"Cálculo objetivo de materiais e faltas."},
+  craft:{kicker:"Produção", title:"Craft", subtitle:"Crafts da season, materiais, faltas e custos."},
 };
 
 function csrfHeaders(headers = {}){
@@ -166,97 +167,15 @@ let metaConfirmPreviousFocus = null;
 let pendingFamilyDelete = null;
 let familyDeletePreviousFocus = null;
 const craftForm = document.getElementById("craftForm");
-const craftInputs = document.querySelectorAll("[data-craft-input]");
+const craftInputsBox = document.getElementById("craftInputs");
 const craftTable = document.getElementById("craftTable");
 const recipeGrid = document.getElementById("recipeGrid");
 const craftFeedback = document.getElementById("craftFeedback");
 const clearCraftBtn = document.getElementById("clearCraftBtn");
 
-const CRAFT_RECIPES = [
-  {
-    id:"l85",
-    inputId:"craft_l85",
-    title:"Craft L85",
-    helper:"Quantas armas quero fazer",
-    materials:[
-      ["FIOS DE COBRE", 3],
-      ["TUBO DE PLÁSTICO", 3],
-      ["PARAFUSOS PEQUENOS", 3],
-      ["PEÇA DE ARMA PESADA", 2],
-      ["DINHEIRO SUJO", 500],
-    ],
-  },
-  {
-    id:"peca_pesada",
-    inputId:"craft_peca_pesada",
-    title:"Caso falte peça de arma pesada",
-    helper:"Quantas peças de arma pesada faltam",
-    materials:[
-      ["ALUMÍNIO", 75],
-      ["COBRE", 75],
-      ["PLÁSTICO", 125],
-      ["BORRACHA", 125],
-      ["CORPO DE RIFLE", 1],
-      ["PEÇA DE ARMA", 2],
-      ["DINHEIRO SUJO", 1000],
-    ],
-  },
-  {
-    id:"corpo_rifle",
-    inputId:"craft_corpo_rifle",
-    title:"Caso falte corpo de rifle",
-    helper:"Quantos corpos de rifle faltam",
-    materials:[
-      ["PEÇA DE ARMA", 6],
-      ["DINHEIRO SUJO", 1000],
-    ],
-  },
-  {
-    id:"seringa_crack",
-    inputId:"craft_seringa_crack",
-    title:"Craft seringa de crack",
-    helper:"Quantas seringas quero fazer",
-    materials:[
-      ["COCAÍNA", 5],
-      ["ACETONA", 1],
-    ],
-  },
-  {
-    id:"macarico",
-    inputId:"craft_macarico",
-    title:"Craft maçarico",
-    helper:"Quantos maçaricos quero fazer",
-    materials:[
-      ["ALUMÍNIO", 5],
-      ["COBRE", 5],
-      ["CHAPA DE METAL", 1],
-      ["DINHEIRO SUJO", 200],
-    ],
-  },
-  {
-    id:"rastreador",
-    inputId:"craft_rastreador",
-    title:"Craft rastreador ilegal",
-    helper:"Quantos rastreadores quero fazer",
-    materials:[
-      ["ALUMÍNIO", 10],
-      ["DINHEIRO SUJO", 200],
-    ],
-  },
-  {
-    id:"circuito_eletronico",
-    inputId:"craft_circuito_eletronico",
-    title:"Craft circuito eletrônico",
-    helper:"Quantos circuitos eletrônicos quero fazer",
-    materials:[
-      ["ALUMÍNIO", 5],
-      ["COBRE", 5],
-      ["DINHEIRO SUJO", 200],
-      ["PLÁSTICO", 10],
-      ["CHAPA DE METAL", 1],
-    ],
-  },
-];
+// Crafts cadastrados pelo kokusai (vêm de /api/craft/receitas).
+let craftRecipes = [];
+const craftQuantities = {};
 
 const craftInventory = {};
 
@@ -319,25 +238,6 @@ function escapeHtml(value){
     .replace(/'/g,"&#039;");
 }
 
-const LOCAL_FLYERS = {
-  "ballas": "/static/images/flyers/ballas.png",
-  "cartel": "/static/images/flyers/cartel.png",
-  "distrito": "/static/images/flyers/distrito.png",
-  "families": "/static/images/flyers/families.png",
-  "the families": "/static/images/flyers/families.png",
-  "hells": "/static/images/flyers/hells.png",
-  "hells angels": "/static/images/flyers/hells.png",
-  "hydra": "/static/images/flyers/hydra1.png",
-  "la guardia": "/static/images/flyers/laguardia.png",
-  "laguardia": "/static/images/flyers/laguardia.png",
-  "legacy": "/static/images/flyers/legacy.png",
-  "leviata": "/static/images/flyers/leviata.png",
-  "vagos": "/static/images/flyers/vagos.png",
-  "vendetta": "/static/images/flyers/vendetta.png",
-  "los bandoleros": "/static/images/flyers/cartel.png",
-  "bandoleros": "/static/images/flyers/cartel.png",
-};
-
 function normalizeFamilyFlyerKey(value){
   const key = String(value || "")
     .normalize("NFD")
@@ -346,27 +246,7 @@ function normalizeFamilyFlyerKey(value){
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
-  const aliases = {
-    "caos":"chaos",
-    "balaklava":"balaclava",
-    "blackherts":"black hearts",
-    "black heart":"black hearts",
-    "the lost":"the lost mc",
-    "lost mc":"the lost mc",
-    "laguardia":"la guardia",
-    "bandoleros":"cartel",
-    "bandolero":"cartel",
-    "los bandoleros":"cartel",
-    "hells angels":"hells",
-  };
-  return aliases[key] || key;
-}
-
-function getLocalFamilyFlyers(item){
-  const key = normalizeFamilyFlyerKey(item?.nome);
-  if(key === "hydra") return ["/static/images/flyers/hydra1.png", "/static/images/flyers/hydra2.png"];
-  const flyer = LOCAL_FLYERS[key] || "";
-  return flyer ? [flyer] : [];
+  return key;
 }
 
 function setFeedback(el, msg, isError=false){
@@ -480,12 +360,6 @@ onInput("v_valor_unitario", updatePreviewVenda);
 onInput("v_quantidade", updatePreviewVenda);
 onInput("v_tipo_dinheiro", updatePreviewVenda);
 onInput("v_percentual_dinheiro_sujo", updatePreviewVenda);
-onInput("e_l85_quantidade", updatePreviewEncomenda);
-onInput("e_l85_valor", updatePreviewEncomenda);
-onInput("e_seringa_quantidade", updatePreviewEncomenda);
-onInput("e_seringa_valor", updatePreviewEncomenda);
-onInput("e_circuito_quantidade", updatePreviewEncomenda);
-onInput("e_circuito_valor", updatePreviewEncomenda);
 onInput("e_tipo_dinheiro", updatePreviewEncomenda);
 onInput("e_percentual_dinheiro_sujo", updatePreviewEncomenda);
 
@@ -579,12 +453,6 @@ encomendaFamiliaSelect?.addEventListener("change", () => {
 function updatePreviewEncomenda(){
   const moneyType = inputValue("e_tipo_dinheiro");
   const percentage = syncDirtyPercentageField("e_tipo_dinheiro", "e_percentual_field", "e_percentual_dinheiro_sujo");
-  const l85Base = Math.max(0, Number(inputValue("e_l85_quantidade") || 0)) * Math.max(0, Number(inputValue("e_l85_valor") || 0));
-  const seringaBase = Math.max(0, Number(inputValue("e_seringa_quantidade") || 0)) * Math.max(0, Number(inputValue("e_seringa_valor") || 0));
-  const circuitoBase = Math.max(0, Number(inputValue("e_circuito_quantidade") || 0)) * Math.max(0, Number(inputValue("e_circuito_valor") || 0));
-  setText("e_l85_subtotal", currency(moneyPricing(l85Base, moneyType, percentage).total));
-  setText("e_seringa_subtotal", currency(moneyPricing(seringaBase, moneyType, percentage).total));
-  setText("e_circuito_subtotal", currency(moneyPricing(circuitoBase, moneyType, percentage).total));
   let tempBase = 0;
   tempOrderCards().forEach(card => {
     const base = Math.max(0, Number(card.querySelector("[data-temp-qty]")?.value || 0)) * Math.max(0, Number(card.querySelector("[data-temp-val]")?.value || 0));
@@ -592,14 +460,14 @@ function updatePreviewEncomenda(){
     const subtotal = card.querySelector("[data-temp-subtotal]");
     if(subtotal) subtotal.textContent = currency(moneyPricing(base, moneyType, percentage).total);
   });
-  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", l85Base + seringaBase + circuitoBase + tempBase, moneyType, percentage);
+  renderMoneyPreview("previewEncomendaValor", "previewEncomendaDetalhe", tempBase, moneyType, percentage);
 }
 
 function resetEncomendaForm(){
   encomendaEmEdicaoId = null;
   encomendaForm?.reset();
   renderFamilySelectionSummary(null, encomendaFamilySummary);
-  renderTempOrderItems();
+  renderTempOrderItems([], {keepTyped:false});
   updatePreviewEncomenda();
   if(encomendaSubmitBtn) encomendaSubmitBtn.textContent = "Salvar encomenda";
   if(encomendaCancelEditBtn) encomendaCancelEditBtn.hidden = true;
@@ -894,48 +762,27 @@ function iniciarEdicaoEncomenda(id){
   if(!item || !encomendaForm) return;
 
   const itens = Array.isArray(item.itens) ? item.itens : [];
-  const l85 = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "l85");
-  const seringa = itens.find(produto => String(produto.produto || "").trim().toLowerCase() === "seringa");
-  const circuito = itens.find(produto => normalizeFamilyFlyerKey(produto.produto) === "circuito eletronico");
   const family = familyForOrder(item);
 
   encomendaEmEdicaoId = id;
   if(encomendaFamiliaSelect) encomendaFamiliaSelect.value = family?.id || item.familia_id || "";
   renderFamilySelectionSummary(family, encomendaFamilySummary);
-  document.getElementById("e_l85_quantidade").value = l85?.quantidade || "";
-  document.getElementById("e_l85_valor").value = l85?.valor_unitario ?? "";
-  document.getElementById("e_seringa_quantidade").value = seringa?.quantidade || "";
-  document.getElementById("e_seringa_valor").value = seringa?.valor_unitario ?? "";
-  document.getElementById("e_circuito_quantidade").value = circuito?.quantidade || "";
-  document.getElementById("e_circuito_valor").value = circuito?.valor_unitario ?? "";
 
-  // Produtos adicionais (ex.: M16): o cartão aparece mesmo depois do prazo se a encomenda já o tinha.
-  const extras = itens.filter(produto => !ORDER_FIXED_PRODUCT_KEYS.includes(normalizeFamilyFlyerKey(produto.produto)));
-  renderTempOrderItems(extras.map(produto => produto.produto));
-  tempOrderCards().forEach(card => {
-    card.querySelector("[data-temp-qty]").value = "";
-    card.querySelector("[data-temp-val]").value = "";
-  });
-  extras.forEach(produto => {
+  // Itens que saíram do catálogo (ex.: produtos da season anterior) ganham um cartão próprio na edição.
+  // Encomendas antigas, anteriores ao campo itens_json, viram um item a partir do texto do pedido.
+  let pedido = itens;
+  if(!pedido.length && String(item.o_que_pediu || "").trim()){
+    const match = String(item.o_que_pediu).match(/^\s*(?:(\d+)\s*x?\s*)?(.+?)\s*$/i);
+    const quantidade = Number(match?.[1] || 1);
+    pedido = [{produto:(match?.[2] || item.o_que_pediu).trim(), quantidade, valor_unitario:quantidade > 0 ? Number((Number(item.valor_base || item.valor || 0) / quantidade).toFixed(2)) : 0}];
+  }
+  renderTempOrderItems(pedido.map(produto => produto.produto), {keepTyped:false});
+  pedido.forEach(produto => {
     const card = tempOrderCards().find(item => normalizeFamilyFlyerKey(item.dataset.tempOrderItem) === normalizeFamilyFlyerKey(produto.produto));
     if(!card) return;
     card.querySelector("[data-temp-qty]").value = produto.quantidade || "";
     card.querySelector("[data-temp-val]").value = produto.valor_unitario ?? "";
   });
-
-  // Compatibilidade com encomendas antigas, anteriores ao campo itens_json.
-  if(!itens.length){
-    const texto = String(item.o_que_pediu || "");
-    const match = texto.match(/^\s*(?:(\d+)\s*x?\s*)?(L85|Seringa|Circuito Eletr[oô]nico)\s*$/i);
-    if(match){
-      const quantidade = Number(match[1] || 1);
-      const valorUnitario = quantidade > 0 ? Number(item.valor_base || item.valor || 0) / quantidade : 0;
-      const produtoNormalizado = normalizeFamilyFlyerKey(match[2]);
-      const prefixo = produtoNormalizado === "l85" ? "e_l85" : (produtoNormalizado === "seringa" ? "e_seringa" : "e_circuito");
-      document.getElementById(`${prefixo}_quantidade`).value = quantidade;
-      document.getElementById(`${prefixo}_valor`).value = Number(valorUnitario.toFixed(2));
-    }
-  }
 
   document.getElementById("e_para_quando").value = orderDeadlineInputValue(item);
   document.getElementById("e_quem_negociou").value = item.quem_negociou || "";
@@ -1054,28 +901,15 @@ encomendaForm?.addEventListener("submit", async (e) => {
     setFeedback(encomendaFeedback, `${selectedFamily.nome}: ${familyMarketInfo(selectedFamily).detail}.`, true);
     return;
   }
-  const itens = [
-    {
-      produto:"L85",
-      quantidade:Number(inputValue("e_l85_quantidade") || 0),
-      valor_unitario:Number(inputValue("e_l85_valor") || 0),
-    },
-    {
-      produto:"Seringa",
-      quantidade:Number(inputValue("e_seringa_quantidade") || 0),
-      valor_unitario:Number(inputValue("e_seringa_valor") || 0),
-    },
-    {
-      produto:"Circuito Eletrônico",
-      quantidade:Number(inputValue("e_circuito_quantidade") || 0),
-      valor_unitario:Number(inputValue("e_circuito_valor") || 0),
-    },
-    ...tempOrderCards().map(card => ({
-      produto:card.dataset.tempOrderItem,
-      quantidade:Number(card.querySelector("[data-temp-qty]")?.value || 0),
-      valor_unitario:Number(card.querySelector("[data-temp-val]")?.value || 0),
-    })),
-  ];
+  const itens = tempOrderCards().map(card => ({
+    produto:card.dataset.tempOrderItem,
+    quantidade:Number(card.querySelector("[data-temp-qty]")?.value || 0),
+    valor_unitario:Number(card.querySelector("[data-temp-val]")?.value || 0),
+  }));
+  if(!itens.length){
+    setFeedback(encomendaFeedback, "Nenhum produto cadastrado ainda. O kokusai precisa cadastrar os produtos na aba Produtos.", true);
+    return;
+  }
 
   if(!itens.some(item => Number.isInteger(item.quantidade) && item.quantidade > 0)){
     setFeedback(encomendaFeedback, "Informe a quantidade de pelo menos um produto do pedido.", true);
@@ -1603,97 +1437,188 @@ function integer(value){
   return new Intl.NumberFormat("pt-BR", {maximumFractionDigits:0}).format(Number(value || 0));
 }
 
-function positiveIntegerFrom(id){
-  const value = Math.floor(Number(inputValue(id) || 0));
-  if(!Number.isFinite(value) || value < 0) return 0;
-  return value;
+function formatQty(value){
+  return new Intl.NumberFormat("pt-BR", {maximumFractionDigits:2}).format(Number(value || 0));
+}
+
+function craftKey(value){
+  return normalizeFamilyFlyerKey(value);
+}
+
+function recipeUnitCost(recipe){
+  const total = (recipe.materiais || []).reduce((sum, item) => sum + Number(item.quantidade || 0) * Number(item.custo_unitario || 0), 0);
+  return {porCraft:total, porUnidade:total / Math.max(1, Number(recipe.rende || 1))};
+}
+
+function renderCraftInputs(){
+  if(!craftInputsBox) return;
+  if(!craftRecipes.length){
+    craftInputsBox.innerHTML = '<div class="family-empty">Nenhum craft cadastrado ainda. Use "Adicionar craft" acima.</div>';
+    return;
+  }
+  craftInputsBox.innerHTML = craftRecipes.map(recipe => {
+    const rende = Number(recipe.rende || 1);
+    const value = craftQuantities[recipe.id] || "";
+    return `<div class="field">
+      <label for="craft_qty_${escapeHtml(recipe.id)}">${escapeHtml(recipe.nome)}</label>
+      <input id="craft_qty_${escapeHtml(recipe.id)}" type="number" min="0" step="1" placeholder="0" value="${escapeHtml(value)}" data-craft-recipe="${escapeHtml(recipe.id)}" />
+      <small class="field-help">Quantas unidades quero${rende > 1 ? ` · cada craft rende ${integer(rende)}` : ""}</small>
+    </div>`;
+  }).join("");
 }
 
 function collectCraftTotals(){
   const totals = new Map();
   let totalItens = 0;
-
-  CRAFT_RECIPES.forEach(recipe => {
-    const quantity = positiveIntegerFrom(recipe.inputId);
-    totalItens += quantity;
+  craftRecipes.forEach(recipe => {
+    const quantity = Math.max(0, Math.floor(Number(craftQuantities[recipe.id] || 0)) || 0);
     if(quantity <= 0) return;
-
-    recipe.materials.forEach(([material, amount]) => {
-      totals.set(material, (totals.get(material) || 0) + (amount * quantity));
+    totalItens += quantity;
+    const crafts = Math.ceil(quantity / Math.max(1, Number(recipe.rende || 1)));
+    (recipe.materiais || []).forEach(item => {
+      const key = craftKey(item.nome);
+      const amount = Number(item.quantidade || 0) * crafts;
+      const entry = totals.get(key) || {nome:item.nome, total:0, custo:0};
+      entry.total += amount;
+      entry.custo += amount * Number(item.custo_unitario || 0);
+      totals.set(key, entry);
     });
   });
-
   return {totalItens, totals};
-}
-
-function bindInventoryInputs(){
-  craftTable?.querySelectorAll("[data-have-material]").forEach(input => {
-    input.addEventListener("change", () => {
-      const material = input.dataset.haveMaterial;
-      craftInventory[material] = Math.max(0, Math.floor(Number(input.value || 0)) || 0);
-      renderCraft();
-    });
-  });
 }
 
 function renderCraft(){
   if(!craftTable) return;
 
   if(!canWrite){
-    setTableContent(craftTable, `<tr><td colspan="4">Modo somente leitura. A tabela de receitas está disponível abaixo.</td></tr>`);
+    setTableContent(craftTable, `<tr><td colspan="5">Modo somente leitura. Os crafts cadastrados estão abaixo.</td></tr>`);
     return;
   }
 
   const {totalItens, totals} = collectCraftTotals();
-  setText("craftTotalItens", integer(totalItens));
-
   if(totalItens <= 0 || totals.size === 0){
-    setTableContent(craftTable, `<tr><td colspan="4">Informe uma quantidade para calcular.</td></tr>`);
-    setFeedback(craftFeedback, "Informe uma quantidade para calcular os materiais.");
+    setText("craftCustoTotal", currency(0));
+    setText("craftCustoFalta", currency(0));
+    setTableContent(craftTable, `<tr><td colspan="5">Informe uma quantidade para calcular.</td></tr>`);
+    setFeedback(craftFeedback, craftRecipes.length ? "Informe uma quantidade para calcular os materiais." : "Cadastre um craft para usar a calculadora.");
     return;
   }
 
-  setTableContent(craftTable, Array.from(totals.entries()).map(([material, total]) => {
-    const tenho = Math.max(0, Math.floor(Number(craftInventory[material] || 0)) || 0);
-    const falta = Math.max(total - tenho, 0);
+  let custoTotal = 0;
+  let custoFalta = 0;
+  const recipesByKey = new Map(craftRecipes.map(recipe => [craftKey(recipe.nome), recipe]));
+  setTableContent(craftTable, Array.from(totals.entries()).map(([key, entry]) => {
+    const tenho = Math.max(0, Number(craftInventory[key] || 0) || 0);
+    const falta = Math.max(entry.total - tenho, 0);
+    const custoUnit = entry.total > 0 ? entry.custo / entry.total : 0;
+    custoTotal += entry.custo;
+    custoFalta += falta * custoUnit;
+    const subRecipe = recipesByKey.get(key);
+    const craftButton = subRecipe && falta > 0
+      ? `<button type="button" class="ghost-btn compact-btn craft-sub-btn" data-craft-falta="${escapeHtml(subRecipe.id)}" data-craft-falta-qtd="${Math.ceil(falta)}">Craftar ${formatQty(Math.ceil(falta))}</button>`
+      : "";
     return `
       <tr>
-        <td><strong>${escapeHtml(material)}</strong></td>
-        <td>${integer(total)}</td>
+        <td><strong>${escapeHtml(entry.nome)}</strong>${craftButton}</td>
+        <td>${formatQty(entry.total)}</td>
         <td>
-          <input class="mini-input" type="number" min="0" step="1" value="${tenho || ""}" placeholder="0" data-have-material="${escapeHtml(material)}" />
+          <input class="mini-input" type="number" min="0" step="1" value="${tenho || ""}" placeholder="0" data-have-material="${escapeHtml(key)}" />
         </td>
-        <td><span class="missing-value ${falta > 0 ? "pending" : "success"}">${integer(falta)}</span></td>
+        <td><span class="missing-value ${falta > 0 ? "pending" : "success"}">${formatQty(falta)}</span></td>
+        <td>${entry.custo > 0 ? currency(entry.custo) : "—"}</td>
       </tr>`;
   }).join(""));
 
-  setFeedback(craftFeedback, `Cálculo pronto: ${integer(totalItens)} item(ns) selecionado(s).`);
-  bindInventoryInputs();
+  setText("craftCustoTotal", currency(custoTotal));
+  setText("craftCustoFalta", currency(custoFalta));
+  setFeedback(craftFeedback, `Cálculo pronto: ${integer(totalItens)} unidade(s) no cálculo.`);
 }
 
 function renderRecipes(){
   if(!recipeGrid) return;
-
-  recipeGrid.innerHTML = CRAFT_RECIPES.map(recipe => `
+  if(!craftRecipes.length){
+    recipeGrid.innerHTML = '<div class="family-empty">Nenhum craft cadastrado nesta season.</div>';
+    return;
+  }
+  recipeGrid.innerHTML = craftRecipes.map(recipe => {
+    const cost = recipeUnitCost(recipe);
+    const rende = Number(recipe.rende || 1);
+    const helper = [
+      rende > 1 ? `Rende ${integer(rende)} por craft` : "Rende 1 por craft",
+      cost.porCraft > 0 ? `custo ${currency(cost.porUnidade)} por unidade` : "",
+    ].filter(Boolean).join(" · ");
+    return `
     <details class="recipe-card">
       <summary class="recipe-head">
-        <h4>${escapeHtml(recipe.title)}</h4>
-        <span>${escapeHtml(recipe.helper)}</span>
+        <h4>${escapeHtml(recipe.nome)}</h4>
+        <span>${escapeHtml(helper)}</span>
         <b aria-hidden="true">+</b>
       </summary>
       <div class="recipe-list">
-        ${recipe.materials.map(([material, amount]) => `
+        ${recipe.descricao ? `<p class="family-note">${escapeHtml(recipe.descricao)}</p>` : ""}
+        ${(recipe.materiais || []).map(item => `
           <div>
-            <span>${escapeHtml(material)}</span>
-            <strong>${integer(amount)}</strong>
+            <span>${escapeHtml(item.nome)}${Number(item.custo_unitario || 0) > 0 ? ` <small>(${currency(item.custo_unitario)} cada)</small>` : ""}</span>
+            <strong>${formatQty(item.quantidade)}</strong>
           </div>`).join("")}
+        ${cost.porCraft > 0 ? `<div><span>Custo de um craft</span><strong>${currency(cost.porCraft)}</strong></div>` : ""}
+        ${canWrite ? `<div class="family-card-controls recipe-actions">
+          <button type="button" class="family-quick-edit" data-editar-receita="${escapeHtml(recipe.id)}">Editar</button>
+          <button type="button" class="family-quick-delete" data-apagar-receita="${escapeHtml(recipe.id)}">Remover</button>
+        </div>` : ""}
       </div>
-    </details>
-  `).join("");
+    </details>`;
+  }).join("");
 }
 
-craftInputs.forEach(input => {
-  input.addEventListener("input", renderCraft);
+async function loadReceitas(){
+  try{
+    const {res, data} = await fetchJson("/api/craft/receitas");
+    if(!res.ok){
+      if(recipeGrid) recipeGrid.innerHTML = `<div class="family-empty">${escapeHtml(data.error || "Erro ao carregar crafts.")}</div>`;
+      return;
+    }
+    craftRecipes = Array.isArray(data.items) ? data.items : [];
+    const ids = new Set(craftRecipes.map(recipe => recipe.id));
+    Object.keys(craftQuantities).forEach(id => { if(!ids.has(id)) delete craftQuantities[id]; });
+    const materialList = document.getElementById("craftMaterialsList");
+    if(materialList){
+      const names = new Map();
+      craftRecipes.forEach(recipe => {
+        names.set(craftKey(recipe.nome), recipe.nome);
+        (recipe.materiais || []).forEach(item => names.set(craftKey(item.nome), item.nome));
+      });
+      materialList.innerHTML = Array.from(names.values()).map(name => `<option value="${escapeHtml(name)}"></option>`).join("");
+    }
+    renderCraftInputs();
+    renderCraft();
+    renderRecipes();
+  }catch(error){
+    if(recipeGrid) recipeGrid.innerHTML = `<div class="family-empty">Falha ao carregar crafts: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+craftInputsBox?.addEventListener("input", event => {
+  const input = event.target.closest("[data-craft-recipe]");
+  if(!input) return;
+  craftQuantities[input.dataset.craftRecipe] = Math.max(0, Math.floor(Number(input.value || 0)) || 0);
+  renderCraft();
+});
+
+craftTable?.addEventListener("change", event => {
+  const input = event.target.closest("[data-have-material]");
+  if(!input) return;
+  craftInventory[input.dataset.haveMaterial] = Math.max(0, Number(input.value || 0) || 0);
+  renderCraft();
+});
+
+craftTable?.addEventListener("click", event => {
+  const button = event.target.closest("[data-craft-falta]");
+  if(!button) return;
+  const id = button.dataset.craftFalta;
+  craftQuantities[id] = (Number(craftQuantities[id] || 0) || 0) + (Number(button.dataset.craftFaltaQtd || 0) || 0);
+  renderCraftInputs();
+  renderCraft();
 });
 
 craftForm?.addEventListener("submit", (e) => {
@@ -1702,9 +1627,154 @@ craftForm?.addEventListener("submit", (e) => {
 });
 
 clearCraftBtn?.addEventListener("click", () => {
-  craftInputs.forEach(input => input.value = "");
+  Object.keys(craftQuantities).forEach(key => delete craftQuantities[key]);
   Object.keys(craftInventory).forEach(key => delete craftInventory[key]);
+  renderCraftInputs();
   renderCraft();
+});
+
+/* ===== Cadastro de crafts (somente kokusai) ===== */
+const receitaForm = document.getElementById("receitaForm");
+const receitaMateriais = document.getElementById("receitaMateriais");
+const receitaFeedback = document.getElementById("receitaFeedback");
+const receitaSubmitBtn = document.getElementById("receitaSubmitBtn");
+const receitaCancelEditBtn = document.getElementById("receitaCancelEditBtn");
+let receitaEmEdicaoId = null;
+
+if(receitaForm && !document.getElementById("craftMaterialsList")){
+  const list = document.createElement("datalist");
+  list.id = "craftMaterialsList";
+  document.body.appendChild(list);
+}
+
+function addReceitaMaterialRow(item = {}){
+  if(!receitaMateriais) return;
+  const row = document.createElement("div");
+  row.className = "craft-material-row";
+  row.innerHTML = `
+    <input data-material-nome list="craftMaterialsList" maxlength="80" placeholder="Material" aria-label="Material" />
+    <input data-material-qtd type="number" min="0" step="any" placeholder="Qtd." aria-label="Quantidade por craft" />
+    <input data-material-custo type="number" min="0" step="0.01" placeholder="Custo un. (opcional)" aria-label="Custo por unidade do material" />
+    <button type="button" class="family-quick-delete" data-remover-material aria-label="Remover material">✕</button>`;
+  row.querySelector("[data-material-nome]").value = item.nome || "";
+  row.querySelector("[data-material-qtd]").value = item.quantidade ?? "";
+  row.querySelector("[data-material-custo]").value = Number(item.custo_unitario || 0) > 0 ? item.custo_unitario : "";
+  receitaMateriais.appendChild(row);
+}
+
+function receitaMaterialsFromForm(){
+  return Array.from(receitaMateriais?.querySelectorAll(".craft-material-row") || []).map(row => ({
+    nome:row.querySelector("[data-material-nome]").value.trim(),
+    quantidade:row.querySelector("[data-material-qtd]").value,
+    custo_unitario:row.querySelector("[data-material-custo]").value,
+  })).filter(item => item.nome || String(item.quantidade).trim());
+}
+
+function updateReceitaCostPreview(){
+  const total = receitaMaterialsFromForm().reduce((sum, item) => sum + (Number(item.quantidade) || 0) * (Number(item.custo_unitario) || 0), 0);
+  setText("receitaCustoPreview", currency(total));
+}
+
+function resetReceitaForm(){
+  receitaEmEdicaoId = null;
+  receitaForm?.reset();
+  if(receitaMateriais){
+    receitaMateriais.innerHTML = "";
+    for(let i = 0; i < 3; i++) addReceitaMaterialRow();
+  }
+  updateReceitaCostPreview();
+  if(receitaSubmitBtn) receitaSubmitBtn.textContent = "Adicionar craft";
+  if(receitaCancelEditBtn) receitaCancelEditBtn.hidden = true;
+  setText("receitaFormKicker", "Novo craft");
+  setText("receitaFormTitle", "Adicionar craft");
+}
+
+function iniciarEdicaoReceita(id){
+  const recipe = craftRecipes.find(item => item.id === id);
+  if(!recipe || !receitaForm) return;
+  receitaEmEdicaoId = id;
+  document.getElementById("r_nome").value = recipe.nome || "";
+  document.getElementById("r_rende").value = recipe.rende || 1;
+  document.getElementById("r_descricao").value = recipe.descricao || "";
+  receitaMateriais.innerHTML = "";
+  (recipe.materiais || []).forEach(item => addReceitaMaterialRow(item));
+  addReceitaMaterialRow();
+  updateReceitaCostPreview();
+  if(receitaSubmitBtn) receitaSubmitBtn.textContent = "Salvar alterações";
+  if(receitaCancelEditBtn) receitaCancelEditBtn.hidden = false;
+  setText("receitaFormKicker", "Editar craft");
+  setText("receitaFormTitle", recipe.nome);
+  setFeedback(receitaFeedback, "Edite os materiais e clique em Salvar alterações.");
+  setDisclosurePanelOpen("craftRecipeFormPanel", true, true);
+}
+
+document.getElementById("receitaAddMaterialBtn")?.addEventListener("click", () => addReceitaMaterialRow());
+receitaMateriais?.addEventListener("input", updateReceitaCostPreview);
+receitaMateriais?.addEventListener("click", event => {
+  const button = event.target.closest("[data-remover-material]");
+  if(!button) return;
+  button.closest(".craft-material-row")?.remove();
+  if(!receitaMateriais.querySelector(".craft-material-row")) addReceitaMaterialRow();
+  updateReceitaCostPreview();
+});
+receitaCancelEditBtn?.addEventListener("click", () => {
+  resetReceitaForm();
+  setFeedback(receitaFeedback, "Edição cancelada.");
+});
+
+receitaForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    nome:inputValue("r_nome").trim(),
+    rende:Number(inputValue("r_rende") || 1),
+    descricao:inputValue("r_descricao").trim(),
+    materiais:receitaMaterialsFromForm(),
+  };
+  if(!payload.materiais.length){
+    setFeedback(receitaFeedback, "Adicione pelo menos um material.", true);
+    return;
+  }
+  const editing = receitaEmEdicaoId;
+  try{
+    setFeedback(receitaFeedback, "Salvando craft...");
+    const {res, data} = await fetchJson(editing ? `/api/craft/receitas/${encodeURIComponent(editing)}` : "/api/craft/receitas", {
+      method:editing ? "PUT" : "POST",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify(payload),
+    });
+    setFeedback(receitaFeedback, data.message || data.error || (res.ok ? "Craft salvo." : `Erro ${res.status}.`), !res.ok);
+    if(res.ok){
+      resetReceitaForm();
+      await loadReceitas();
+    }
+  }catch(error){
+    setFeedback(receitaFeedback, `Falha ao salvar craft: ${error.message}`, true);
+  }
+});
+
+recipeGrid?.addEventListener("click", async event => {
+  const editButton = event.target.closest("[data-editar-receita]");
+  if(editButton){
+    iniciarEdicaoReceita(editButton.dataset.editarReceita);
+    return;
+  }
+  const deleteButton = event.target.closest("[data-apagar-receita]");
+  if(!deleteButton) return;
+  const recipe = craftRecipes.find(item => item.id === deleteButton.dataset.apagarReceita);
+  if(!recipe || !window.confirm(`Remover o craft ${recipe.nome}?`)) return;
+  try{
+    const {res, data} = await fetchJson(`/api/craft/receitas/${encodeURIComponent(recipe.id)}`, {
+      method:"DELETE",
+      headers:csrfHeaders(),
+    });
+    setFeedback(receitaFeedback || craftFeedback, data.message || data.error || "", !res.ok);
+    if(res.ok){
+      if(receitaEmEdicaoId === recipe.id) resetReceitaForm();
+      await loadReceitas();
+    }
+  }catch(error){
+    window.alert(`Falha ao remover o craft: ${error.message}`);
+  }
 });
 
 async function loadHealth(){
@@ -2022,9 +2092,7 @@ async function loadFamilias(){
 
     familiasGrid.innerHTML = items.map(item => {
       const market = familyMarketInfo(item);
-      const localFlyers = getLocalFamilyFlyers(item);
-      const configuredFlyers = [item.flyer_url, item.flyer_url_2].filter(Boolean);
-      const flyerUrls = item.flyer_oculto ? [] : (configuredFlyers.length ? configuredFlyers : localFlyers);
+      const flyerUrls = item.flyer_oculto ? [] : [item.flyer_url, item.flyer_url_2].filter(Boolean);
       const flyer = flyerUrls.length
         ? `<div class="family-flyer ${flyerUrls.length > 1 ? "family-flyer-multiple" : ""}">${flyerUrls.map((url, index) => `<img data-family-flyer src="${escapeHtml(url)}" alt="Flyer ${index + 1} de ${escapeHtml(item.nome)}" referrerpolicy="no-referrer" />`).join("")}</div>`
         : `<div class="family-flyer family-flyer-empty"><span>${escapeHtml(item.icone || "🤝")}</span><small>Sem flyer vinculado</small></div>`;
@@ -2762,11 +2830,19 @@ comprasTable?.addEventListener("click", async event => {
   }
 });
 
-/* ===== Produtos de venda: de linha (L85, Seringa, Circuito) + temporários (ex.: M16) ===== */
+/* ===== Nossos produtos (catálogo cadastrado pelo kokusai) ===== */
 const vendaQuickProducts = document.getElementById("v_quick_products");
-const ORDER_FIXED_PRODUCT_KEYS = ["l85", "seringa", "circuito eletronico"];
-let produtosFixosVenda = ["L85", "Seringa", "Circuito Eletrônico"];
-let produtosTemporariosAtivos = [];
+const produtosGrid = document.getElementById("produtosGrid");
+const produtoForm = document.getElementById("produtoForm");
+const produtoFeedback = document.getElementById("produtoFeedback");
+const produtoSubmitBtn = document.getElementById("produtoSubmitBtn");
+const produtoCancelEditBtn = document.getElementById("produtoCancelEditBtn");
+let produtosCatalogo = [];
+let produtoEmEdicaoId = null;
+
+function produtosDisponiveis(){
+  return produtosCatalogo.filter(item => item.ativo);
+}
 
 function tempOrderCards(){
   return Array.from(document.querySelectorAll("#e_temp_items [data-temp-order-item]"));
@@ -2776,26 +2852,33 @@ function tempItemSlug(nome){
   return normalizeFamilyFlyerKey(nome).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "item";
 }
 
-// Monta os cartões de produtos adicionais do formulário de Encomendas, sem perder o que já foi digitado.
-function renderTempOrderItems(extraNames = []){
+// Monta um cartão por produto disponível no formulário de Encomendas, já com o preço do catálogo.
+// extraNames: itens de uma encomenda em edição que não estão mais no catálogo.
+function renderTempOrderItems(extraNames = [], {keepTyped = true} = {}){
   const box = document.getElementById("e_temp_items");
   if(!box) return;
-  const typed = new Map(tempOrderCards().map(card => [
+  const typed = keepTyped ? new Map(tempOrderCards().map(card => [
     normalizeFamilyFlyerKey(card.dataset.tempOrderItem),
     {quantidade:card.querySelector("[data-temp-qty]")?.value || "", valor:card.querySelector("[data-temp-val]")?.value || ""},
-  ]));
-  const entries = produtosTemporariosAtivos.map(item => ({nome:item.nome, ate:item.ate}));
+  ])) : new Map();
+  const entries = produtosDisponiveis().map(item => ({nome:item.nome, preco:item.preco, catalogo:true}));
   extraNames.forEach(nome => {
     if(!entries.some(entry => normalizeFamilyFlyerKey(entry.nome) === normalizeFamilyFlyerKey(nome))){
-      entries.push({nome, ate:""});
+      entries.push({nome, preco:"", catalogo:false});
     }
   });
-  box.innerHTML = entries.map(({nome, ate}) => {
+  if(!entries.length){
+    box.innerHTML = '<div class="family-empty">Nenhum produto disponível. Cadastre os produtos na aba Produtos.</div>';
+    updatePreviewEncomenda();
+    return;
+  }
+  box.innerHTML = entries.map(({nome, preco, catalogo}) => {
     const slug = tempItemSlug(nome);
-    const note = ate ? `até ${escapeHtml(String(ate).slice(0, 5))}` : "período encerrado";
+    const note = catalogo ? "" : ' <small class="order-item-note">fora do catálogo</small>';
+    const price = catalogo && Number(preco) > 0 ? String(preco) : "";
     return `<div class="order-item-card" data-temp-order-item="${escapeHtml(nome)}">
       <div class="order-item-title">
-        <strong>${escapeHtml(nome)} <small class="order-item-note">${note}</small></strong>
+        <strong>${escapeHtml(nome)}${note}</strong>
         <span data-temp-subtotal>R$ 0,00</span>
       </div>
       <div class="order-item-fields">
@@ -2803,7 +2886,7 @@ function renderTempOrderItems(extraNames = []){
           <input id="e_temp_${slug}_quantidade" data-temp-qty type="number" min="0" step="1" placeholder="0" />
         </label>
         <label for="e_temp_${slug}_valor">Valor unitário
-          <input id="e_temp_${slug}_valor" data-temp-val type="number" min="0" step="0.01" placeholder="0,00" />
+          <input id="e_temp_${slug}_valor" data-temp-val type="number" min="0" step="0.01" placeholder="0,00" value="${escapeHtml(price)}" />
         </label>
       </div>
     </div>`;
@@ -2812,7 +2895,7 @@ function renderTempOrderItems(extraNames = []){
     const old = typed.get(normalizeFamilyFlyerKey(card.dataset.tempOrderItem));
     if(!old) return;
     card.querySelector("[data-temp-qty]").value = old.quantidade;
-    card.querySelector("[data-temp-val]").value = old.valor;
+    if(old.valor !== "") card.querySelector("[data-temp-val]").value = old.valor;
   });
   updatePreviewEncomenda();
 }
@@ -2821,22 +2904,54 @@ document.getElementById("e_temp_items")?.addEventListener("input", updatePreview
 
 function renderVendaQuickProducts(){
   if(!vendaQuickProducts) return;
-  const fixos = produtosFixosVenda.map(nome => `<button type="button" class="quick-product-btn" data-quick-produto="${escapeHtml(nome)}">${escapeHtml(nome)}</button>`);
-  const temporarios = produtosTemporariosAtivos.map(item => `<button type="button" class="quick-product-btn is-temporary" data-quick-produto="${escapeHtml(item.nome)}" title="Disponível até ${escapeHtml(item.ate)}">${escapeHtml(item.nome)} <small>até ${escapeHtml(String(item.ate).slice(0, 5))}</small></button>`);
-  vendaQuickProducts.innerHTML = [...fixos, ...temporarios].join("");
-  vendaQuickProducts.hidden = fixos.length + temporarios.length === 0;
+  const items = produtosDisponiveis();
+  vendaQuickProducts.innerHTML = items.map(item => `<button type="button" class="quick-product-btn" data-quick-produto="${escapeHtml(item.id)}">${escapeHtml(item.nome)}${Number(item.preco) > 0 ? ` <small>${escapeHtml(currency(item.preco))}</small>` : ""}</button>`).join("");
+  vendaQuickProducts.hidden = items.length === 0;
 }
 
-async function loadProdutosVenda(){
-  try{
-    const {res, data} = await fetchJson("/api/produtos-venda");
-    if(res.ok){
-      if(Array.isArray(data.fixos) && data.fixos.length) produtosFixosVenda = data.fixos.map(String);
-      produtosTemporariosAtivos = Array.isArray(data.temporarios) ? data.temporarios : [];
-    }
-  }catch{
-    /* mantém os produtos de linha já conhecidos */
+function renderProdutos(){
+  if(!produtosGrid) return;
+  setText("produtosTotal", integer(produtosCatalogo.length));
+  setText("produtosAtivos", integer(produtosDisponiveis().length));
+  if(!produtosCatalogo.length){
+    produtosGrid.innerHTML = '<div class="family-empty">Nenhum produto cadastrado nesta season.</div>';
+    return;
   }
+  produtosGrid.innerHTML = produtosCatalogo.map(item => {
+    const photo = item.foto_url
+      ? `<div class="family-flyer product-photo"><img src="${escapeHtml(item.foto_url)}" alt="Foto de ${escapeHtml(item.nome)}" loading="lazy" /></div>`
+      : `<div class="family-flyer family-flyer-empty product-photo"><span>📦</span><small>Sem foto</small></div>`;
+    return `<article class="family-card ${item.ativo ? "open" : "closed"}">
+      <div class="family-card-content">
+        ${photo}
+        <div class="family-card-top product-card-top">
+          <div><h4>${escapeHtml(item.nome)}</h4></div>
+          <div class="family-card-controls">
+            <span class="market-status ${item.ativo ? "open" : "closed"}">${item.ativo ? "Disponível" : "Indisponível"}</span>
+            ${canWrite ? `<button type="button" class="family-quick-edit" data-editar-produto="${escapeHtml(item.id)}">Editar</button>` : ""}
+            ${canWrite ? `<button type="button" class="family-quick-delete" data-apagar-produto="${escapeHtml(item.id)}">Remover</button>` : ""}
+          </div>
+        </div>
+        <div class="family-responsible-card"><span>Preço unitário</span><strong>${Number(item.preco) > 0 ? escapeHtml(currency(item.preco)) : "A definir"}</strong></div>
+        ${item.descricao ? `<p class="family-note">${escapeHtml(item.descricao)}</p>` : ""}
+        ${canWrite && item.foto_url ? `<div class="family-actions"><button type="button" class="family-flyer-delete-btn" data-remover-foto-produto="${escapeHtml(item.id)}">Remover foto</button></div>` : ""}
+      </div>
+    </article>`;
+  }).join("");
+}
+
+async function loadProdutos(){
+  try{
+    const {res, data} = await fetchJson("/api/produtos");
+    if(res.ok){
+      produtosCatalogo = Array.isArray(data.items) ? data.items : [];
+    }else if(produtosGrid){
+      produtosGrid.innerHTML = `<div class="family-empty">${escapeHtml(data.error || "Erro ao carregar produtos.")}</div>`;
+    }
+  }catch(error){
+    if(produtosGrid) produtosGrid.innerHTML = `<div class="family-empty">Falha ao carregar produtos: ${escapeHtml(error.message)}</div>`;
+  }
+  renderProdutos();
   renderVendaQuickProducts();
   renderTempOrderItems();
 }
@@ -2844,9 +2959,179 @@ async function loadProdutosVenda(){
 vendaQuickProducts?.addEventListener("click", event => {
   const button = event.target.closest("[data-quick-produto]");
   if(!button) return;
+  const item = produtosCatalogo.find(produto => produto.id === button.dataset.quickProduto);
+  if(!item) return;
   const produto = document.getElementById("v_produto");
-  if(produto) produto.value = button.dataset.quickProduto;
-  document.getElementById("v_valor_unitario")?.focus();
+  if(produto) produto.value = item.nome;
+  const valor = document.getElementById("v_valor_unitario");
+  if(valor && Number(item.preco) > 0){
+    valor.value = item.preco;
+    updatePreviewVenda();
+  }
+  document.getElementById(Number(item.preco) > 0 ? "v_quantidade" : "v_valor_unitario")?.focus();
+});
+
+function resetProdutoForm(){
+  produtoEmEdicaoId = null;
+  produtoForm?.reset();
+  const ativo = document.getElementById("p_ativo");
+  if(ativo) ativo.checked = true;
+  if(produtoSubmitBtn) produtoSubmitBtn.textContent = "Adicionar produto";
+  if(produtoCancelEditBtn) produtoCancelEditBtn.hidden = true;
+  setText("produtoFormKicker", "Novo produto");
+  setText("produtoFormTitle", "Adicionar produto");
+}
+
+function iniciarEdicaoProduto(id){
+  const item = produtosCatalogo.find(produto => produto.id === id);
+  if(!item || !produtoForm) return;
+  produtoEmEdicaoId = id;
+  document.getElementById("p_nome").value = item.nome || "";
+  document.getElementById("p_preco").value = Number(item.preco) > 0 ? item.preco : "";
+  document.getElementById("p_descricao").value = item.descricao || "";
+  document.getElementById("p_ativo").checked = Boolean(item.ativo);
+  document.getElementById("p_foto").value = "";
+  if(produtoSubmitBtn) produtoSubmitBtn.textContent = "Salvar alterações";
+  if(produtoCancelEditBtn) produtoCancelEditBtn.hidden = false;
+  setText("produtoFormKicker", "Editar produto");
+  setText("produtoFormTitle", item.nome);
+  setFeedback(produtoFeedback, "Edite os campos e clique em Salvar alterações. Escolha uma foto só se quiser trocar.");
+  setDisclosurePanelOpen("produtoEntryPanel", true, true);
+}
+
+produtoCancelEditBtn?.addEventListener("click", () => {
+  resetProdutoForm();
+  setFeedback(produtoFeedback, "Edição cancelada.");
+});
+
+produtoForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = {
+    nome:inputValue("p_nome").trim(),
+    preco:inputValue("p_preco").trim(),
+    descricao:inputValue("p_descricao").trim(),
+    ativo:Boolean(document.getElementById("p_ativo")?.checked),
+  };
+  const file = document.getElementById("p_foto")?.files?.[0] || null;
+  const editing = produtoEmEdicaoId;
+  try{
+    setFeedback(produtoFeedback, "Salvando produto...");
+    const {res, data} = await fetchJson(editing ? `/api/produtos/${encodeURIComponent(editing)}` : "/api/produtos", {
+      method:editing ? "PUT" : "POST",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify(payload),
+    });
+    if(!res.ok){
+      setFeedback(produtoFeedback, data.error || `Erro ${res.status} ao salvar produto.`, true);
+      return;
+    }
+    let message = data.message || "Produto salvo.";
+    if(file){
+      setFeedback(produtoFeedback, "Enviando foto...");
+      const body = new FormData();
+      body.append("foto", file);
+      const upload = await fetchJson(`/api/produtos/${encodeURIComponent(data.id || editing)}/foto`, {
+        method:"POST",
+        headers:csrfHeaders(),
+        body,
+      });
+      if(!upload.res.ok){
+        resetProdutoForm();
+        await loadProdutos();
+        setFeedback(produtoFeedback, `Produto salvo, mas a foto não foi enviada: ${upload.data.error || upload.res.status}`, true);
+        return;
+      }
+      message += " Foto salva.";
+    }
+    resetProdutoForm();
+    await loadProdutos();
+    setFeedback(produtoFeedback, message);
+  }catch(error){
+    setFeedback(produtoFeedback, `Falha ao salvar produto: ${error.message}`, true);
+  }
+});
+
+produtosGrid?.addEventListener("click", async event => {
+  const editButton = event.target.closest("[data-editar-produto]");
+  if(editButton){
+    iniciarEdicaoProduto(editButton.dataset.editarProduto);
+    return;
+  }
+  const photoButton = event.target.closest("[data-remover-foto-produto]");
+  const deleteButton = event.target.closest("[data-apagar-produto]");
+  const button = photoButton || deleteButton;
+  if(!button) return;
+  const id = photoButton ? photoButton.dataset.removerFotoProduto : deleteButton.dataset.apagarProduto;
+  const item = produtosCatalogo.find(produto => produto.id === id);
+  if(!item) return;
+  const question = photoButton
+    ? `Remover a foto de ${item.nome}?`
+    : `Remover ${item.nome} do catálogo? Vendas e encomendas já registradas continuam iguais.`;
+  if(!window.confirm(question)) return;
+  try{
+    button.disabled = true;
+    const {res, data} = await fetchJson(photoButton ? `/api/produtos/${encodeURIComponent(id)}/foto` : `/api/produtos/${encodeURIComponent(id)}`, {
+      method:"DELETE",
+      headers:csrfHeaders(),
+    });
+    setFeedback(produtoFeedback, data.message || data.error || "", !res.ok);
+    if(res.ok){
+      if(produtoEmEdicaoId === id && deleteButton) resetProdutoForm();
+      await loadProdutos();
+    }else{
+      button.disabled = false;
+    }
+  }catch(error){
+    window.alert(`Falha ao remover: ${error.message}`);
+    button.disabled = false;
+  }
+});
+
+/* ===== Nova season (somente kokusai) ===== */
+const seasonResetForm = document.getElementById("seasonResetForm");
+const seasonResetBtn = document.getElementById("seasonResetBtn");
+const seasonResetFeedback = document.getElementById("seasonResetFeedback");
+const seasonConfirmInput = document.getElementById("season_confirmacao");
+
+function syncSeasonResetButton(){
+  if(!seasonResetBtn) return;
+  const anyChecked = ["season_familias", "season_produtos", "season_crafts"].some(id => document.getElementById(id)?.checked);
+  seasonResetBtn.disabled = !anyChecked || String(seasonConfirmInput?.value || "").trim().toUpperCase() !== "NOVA SEASON";
+}
+
+seasonResetForm?.addEventListener("input", syncSeasonResetButton);
+seasonResetForm?.addEventListener("change", syncSeasonResetButton);
+seasonResetForm?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  syncSeasonResetButton();
+  if(seasonResetBtn?.disabled) return;
+  const payload = {
+    confirmacao:String(seasonConfirmInput?.value || "").trim(),
+    familias:Boolean(document.getElementById("season_familias")?.checked),
+    produtos:Boolean(document.getElementById("season_produtos")?.checked),
+    crafts:Boolean(document.getElementById("season_crafts")?.checked),
+  };
+  if(!window.confirm("Começar a nova season agora? As famílias marcadas serão apagadas do site (com cópia na planilha) e os produtos/crafts marcados sairão do catálogo.")) return;
+  try{
+    seasonResetBtn.disabled = true;
+    setFeedback(seasonResetFeedback, "Preparando a nova season...");
+    const {res, data} = await fetchJson("/api/nova-season", {
+      method:"POST",
+      headers:csrfHeaders({"Content-Type":"application/json"}),
+      body:JSON.stringify(payload),
+    });
+    setFeedback(seasonResetFeedback, data.message || data.error || `Erro ${res.status}.`, !res.ok);
+    if(res.ok){
+      seasonResetForm.reset();
+      document.getElementById("season_familias").checked = true;
+      document.getElementById("season_produtos").checked = true;
+      await loadAll();
+    }
+  }catch(error){
+    setFeedback(seasonResetFeedback, `Falha ao iniciar a nova season: ${error.message}`, true);
+  }finally{
+    syncSeasonResetButton();
+  }
 });
 
 /* ===== Gerenciar membros das metas (somente administrador) ===== */
@@ -3044,7 +3329,7 @@ async function loadAll(){
   }
   try{
     await loadPessoas();
-    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutosVenda(), loadMetaMembers()]);
+    await Promise.all([loadHealth(), loadResumo(), loadCompras(), loadVendas(), loadEncomendas(), loadRelatorio(), loadReunioes(), loadFamilias(), loadMetas(), loadBau(), loadProdutos(), loadReceitas(), loadMetaMembers()]);
     updateLastSync();
   }finally{
     if(refreshBtn){
@@ -3064,6 +3349,8 @@ if(relatorioMes && !relatorioMes.value){
   relatorioMes.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 resetFamiliaForm();
+resetReceitaForm();
+renderCraftInputs();
 renderRecipes();
 renderCraft();
 loadAll();
