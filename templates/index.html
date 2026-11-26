@@ -782,10 +782,16 @@
             </div>
           </div>
           <form id="seasonResetForm" class="form-grid season-reset-form">
-            <p class="field-full season-reset-text">Apaga as famílias cadastradas e tira os produtos do catálogo para a equipe cadastrar tudo de novo. Antes de apagar, as famílias são copiadas para uma aba de backup na planilha. Compras, vendas, encomendas, reuniões, metas e baú não mudam.</p>
-            <label class="check-line field-full" for="season_familias"><input id="season_familias" type="checkbox" checked /><span>Apagar famílias (fica uma cópia na planilha)</span></label>
-            <label class="check-line field-full" for="season_produtos"><input id="season_produtos" type="checkbox" checked /><span>Tirar todos os produtos do catálogo</span></label>
-            <label class="check-line field-full" for="season_crafts"><input id="season_crafts" type="checkbox" /><span>Tirar todos os crafts cadastrados</span></label>
+            <p class="field-full season-reset-text">Zera o site para começar a season do zero. Os usuários, senhas e fotos de perfil nunca são apagados. Antes de apagar, cada aba da planilha é copiada para uma aba de backup e as metas vão para um arquivo de backup no Bucket. Desmarque o que quiser manter.</p>
+            <label class="check-line" for="season_familias"><input id="season_familias" type="checkbox" data-season-key="familias" checked /><span>Famílias</span></label>
+            <label class="check-line" for="season_compras"><input id="season_compras" type="checkbox" data-season-key="compras" checked /><span>Compras</span></label>
+            <label class="check-line" for="season_vendas"><input id="season_vendas" type="checkbox" data-season-key="vendas" checked /><span>Vendas</span></label>
+            <label class="check-line" for="season_encomendas"><input id="season_encomendas" type="checkbox" data-season-key="encomendas" checked /><span>Encomendas</span></label>
+            <label class="check-line" for="season_reunioes"><input id="season_reunioes" type="checkbox" data-season-key="reunioes" checked /><span>Reuniões</span></label>
+            <label class="check-line" for="season_metas"><input id="season_metas" type="checkbox" data-season-key="metas" checked /><span>Metas de todas as semanas (os membros continuam)</span></label>
+            <label class="check-line" for="season_bau"><input id="season_bau" type="checkbox" data-season-key="bau" checked /><span>Fotos do Registro Baú (ficam em Arquivadas)</span></label>
+            <label class="check-line" for="season_produtos"><input id="season_produtos" type="checkbox" data-season-key="produtos" /><span>Produtos do catálogo</span></label>
+            <label class="check-line" for="season_crafts"><input id="season_crafts" type="checkbox" data-season-key="crafts" /><span>Crafts cadastrados</span></label>
             <div class="field field-full">
               <label for="season_confirmacao">Para confirmar, digite NOVA SEASON</label>
               <input id="season_confirmacao" autocomplete="off" placeholder="NOVA SEASON" />
@@ -1326,6 +1332,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-kiyotaka"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261126-nova-season"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261126-season-zerada"></script>
 </body>
 </html>

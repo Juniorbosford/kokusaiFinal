@@ -1501,3 +1501,4 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
 }
 #produtoCancelEditBtn[hidden],#receitaCancelEditBtn[hidden]{display:none!important}
 .product-photo{width:100%}
+.season-reset-form .check-line{margin:0}

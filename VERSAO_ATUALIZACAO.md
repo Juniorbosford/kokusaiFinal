@@ -1,4 +1,16 @@
-# KOKUSAI — Nova season (`2026.11.26-nova-season`)
+# KOKUSAI — Season zerada (`2026.11.26-season-zerada`)
+
+Identificador: `2026.11.26-season-zerada`
+
+- O painel **Começar nova season** (aba Famílias, só `kokusai`) agora pode zerar tudo: famílias, compras, vendas, encomendas, reuniões, metas de todas as semanas e fotos do baú, além de produtos e crafts. Cada item tem uma caixa para escolher.
+- Usuários, senhas e fotos de perfil nunca são apagados. As metas da semana atual são recriadas como Pendente para todos os membros ativos.
+- Backups antes de apagar: uma aba `<aba> backup <data>` na planilha para cada aba limpa, e um JSON das metas em `backups/` no Bucket (as fotos das metas continuam no Bucket). Baú, produtos e crafts são só arquivados.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.11.26-season-zerada"`.
+
+---
+
+# Versão anterior — Nova season (`2026.11.26-nova-season`)
 
 Identificador: `2026.11.26-nova-season`
 

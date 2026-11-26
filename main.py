@@ -29,7 +29,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-APP_RELEASE = "2026.11.26-nova-season"
+APP_RELEASE = "2026.11.26-season-zerada"
 DEFAULT_SECRET_KEY = "kokusai-dev-secret-change-this"
 IS_RAILWAY = bool(
     os.getenv("RAILWAY_ENVIRONMENT")
@@ -5560,11 +5560,83 @@ def archive_receita(receita_id):
 # ---------------------------------------------------------------------------
 # Nova season
 # ---------------------------------------------------------------------------
-# Esvazia as famílias (Google Sheets) e arquiva os produtos e crafts (banco) de uma vez.
-# Antes de limpar, a aba Familias é copiada para uma aba de backup na mesma planilha,
-# e produtos/crafts ficam só marcados como arquivados. Compras, vendas, encomendas,
-# reuniões, metas e baú não são tocados.
+# Zera o que foi escolhido para começar uma season do zero. Os usuários (contas,
+# senhas, fotos de perfil) nunca são tocados. Antes de apagar:
+#  - cada aba do Google Sheets é copiada para "<aba> backup <data>" na mesma planilha;
+#  - as metas (semanas, fotos e fechamentos) vão para um arquivo JSON de backup
+#    no Bucket (backups/), e as imagens das fotos continuam no Bucket;
+#  - produtos, crafts e fotos do baú só são marcados como arquivados.
 NOVA_SEASON_CONFIRMATION = "NOVA SEASON"
+NOVA_SEASON_SHEETS = {
+    "familias": (lambda: FAMILIAS_WORKSHEET_NAME, FAMILIAS_HEADERS, "família(s)"),
+    "compras": (lambda: COMPRAS_WORKSHEET_NAME, COMPRAS_HEADERS, "compra(s)"),
+    "vendas": (lambda: VENDAS_WORKSHEET_NAME, VENDAS_HEADERS, "venda(s)"),
+    "encomendas": (lambda: ENCOMENDAS_WORKSHEET_NAME, ENCOMENDAS_HEADERS, "encomenda(s)"),
+    "reunioes": (lambda: REUNIOES_WORKSHEET_NAME, REUNIOES_HEADERS, "reunião(ões)"),
+}
+NOVA_SEASON_DEFAULTS = {
+    "familias": True, "compras": False, "vendas": False, "encomendas": False, "reunioes": False,
+    "metas": False, "bau": False, "produtos": True, "crafts": False,
+}
+META_BACKUP_TABLES = ("meta_week_closures", "meta_submissions", "meta_photos")
+
+
+def backup_and_clear_worksheet(name, headers, stamp):
+    """Copia a aba para um backup na mesma planilha e limpa as linhas (o cabeçalho fica)."""
+    worksheet = get_or_create_worksheet(name, headers)
+    rows = cached_get_all_values(name, worksheet, force=True)
+    filled = [row for row in rows[1:] if any(str(cell).strip() for cell in row)]
+    if not filled:
+        return 0, ""
+    backup_name = f"{name} backup {stamp}"
+    get_or_create_spreadsheet().duplicate_sheet(worksheet.id, new_sheet_name=backup_name)
+    # Limpa só os valores. Excluir as linhas falharia se o cabeçalho estiver
+    # congelado e não sobrasse outra linha.
+    last_col = max(len(headers), max(len(row) for row in rows))
+    worksheet.batch_clear([f"A2:{gspread.utils.rowcol_to_a1(len(rows), last_col)}"])
+    invalidate_values_cache(name)
+    return len(filled), backup_name
+
+
+def backup_and_clear_metas(stamp):
+    """Grava as metas num JSON de backup e apaga semanas, fotos e fechamentos do banco."""
+    ensure_meta_database_ready()
+    backup = {"criado_em": stamp, "tabelas": {}}
+    for table in META_BACKUP_TABLES:
+        backup["tabelas"][table] = meta_query_all(f"SELECT * FROM {table}")
+    total = len(backup["tabelas"]["meta_submissions"])
+    if not any(backup["tabelas"].values()):
+        return 0, ""
+
+    payload = json.dumps(backup, ensure_ascii=False, default=str).encode("utf-8")
+    object_key = f"backups/nova-season-{stamp.replace(' ', '_')}-metas.json"
+    client = get_storage_client()
+    if client:
+        client.put_object(Bucket=META_BUCKET_NAME, Key=object_key, Body=payload, ContentType="application/json")
+        client.head_object(Bucket=META_BUCKET_NAME, Key=object_key)
+    else:
+        if IS_RAILWAY:
+            raise RuntimeError("Bucket não configurado: o backup das metas não pôde ser salvo, nada foi apagado.")
+        local_path = os.path.join(META_LOCAL_UPLOAD_DIR, *object_key.split("/"))
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        with open(local_path, "wb") as file_handle:
+            file_handle.write(payload)
+
+    # Só apaga depois de o backup estar salvo. As imagens das fotos ficam no Bucket.
+    connection = meta_db_connect()
+    try:
+        cursor = connection.cursor()
+        cursor.execute("DELETE FROM meta_photos")
+        cursor.execute("DELETE FROM meta_week_closures")
+        cursor.execute("DELETE FROM meta_submissions")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    ensure_current_meta_submissions()
+    return total, object_key
 
 
 @app.post("/api/nova-season")
@@ -5574,57 +5646,63 @@ def start_new_season():
         data = request.get_json(silent=True) or {}
         if str(data.get("confirmacao") or "").strip().upper() != NOVA_SEASON_CONFIRMATION:
             return error_response(f"Digite {NOVA_SEASON_CONFIRMATION} para confirmar.", 400)
-        limpar_familias = normalize_flag(data.get("familias", True))
-        limpar_produtos = normalize_flag(data.get("produtos", True))
-        limpar_crafts = normalize_flag(data.get("crafts", False))
-        if not (limpar_familias or limpar_produtos or limpar_crafts):
-            return error_response("Escolha pelo menos uma coisa para limpar.", 400)
+        chosen = {key: normalize_flag(data.get(key, default)) for key, default in NOVA_SEASON_DEFAULTS.items()}
+        if not any(chosen.values()):
+            return error_response("Escolha pelo menos uma coisa para zerar.", 400)
 
         user = get_current_user()
         now = now_local()
-        result = {"familias": 0, "backup": "", "produtos": 0, "crafts": 0}
+        stamp_label = format_timestamp(now)
+        stamp = now.strftime("%Y-%m-%d %H%M%S")
+        partes, backups, log_parts = [], [], []
 
-        if limpar_familias:
+        for key, (name_fn, headers, label) in NOVA_SEASON_SHEETS.items():
+            if not chosen[key]:
+                continue
             with _sheets_lock:
-                worksheet = get_familias_worksheet(ensure_ready=False)
-                rows = cached_get_all_values(FAMILIAS_WORKSHEET_NAME, worksheet, force=True)
-                filled = [row for row in rows[1:] if any(str(cell).strip() for cell in row)]
-                if filled:
-                    backup_name = f"{FAMILIAS_WORKSHEET_NAME} backup {now.strftime('%Y-%m-%d %H%M%S')}"
-                    get_or_create_spreadsheet().duplicate_sheet(worksheet.id, new_sheet_name=backup_name)
-                    # Limpa só os valores (o cabeçalho fica). Excluir as linhas falharia se
-                    # o cabeçalho estiver congelado e não sobrasse outra linha.
-                    worksheet.batch_clear([f"A2:{gspread.utils.rowcol_to_a1(len(rows), max(len(FAMILIAS_HEADERS), max(len(r) for r in rows)))}"])
-                    result.update({"familias": len(filled), "backup": backup_name})
-                invalidate_values_cache(FAMILIAS_WORKSHEET_NAME)
-                _familias_maintenance_cache["checked_at"] = 0
+                count, backup_name = backup_and_clear_worksheet(name_fn(), headers, stamp)
+                if key == "familias":
+                    _familias_maintenance_cache["checked_at"] = 0
+            partes.append(f"{count} {label}")
+            log_parts.append(f"{key}={count}")
+            if backup_name:
+                backups.append(backup_name)
 
-        stamp = format_timestamp(now)
-        if limpar_produtos:
-            result["produtos"] = meta_execute(
-                "UPDATE produtos SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE arquivado = 0", (stamp, stamp),
-            ) or 0
-        if limpar_crafts:
-            result["crafts"] = meta_execute(
-                "UPDATE craft_receitas SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE arquivado = 0", (stamp, stamp),
-            ) or 0
+        if chosen["metas"]:
+            count, backup_key = backup_and_clear_metas(stamp)
+            partes.append(f"{count} meta(s) semanal(is)")
+            log_parts.append(f"metas={count}")
+            if backup_key:
+                backups.append(backup_key)
+
+        for key, table, label in (
+            ("bau", "bau_registros", "foto(s) do baú arquivada(s)"),
+            ("produtos", "produtos", "produto(s) arquivado(s)"),
+            ("crafts", "craft_receitas", "craft(s) arquivado(s)"),
+        ):
+            if not chosen[key]:
+                continue
+            if key == "bau":
+                count = meta_execute(
+                    "UPDATE bau_registros SET arquivado = 1, arquivado_em = ?, arquivado_por = ? WHERE arquivado = 0",
+                    (stamp_label, "Nova season"),
+                ) or 0
+            else:
+                count = meta_execute(
+                    f"UPDATE {table} SET arquivado = 1, arquivado_em = ?, updated_at = ? WHERE arquivado = 0",
+                    (stamp_label, stamp_label),
+                ) or 0
+            partes.append(f"{count} {label}")
+            log_parts.append(f"{key}={count}")
 
         log_info(
-            "Nova season iniciada. "
-            f"familias={result['familias']} backup='{result['backup']}' produtos={result['produtos']} "
-            f"crafts={result['crafts']} conta={user['username'] if user else '?'} em={stamp}"
+            f"Nova season iniciada. {' '.join(log_parts)} backups={backups} "
+            f"conta={user['username'] if user else '?'} em={stamp_label}"
         )
-        partes = []
-        if limpar_familias:
-            partes.append(
-                f"{result['familias']} família(s) removida(s) (cópia na aba \"{result['backup']}\" da planilha)"
-                if result["familias"] else "nenhuma família para remover"
-            )
-        if limpar_produtos:
-            partes.append(f"{result['produtos']} produto(s) arquivado(s)")
-        if limpar_crafts:
-            partes.append(f"{result['crafts']} craft(s) arquivado(s)")
-        return jsonify({"ok": True, "message": "Nova season pronta: " + "; ".join(partes) + ".", **result})
+        message = "Nova season pronta. Zerado: " + "; ".join(partes) + "."
+        if backups:
+            message += " Backups: " + ", ".join(backups) + "."
+        return jsonify({"ok": True, "message": message, "backups": backups})
     except Exception as error:
         log_error("Falha em /api/nova-season [POST]", error)
         return error_response(str(error))
