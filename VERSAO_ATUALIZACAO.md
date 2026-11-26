@@ -1,4 +1,17 @@
-# KOKUSAI — Revisão de segurança 2026.10.24
+# KOKUSAI — Nova season (`2026.11.26-nova-season`)
+
+Identificador: `2026.11.26-nova-season`
+
+- **Famílias:** saem do código as famílias, apelidos de nomes ("bandoleros" → "Cartel" etc.), flyers locais e reuniões da season anterior. Na aba Famílias o `kokusai` tem o painel **Começar nova season**, que copia a aba `Familias` da planilha para uma aba de backup e depois apaga as famílias do site. O cadastro continua igual (nome, mercado aberto/fechado, fotos, preços), só o `kokusai` edita.
+- **Produtos:** nova aba **Produtos** com nome, preço, foto e descrição, cadastrados só pelo `kokusai`. L85, Seringa, Circuito Eletrônico e M16 não estão mais fixos. Os produtos disponíveis aparecem em Vendas e Encomendas já com o preço.
+- **Craft:** as receitas fixas saíram. O `kokusai` cadastra qualquer craft (materiais, quantidade, custo por material, quanto rende) e a calculadora mostra materiais, faltas e custo total automaticamente.
+- Banco: tabelas novas `produtos` e `craft_receitas`, criadas sozinhas no primeiro start. Nada existente é alterado. O deploy em si não apaga nenhuma família: isso só acontece quando o `kokusai` confirma a nova season.
+
+Depois do deploy, abra `/health` e confirme `"version": "2026.11.26-nova-season"`.
+
+---
+
+# Versão anterior — Revisão de segurança 2026.10.24
 
 Identificador: `2026.10.24-seguranca`
 

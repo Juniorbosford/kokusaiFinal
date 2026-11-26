@@ -85,13 +85,12 @@ A prévia usa dados simulados, não envia informações e não altera a produç�
 - A linha é apagada da planilha de forma definitiva e a compra deixa de entrar nos totais e no ranking mensal. Não há como desfazer pelo painel.
 - O servidor registra no log quem removeu e qual compra era (`Compra removida. ID=...`), já que a planilha não guarda esse histórico.
 
-## Produtos de venda: de linha e por tempo limitado
+## Nossos produtos, crafts e nova season
 
-- **Produtos de linha** (`PERMANENT_SALE_PRODUCTS` no `main.py`): L85, Seringa e Circuito Eletrônico. Aparecem como atalhos no formulário de Vendas e como cartões fixos no formulário de Encomendas.
-- **Produtos temporários** (`TEMPORARY_SALE_PRODUCTS`): entram além dos de linha, sem tirar nenhum, só entre a data de início e a de fim (inclusivas, no fuso do sistema), e somem sozinhos depois. Atualmente: **M16**, de 07/10/2026 a 13/10/2026 (7 dias).
-- Em Vendas o temporário vira um atalho com selo "até dd/mm"; em Encomendas vira um cartão adicional (quantidade e valor unitário) que entra no total e na conversão para Vendas. Encomendas que já tinham o produto continuam editáveis depois do prazo.
-- O campo Produto de Vendas continua livre: o atalho só preenche o nome. Para liberar outro produto temporário, basta incluir uma linha na lista e publicar.
-- Rota `GET /api/produtos-venda` devolve `fixos` e `temporarios` (a rota antiga `/api/produtos-temporarios` continua existindo).
+- **Produtos** (aba Produtos): catálogo cadastrado só pelo usuário `kokusai`, com nome, preço, foto, descrição e "disponível". Os disponíveis viram atalhos em Vendas (preenchem nome e preço) e cartões em Encomendas (já com o preço). Ficam na tabela `produtos` do banco; a foto vai para o Bucket em `produtos/<id>/`. Remover só arquiva: vendas e encomendas antigas continuam com o nome gravado. Rotas: `GET/POST /api/produtos`, `PUT/DELETE /api/produtos/<id>`, `POST/DELETE /api/produtos/<id>/foto`, `GET /produtos/<id>/foto`.
+- **Crafts** (aba Craft): o `kokusai` cadastra cada craft com quantas unidades ele rende e os materiais de um craft (quantidade e custo unitário opcional). A calculadora soma materiais, o que falta e o custo; se um material também é um craft cadastrado, aparece o botão "Craftar N" para incluir o que falta. Tabela `craft_receitas`; rotas `GET/POST /api/craft/receitas`, `PUT/DELETE /api/craft/receitas/<id>`.
+- **Nova season** (aba Famílias, só `kokusai`): `POST /api/nova-season` com `confirmacao: "NOVA SEASON"`. Copia a aba `Familias` para `Familias backup <data>` na mesma planilha e depois limpa as famílias; arquiva produtos e, se marcado, os crafts. Compras, vendas, encomendas, reuniões, metas e baú não mudam.
+- As famílias, apelidos de nomes, flyers locais e reuniões da season anterior não estão mais no código: nada é recriado sozinho.
 
 ## Identidade visual ("Laca")
 

@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Shippori+Mincho:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261007-laca" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261015-meta-atrasada" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/hud.css') }}?v=20261126-nova-season" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/account.css') }}?v=20261007-laca" />
 </head>
 <body data-role="{{ current_user.role }}" data-can-write="{{ 'true' if is_admin else 'false' }}">
@@ -36,6 +36,7 @@
         <button class="nav-link" data-target="relatorios"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg></span><span>Relatórios</span></button>
         <button class="nav-link" data-target="reunioes"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/><path d="M8 14h3M8 17h6"/></svg></span><span>Reuniões</span></button>
         <button class="nav-link" data-target="familias"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0M14 16a4.5 4.5 0 0 1 6.5 4"/></svg></span><span>Famílias</span></button>
+        <button class="nav-link" data-target="produtos"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12 12 20 4 12V4h8l8 8Z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg></span><span>Produtos</span></button>
         {% if is_admin %}<button class="nav-link" data-target="metas"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 7-7M16 5h3v3"/></svg></span><span>Salas de Meta</span></button>{% endif %}
         <button class="nav-link" data-target="registro-bau"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 11V9a8 8 0 0 1 16 0v2"/><rect x="3" y="11" width="18" height="9" rx="2"/><path d="M3 15h18"/><rect x="10.5" y="13.5" width="3" height="3" rx=".7"/></svg></span><span>Registro Baú</span></button>
         <button class="nav-link" data-target="craft"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m14 6 4-4 4 4-4 4"/><path d="m18 6-7 7"/><path d="m5 12 7 7-3 3-7-7 3-3Z"/><path d="m7 14-2 2M10 17l-2 2"/></svg></span><span>Craft</span></button>
@@ -514,50 +515,9 @@
               <div class="field field-full">
                 <label>Itens do pedido</label>
                 <div class="order-items-grid">
-                  <div class="order-item-card">
-                    <div class="order-item-title">
-                      <strong>L85</strong>
-                      <span id="e_l85_subtotal">R$ 0,00</span>
-                    </div>
-                    <div class="order-item-fields">
-                      <label for="e_l85_quantidade">Quantidade
-                        <input id="e_l85_quantidade" type="number" min="0" step="1" placeholder="0" />
-                      </label>
-                      <label for="e_l85_valor">Valor unitário
-                        <input id="e_l85_valor" type="number" min="0" step="0.01" placeholder="0,00" />
-                      </label>
-                    </div>
-                  </div>
-                  <div class="order-item-card">
-                    <div class="order-item-title">
-                      <strong>Seringa</strong>
-                      <span id="e_seringa_subtotal">R$ 0,00</span>
-                    </div>
-                    <div class="order-item-fields">
-                      <label for="e_seringa_quantidade">Quantidade
-                        <input id="e_seringa_quantidade" type="number" min="0" step="1" placeholder="0" />
-                      </label>
-                      <label for="e_seringa_valor">Valor unitário
-                        <input id="e_seringa_valor" type="number" min="0" step="0.01" placeholder="0,00" />
-                      </label>
-                    </div>
-                  </div>
-                  <div class="order-item-card">
-                    <div class="order-item-title">
-                      <strong>Circuito Eletrônico</strong>
-                      <span id="e_circuito_subtotal">R$ 0,00</span>
-                    </div>
-                    <div class="order-item-fields">
-                      <label for="e_circuito_quantidade">Quantidade
-                        <input id="e_circuito_quantidade" type="number" min="0" step="1" placeholder="0" />
-                      </label>
-                      <label for="e_circuito_valor">Valor unitário
-                        <input id="e_circuito_valor" type="number" min="0" step="0.01" placeholder="0,00" />
-                      </label>
-                    </div>
-                  </div>
                   <div class="order-temp-items" id="e_temp_items"></div>
                 </div>
+                <small class="field-help" id="e_items_help">Os produtos aparecem aqui conforme o kokusai cadastra em Produtos, já com o preço preenchido.</small>
               </div>
 
               <div class="field">
@@ -813,6 +773,31 @@
           </div>
         </section>
 
+        {% if is_admin %}
+        <section class="panel-card disclosure-panel season-reset-card" id="seasonResetPanel" data-disclosure-panel data-disclosure-label="Começar nova season">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">Virada de season</p>
+              <h3>Começar nova season</h3>
+            </div>
+          </div>
+          <form id="seasonResetForm" class="form-grid season-reset-form">
+            <p class="field-full season-reset-text">Apaga as famílias cadastradas e tira os produtos do catálogo para a equipe cadastrar tudo de novo. Antes de apagar, as famílias são copiadas para uma aba de backup na planilha. Compras, vendas, encomendas, reuniões, metas e baú não mudam.</p>
+            <label class="check-line field-full" for="season_familias"><input id="season_familias" type="checkbox" checked /><span>Apagar famílias (fica uma cópia na planilha)</span></label>
+            <label class="check-line field-full" for="season_produtos"><input id="season_produtos" type="checkbox" checked /><span>Tirar todos os produtos do catálogo</span></label>
+            <label class="check-line field-full" for="season_crafts"><input id="season_crafts" type="checkbox" /><span>Tirar todos os crafts cadastrados</span></label>
+            <div class="field field-full">
+              <label for="season_confirmacao">Para confirmar, digite NOVA SEASON</label>
+              <input id="season_confirmacao" autocomplete="off" placeholder="NOVA SEASON" />
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="danger-btn" id="seasonResetBtn" disabled>Começar nova season</button>
+            </div>
+          </form>
+          <div class="feedback" id="seasonResetFeedback">Nada é apagado até você confirmar.</div>
+        </section>
+        {% endif %}
+
         <div class="families-layout">
           <section class="panel-card family-form-card disclosure-panel" id="familiaEntryPanel" data-disclosure-panel data-disclosure-label="Adicionar família">
             <div class="panel-head">
@@ -922,6 +907,79 @@
               </div>
             </div>
             <div id="familiasGrid" class="families-grid"></div>
+          </section>
+        </div>
+      </section>
+
+
+      <section class="view" id="produtos">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Catálogo</p>
+            <h3>Nossos produtos</h3>
+          </div>
+          <p>Produtos que a Kokusai vende nesta season, com preço e foto. Eles aparecem como atalho em Vendas e como itens em Encomendas.</p>
+        </div>
+
+        <div class="families-layout">
+          <section class="panel-card family-form-card disclosure-panel" id="produtoEntryPanel" data-disclosure-panel data-disclosure-label="Adicionar produto">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker" id="produtoFormKicker">Novo produto</p>
+                <h3 id="produtoFormTitle">Adicionar produto</h3>
+              </div>
+            </div>
+            {% if is_admin %}
+            <form id="produtoForm" class="form-grid">
+              <div class="field">
+                <label for="p_nome">Nome do produto</label>
+                <input id="p_nome" maxlength="80" placeholder="Ex.: Colete" required />
+              </div>
+              <div class="field">
+                <label for="p_preco">Preço unitário (R$)</label>
+                <input id="p_preco" type="number" min="0" step="0.01" placeholder="0,00" />
+              </div>
+              <div class="field field-full">
+                <label for="p_descricao">Descrição</label>
+                <textarea id="p_descricao" maxlength="300" placeholder="Opcional: detalhes, regras de venda, etc."></textarea>
+              </div>
+              <div class="field">
+                <label for="p_foto">Foto</label>
+                <input id="p_foto" type="file" accept="image/jpeg,image/jpg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+              </div>
+              <div class="field">
+                <label class="check-line" for="p_ativo">
+                  <input id="p_ativo" type="checkbox" checked />
+                  <span>Disponível para venda e encomenda</span>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn" id="produtoSubmitBtn">Adicionar produto</button>
+                <button type="button" class="secondary-btn" id="produtoCancelEditBtn" hidden>Cancelar edição</button>
+              </div>
+            </form>
+            <div class="feedback" id="produtoFeedback">Cadastre os produtos da season.</div>
+            {% else %}
+            <div class="readonly-card">
+              <span class="readonly-icon">🔒</span>
+              <h4>Produtos em modo leitura</h4>
+              <p>Somente o usuário kokusai cadastra e altera os produtos.</p>
+            </div>
+            {% endif %}
+          </section>
+
+          <section class="panel-card family-board-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">Catálogo da season</p>
+                <h3>Produtos cadastrados</h3>
+              </div>
+              <div class="family-counters">
+                <span><strong id="produtosTotal">0</strong> cadastrados</span>
+                <span><strong id="produtosAtivos">0</strong> disponíveis</span>
+              </div>
+            </div>
+            <div id="produtosGrid" class="families-grid"></div>
           </section>
         </div>
       </section>
@@ -1102,13 +1160,53 @@
         <div class="section-intro">
           <div>
             <p class="eyebrow">Módulo de craft</p>
-            <h3>Calculadora de materiais</h3>
+            <h3>Crafts e calculadora</h3>
           </div>
-          <p>Informe a quantidade que deseja produzir e veja o total de materiais necessários, seguindo a planilha de craft.</p>
+          <p>Cadastre os crafts da season com seus materiais. Depois é só dizer quanto quer fazer: o site soma os materiais, o que falta e o custo.</p>
         </div>
 
+        {% if is_admin %}
+        <section class="panel-card disclosure-panel" id="craftRecipeFormPanel" data-disclosure-panel data-disclosure-label="Adicionar craft">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker" id="receitaFormKicker">Novo craft</p>
+              <h3 id="receitaFormTitle">Adicionar craft</h3>
+            </div>
+          </div>
+          <form id="receitaForm" class="form-grid">
+            <div class="field">
+              <label for="r_nome">Nome do craft</label>
+              <input id="r_nome" maxlength="80" placeholder="Ex.: Colete" required />
+            </div>
+            <div class="field">
+              <label for="r_rende">Cada craft rende (unidades)</label>
+              <input id="r_rende" type="number" min="1" step="1" value="1" required />
+            </div>
+            <div class="field field-full">
+              <label for="r_descricao">Descrição</label>
+              <input id="r_descricao" maxlength="300" placeholder="Opcional: onde craftar, observações" />
+            </div>
+            <div class="field field-full">
+              <label>Materiais de um craft</label>
+              <div class="craft-material-rows" id="receitaMateriais"></div>
+              <button type="button" class="ghost-btn compact-btn" id="receitaAddMaterialBtn">+ Adicionar material</button>
+              <small class="field-help">O custo por unidade é opcional; com ele o site calcula quanto custa cada craft. Se um material também for um craft cadastrado, a calculadora oferece craftar o que faltar.</small>
+            </div>
+            <div class="calc-box craft-total-box field-full">
+              <span>Custo de um craft</span>
+              <strong id="receitaCustoPreview">R$ 0,00</strong>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="primary-btn" id="receitaSubmitBtn">Adicionar craft</button>
+              <button type="button" class="secondary-btn" id="receitaCancelEditBtn" hidden>Cancelar edição</button>
+            </div>
+          </form>
+          <div class="feedback" id="receitaFeedback">Cadastre um craft para usar na calculadora.</div>
+        </section>
+        {% endif %}
+
         <div class="section-grid craft-layout">
-          <section class="panel-card disclosure-panel" id="craftCalculatorPanel" data-disclosure-panel data-disclosure-label="Abrir calculadora">
+          <section class="panel-card disclosure-panel" id="craftCalculatorPanel" data-disclosure-panel data-disclosure-open="true" data-disclosure-label="Abrir calculadora">
             <div class="panel-head">
               <div>
                 <p class="panel-kicker">Novo cálculo</p>
@@ -1117,44 +1215,15 @@
             </div>
             {% if is_admin %}
             <form id="craftForm" class="form-grid craft-form">
-              <div class="field">
-                <label for="craft_l85">Craft L85</label>
-                <input id="craft_l85" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
-
-              <div class="field">
-                <label for="craft_peca_pesada">Peça de arma pesada faltando</label>
-                <input id="craft_peca_pesada" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
-
-              <div class="field">
-                <label for="craft_corpo_rifle">Corpo de rifle faltando</label>
-                <input id="craft_corpo_rifle" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
-
-              <div class="field">
-                <label for="craft_seringa_crack">Seringa de crack</label>
-                <input id="craft_seringa_crack" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
-
-              <div class="field">
-                <label for="craft_macarico">Maçarico</label>
-                <input id="craft_macarico" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
-
-              <div class="field">
-                <label for="craft_rastreador">Rastreador ilegal</label>
-                <input id="craft_rastreador" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
-
-              <div class="field">
-                <label for="craft_circuito_eletronico">Circuito eletrônico</label>
-                <input id="craft_circuito_eletronico" type="number" min="0" step="1" placeholder="0" data-craft-input />
-              </div>
+              <div class="craft-inputs field-full" id="craftInputs"></div>
 
               <div class="calc-box craft-total-box">
-                <span>Total de itens no cálculo</span>
-                <strong id="craftTotalItens">0</strong>
+                <span>Custo total estimado</span>
+                <strong id="craftCustoTotal">R$ 0,00</strong>
+              </div>
+              <div class="calc-box craft-total-box">
+                <span>Custo do que falta</span>
+                <strong id="craftCustoFalta">R$ 0,00</strong>
               </div>
 
               <div class="form-actions">
@@ -1167,7 +1236,7 @@
             <div class="readonly-card">
               <span class="readonly-icon">🔒</span>
               <h4>Modo somente leitura</h4>
-              <p>Seu usuário pode visualizar a tabela de receitas, mas não pode alterar quantidades nem montar cálculos.</p>
+              <p>Seu usuário pode visualizar os crafts, mas não pode montar cálculos.</p>
             </div>
             {% endif %}
           </section>
@@ -1188,21 +1257,22 @@
                     <th>Vai usar</th>
                     <th>Tenho</th>
                     <th>Falta</th>
+                    <th>Custo</th>
                   </tr>
                 </thead>
                 <tbody id="craftTable">
-                  <tr><td colspan="4">Informe uma quantidade para calcular.</td></tr>
+                  <tr><td colspan="5">Informe uma quantidade para calcular.</td></tr>
                 </tbody>
               </table>
             </div>
           </section>
         </div>
 
-        <section class="panel-card craft-recipes-card disclosure-panel" id="craftRecipesPanel" data-disclosure-panel data-disclosure-label="Consultar receitas">
+        <section class="panel-card craft-recipes-card disclosure-panel" id="craftRecipesPanel" data-disclosure-panel data-disclosure-open="true" data-disclosure-label="Ver crafts">
           <div class="panel-head">
             <div>
-              <p class="panel-kicker">Transcrição da planilha</p>
-              <h3>Receitas disponíveis</h3>
+              <p class="panel-kicker">Cadastrados pelo kokusai</p>
+              <h3>Crafts da season</h3>
             </div>
           </div>
           <div class="recipe-grid" id="recipeGrid"></div>
@@ -1256,6 +1326,6 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/account.js') }}?v=20261007-kiyotaka"></script>
-  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261015-meta-atrasada"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}?v=20261126-nova-season"></script>
 </body>
 </html>

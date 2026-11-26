@@ -1474,3 +1474,30 @@ td .money-type-badge,td .status-badge{max-width:100%;white-space:normal;line-hei
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
+
+/* ------------------------------------------------------------------ */
+/* Nova season: produtos, crafts cadastráveis e virada de season       */
+/* ------------------------------------------------------------------ */
+.season-reset-card{margin-bottom:18px;border-color:rgba(224,67,90,.28)}
+.season-reset-text{margin:0;color:var(--ash);font-size:.85rem;line-height:1.5}
+.danger-btn:disabled{opacity:.5;cursor:not-allowed}
+.product-photo{margin-bottom:12px;max-height:220px;display:grid;place-items:center;overflow:hidden}
+.product-photo img{width:100%;max-height:220px;object-fit:contain}
+.product-card-top{margin-top:0}
+.order-temp-items .family-empty{grid-column:1 / -1}
+.craft-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.craft-inputs .family-empty{grid-column:1 / -1}
+.craft-material-rows{display:grid;gap:8px;margin-bottom:8px}
+.craft-material-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,.8fr) minmax(0,1fr) auto;gap:8px;align-items:center}
+.craft-material-row .family-quick-delete{min-height:38px}
+.craft-sub-btn{display:block;margin-top:6px;min-height:28px;padding:0 10px;font-size:.74rem}
+.recipe-actions{padding:10px 14px}
+.recipe-list .family-note{margin:10px 14px}
+#craftRecipeFormPanel{margin-bottom:18px}
+@media (max-width:720px){
+  .craft-inputs{grid-template-columns:1fr}
+  .craft-material-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto}
+  .craft-material-row [data-material-nome]{grid-column:1 / -1}
+}
+#produtoCancelEditBtn[hidden],#receitaCancelEditBtn[hidden]{display:none!important}
+.product-photo{width:100%}
