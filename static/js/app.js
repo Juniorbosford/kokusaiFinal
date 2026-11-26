@@ -3093,9 +3093,14 @@ const seasonResetBtn = document.getElementById("seasonResetBtn");
 const seasonResetFeedback = document.getElementById("seasonResetFeedback");
 const seasonConfirmInput = document.getElementById("season_confirmacao");
 
+function seasonResetCheckboxes(){
+  return Array.from(seasonResetForm?.querySelectorAll("[data-season-key]") || []);
+}
+const seasonResetInitial = new Map(seasonResetCheckboxes().map(input => [input.id, input.checked]));
+
 function syncSeasonResetButton(){
   if(!seasonResetBtn) return;
-  const anyChecked = ["season_familias", "season_produtos", "season_crafts"].some(id => document.getElementById(id)?.checked);
+  const anyChecked = seasonResetCheckboxes().some(input => input.checked);
   seasonResetBtn.disabled = !anyChecked || String(seasonConfirmInput?.value || "").trim().toUpperCase() !== "NOVA SEASON";
 }
 
@@ -3105,13 +3110,13 @@ seasonResetForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   syncSeasonResetButton();
   if(seasonResetBtn?.disabled) return;
-  const payload = {
-    confirmacao:String(seasonConfirmInput?.value || "").trim(),
-    familias:Boolean(document.getElementById("season_familias")?.checked),
-    produtos:Boolean(document.getElementById("season_produtos")?.checked),
-    crafts:Boolean(document.getElementById("season_crafts")?.checked),
-  };
-  if(!window.confirm("Começar a nova season agora? As famílias marcadas serão apagadas do site (com cópia na planilha) e os produtos/crafts marcados sairão do catálogo.")) return;
+  const payload = {confirmacao:String(seasonConfirmInput?.value || "").trim()};
+  const labels = [];
+  seasonResetCheckboxes().forEach(input => {
+    payload[input.dataset.seasonKey] = input.checked;
+    if(input.checked) labels.push(input.closest("label")?.textContent.trim() || input.dataset.seasonKey);
+  });
+  if(!window.confirm(`Zerar agora para a nova season?\n\nVai ser zerado:\n- ${labels.join("\n- ")}\n\nOs usuários continuam. Fica um backup antes de apagar.`)) return;
   try{
     seasonResetBtn.disabled = true;
     setFeedback(seasonResetFeedback, "Preparando a nova season...");
@@ -3123,8 +3128,7 @@ seasonResetForm?.addEventListener("submit", async (e) => {
     setFeedback(seasonResetFeedback, data.message || data.error || `Erro ${res.status}.`, !res.ok);
     if(res.ok){
       seasonResetForm.reset();
-      document.getElementById("season_familias").checked = true;
-      document.getElementById("season_produtos").checked = true;
+      seasonResetCheckboxes().forEach(input => { input.checked = seasonResetInitial.get(input.id); });
       await loadAll();
     }
   }catch(error){
